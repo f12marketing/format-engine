@@ -6,10 +6,10 @@ import type { Doc } from "./_generated/dataModel";
 /**
  * Invite-only, enforced in two places on purpose.
  *
- * Clerk decides whether someone can sign in at all. The `clients` table decides
- * whether a signed-in identity has anything here -- so a valid Clerk token with
- * no client row gets nothing, and revoking access is a row edit rather than an
- * auth-provider change.
+ * Supabase decides whether someone can sign in at all. The `clients` table
+ * decides whether a signed-in identity has anything here -- so a valid
+ * Supabase JWT with no client row gets nothing, and revoking access is a row
+ * edit rather than an auth-provider change.
  */
 
 /** Default cap for a newly admitted client. Deliberately low; raise per client. */
@@ -22,7 +22,7 @@ export async function currentClient(
   if (!identity) return null;
   return ctx.db
     .query("clients")
-    .withIndex("by_clerk_user", (q) => q.eq("clerkUserId", identity.subject))
+    .withIndex("by_auth_user", (q) => q.eq("authUserId", identity.subject))
     .unique();
 }
 
@@ -78,7 +78,7 @@ export const bootstrapFirstClient = mutation({
     }
 
     return ctx.db.insert("clients", {
-      clerkUserId: identity.subject,
+      authUserId: identity.subject,
       displayName: displayName ?? identity.name ?? identity.email ?? "Owner",
       monthlySpendCapUsd: DEFAULT_MONTHLY_CAP_USD,
     });

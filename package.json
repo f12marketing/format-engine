@@ -9,8 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@clerk/nextjs": "^7.9.1",
     "@convex-dev/workflow": "^0.4.6",
+    "@supabase/ssr": "^0.12.6",
+    "@supabase/supabase-js": "^2.115.0",
     "convex": "^1.45.0",
     "next": "16.3.4",
     "react": "19.2.8",

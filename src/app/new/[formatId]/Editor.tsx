@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import {
+  authConfigured,
   backendConfigured,
-  clerkConfigured,
   convexConfigured,
 } from "@/app/ConvexClientProvider";
 import { ConfigPanel } from "@/components/ConfigPanel";
@@ -105,7 +105,7 @@ export function Editor({ format }: { format: FormatDefinition }) {
           <button
             onClick={onGenerate}
             disabled={!backendConfigured || running}
-            title={backendConfigured ? undefined : "Needs Convex and Clerk — see README"}
+            title={backendConfigured ? undefined : "Needs Convex and Supabase Auth — see README"}
             className="mt-4 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {running ? "Starting…" : `Generate · $${estimate.totalUsd.toFixed(2)}`}
@@ -113,8 +113,8 @@ export function Editor({ format }: { format: FormatDefinition }) {
           {error && <p className="mt-2 text-sm text-accent">{error}</p>}
           {!backendConfigured && (
             <p className="mt-2 text-center text-xs text-muted">
-              {convexConfigured && !clerkConfigured
-                ? "Needs Clerk — a job belongs to a signed-in client."
+              {convexConfigured && !authConfigured
+                ? "Needs Supabase Auth — a job belongs to a signed-in client."
                 : "Connect Convex to enable."}{" "}
               The estimate above is live.
             </p>

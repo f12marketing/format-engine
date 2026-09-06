@@ -14,11 +14,11 @@ import { v } from "convex/values";
 export default defineSchema({
   /** Invite-only. The cap is the runaway guard, not a billing construct. */
   clients: defineTable({
-    clerkUserId: v.string(),
+    authUserId: v.string(), // Supabase auth.users.id (the JWT's `sub` claim)
     displayName: v.string(),
     monthlySpendCapUsd: v.number(),
     archived: v.optional(v.boolean()),
-  }).index("by_clerk_user", ["clerkUserId"]),
+  }).index("by_auth_user", ["authUserId"]),
 
   /**
    * Backs the "Mention your business?" toggle on six formats. A brand profile

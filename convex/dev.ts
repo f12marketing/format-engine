@@ -17,13 +17,13 @@ export const seedClient = internalMutation({
   handler: async (ctx, { displayName, capUsd }): Promise<Id<"clients">> => {
     const existing = await ctx.db
       .query("clients")
-      .withIndex("by_clerk_user", (q) => q.eq("clerkUserId", `dev:${displayName}`))
+      .withIndex("by_auth_user", (q) => q.eq("authUserId", `dev:${displayName}`))
       .unique();
     if (existing) return existing._id;
 
     return ctx.db.insert("clients", {
-      // Namespaced so a dev row can never collide with a real Clerk subject.
-      clerkUserId: `dev:${displayName}`,
+      // Namespaced so a dev row can never collide with a real Supabase user id.
+      authUserId: `dev:${displayName}`,
       displayName,
       monthlySpendCapUsd: capUsd ?? 50,
     });
