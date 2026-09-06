@@ -1,27 +1,8 @@
 "use client";
 
 import { useQuery } from "convex/react";
-import { anyApi } from "convex/server";
+import { api } from "../../convex/_generated/api";
 import { getFormat } from "@/formats";
-
-/**
- * `anyApi` rather than the generated `api` object.
- *
- * convex/_generated only exists once a deployment has been configured, so
- * importing it here would make the frontend unbuildable until then -- and the
- * picker, config panels and estimates are worth having before the backend
- * lands. Swap this for the generated import after `npx convex dev` to get
- * end-to-end argument and return types back.
- */
-const jobsApi = anyApi.jobs;
-
-interface JobRow {
-  _id: string;
-  formatId: string;
-  status: string;
-  costUsd: number;
-  steps: { state: string }[];
-}
 
 /**
  * Reactive by default: this subscribes to the jobs table rather than polling,
@@ -29,7 +10,7 @@ interface JobRow {
  * is no refresh button because there is nothing to refresh.
  */
 export function JobList() {
-  const jobs = useQuery(jobsApi.list, { limit: 25 }) as JobRow[] | undefined;
+  const jobs = useQuery(api.jobs.list, { limit: 25 });
 
   if (jobs === undefined) {
     return (

@@ -92,6 +92,9 @@ export default defineSchema({
       v.object({
         id: v.string(),
         primitive: v.string(),
+        /** Human label, copied from the format declaration at job creation so
+         *  the job stays readable even if the format's wording later changes. */
+        label: v.string(),
         state: v.union(
           v.literal("pending"),
           v.literal("running"),

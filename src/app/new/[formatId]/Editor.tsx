@@ -2,9 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useMutation } from "convex/react";
+import { api } from "../../../../convex/_generated/api";
+import { backendConfigured } from "@/app/ConvexClientProvider";
 import { ConfigPanel } from "@/components/ConfigPanel";
 import { PreviewPanel } from "@/components/PreviewPanel";
 import { estimateCost } from "@/lib/estimate";
+import { stepApplies } from "@/formats/types";
 import type { Field, FormatDefinition } from "@/formats/types";
 
 /** Seed from each field's declared default, so the panel opens usable. */
@@ -17,10 +22,31 @@ function initialValues(format: FormatDefinition): Record<string, unknown> {
 }
 
 export function Editor({ format }: { format: FormatDefinition }) {
+  const router = useRouter();
   const [values, setValues] = useState(() => initialValues(format));
-  const [running] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const generate = useMutation(api.run.generate);
 
   const estimate = estimateCost(format, values);
+
+  async function onGenerate() {
+    setError(null);
+    setRunning(true);
+    try {
+      // Only the steps that will actually run are sent, so the job's step list
+      // matches what happens rather than what the format could do.
+      const steps = format.pipeline
+        .filter((step) => stepApplies(step, values))
+        .map((step) => ({ id: step.id, primitive: step.primitive, label: step.label }));
+
+      const jobId = await generate({ formatId: format.id, config: values, steps });
+      router.push(`/jobs/${jobId}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setRunning(false);
+    }
+  }
 
   return (
     <main className="mx-auto w-full max-w-5xl px-6 py-8">
@@ -73,15 +99,19 @@ export function Editor({ format }: { format: FormatDefinition }) {
           </div>
 
           <button
-            disabled
-            title="Needs a Convex deployment — see README"
-            className="mt-4 w-full cursor-not-allowed rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white opacity-60"
+            onClick={onGenerate}
+            disabled={!backendConfigured || running}
+            title={backendConfigured ? undefined : "Needs a Convex deployment — see README"}
+            className="mt-4 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Generate · ${estimate.totalUsd.toFixed(2)}
+            {running ? "Starting…" : `Generate · $${estimate.totalUsd.toFixed(2)}`}
           </button>
-          <p className="mt-2 text-center text-xs text-muted">
-            Connect Convex to enable. The estimate above is live.
-          </p>
+          {error && <p className="mt-2 text-sm text-accent">{error}</p>}
+          {!backendConfigured && (
+            <p className="mt-2 text-center text-xs text-muted">
+              Connect Convex to enable. The estimate above is live.
+            </p>
+          )}
         </section>
 
         <aside className="lg:sticky lg:top-8 lg:self-start">

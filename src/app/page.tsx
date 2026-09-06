@@ -3,7 +3,11 @@
 import { useState } from "react";
 import { FormatPicker } from "@/components/FormatPicker";
 import { JobList } from "@/components/JobList";
-import { backendConfigured } from "./ConvexClientProvider";
+import {
+  backendConfigured,
+  clerkConfigured,
+  convexConfigured,
+} from "./ConvexClientProvider";
 import { FORMATS } from "@/formats";
 
 export default function Dashboard() {
@@ -33,11 +37,25 @@ export default function Dashboard() {
         <JobList />
       ) : (
         <div className="mt-2 rounded-xl border border-dashed border-line p-6 text-sm text-muted">
-          <p className="font-medium text-foreground">Backend not connected yet</p>
+          <p className="font-medium text-foreground">
+            {convexConfigured && !clerkConfigured
+              ? "Convex is connected. Clerk is not."
+              : "Backend not connected yet"}
+          </p>
           <p className="mt-1">
-            Run <code className="font-mono text-xs">npx convex dev</code> and add
-            your Clerk keys to <code className="font-mono text-xs">.env.local</code>.
-            The picker, config panels and cost estimates all work without it.
+            {convexConfigured ? null : (
+              <>
+                Run <code className="font-mono text-xs">npx convex dev</code>.{" "}
+              </>
+            )}
+            {clerkConfigured ? null : (
+              <>
+                Add your Clerk keys to{" "}
+                <code className="font-mono text-xs">.env.local</code> — jobs are
+                scoped to a signed-in client, so the list needs an identity
+                before it can show anything.
+              </>
+            )}
           </p>
         </div>
       )}

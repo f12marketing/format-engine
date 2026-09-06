@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireClient } from "./clients";
 
@@ -12,6 +12,7 @@ import { requireClient } from "./clients";
 const stepValidator = v.object({
   id: v.string(),
   primitive: v.string(),
+  label: v.string(),
   state: v.union(
     v.literal("pending"),
     v.literal("running"),
@@ -131,4 +132,13 @@ export const finish = internalMutation({
 export const getInternal = internalMutation({
   args: { jobId: v.id("jobs") },
   handler: async (ctx, { jobId }) => ctx.db.get(jobId),
+});
+
+/** The step ids this job actually plans to run. Read from inside the workflow. */
+export const plannedStepIds = internalQuery({
+  args: { jobId: v.id("jobs") },
+  handler: async (ctx, { jobId }): Promise<string[]> => {
+    const job = await ctx.db.get(jobId);
+    return job ? job.steps.map((s) => s.id) : [];
+  },
 });

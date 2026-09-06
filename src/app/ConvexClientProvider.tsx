@@ -31,6 +31,13 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** True once both services are configured; used to decide what the UI offers. */
-export const backendConfigured =
-  Boolean(convexUrl) && Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+/**
+ * Reported separately so the dashboard can name what is actually missing.
+ * "Backend not connected" when Convex is up and only Clerk is absent sends you
+ * to re-run a command that already succeeded.
+ */
+export const convexConfigured = Boolean(convexUrl);
+export const clerkConfigured = Boolean(
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+);
+export const backendConfigured = convexConfigured && clerkConfigured;

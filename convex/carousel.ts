@@ -32,7 +32,18 @@ export const run = workflow
   })
   .handler(async (step, args): Promise<null> => {
     try {
-      await step.runAction(internal.carousel.writeDeck, args, { retry: true });
+      // The job's step list is the plan: the caller already filtered the
+      // format's pipeline through its declared conditions, so a hand-written
+      // deck arrives with no "copy" step and the paid call is skipped. Running
+      // the pipeline the format declares rather than a hardcoded pair is what
+      // keeps the declaration honest.
+      const planned = await step.runQuery(internal.jobs.plannedStepIds, {
+        jobId: args.jobId,
+      });
+
+      if (planned.includes("copy")) {
+        await step.runAction(internal.carousel.writeDeck, args, { retry: true });
+      }
       await step.runAction(internal.carousel.renderDeck, args, { retry: true });
       await step.runMutation(internal.jobs.finish, {
         jobId: args.jobId,
@@ -165,9 +176,17 @@ export const renderDeck = internalAction({
       );
     }
 
+    const config = job.config as {
+      template?: string;
+      aspectRatio?: string;
+      deck?: { slides?: unknown; caption?: string; hashtags?: string[] };
+    };
+    // Either P1 wrote it, or the caller supplied one and P1 never ran.
     const copyStep = job.steps.find((s) => s.id === "copy");
-    const deck = copyStep?.output as { slides?: unknown; caption?: string } | undefined;
-    const config = job.config as { template?: string; aspectRatio?: string };
+    const deck =
+      (copyStep?.output as
+        | { slides?: unknown; caption?: string; hashtags?: string[] }
+        | undefined) ?? config.deck;
 
     const res = await fetch(`${base}/render/carousel`, {
       method: "POST",
@@ -176,6 +195,7 @@ export const renderDeck = internalAction({
         jobId,
         slides: carouselSlides(deck),
         caption: deck?.caption ?? "",
+        hashtags: deck?.hashtags ?? [],
         template: config.template ?? "bold-statement",
         aspectRatio: config.aspectRatio ?? "4:5",
       }),
