@@ -29,6 +29,7 @@ export const generate = mutation({
     const STARTERS = {
       carousel: internal.carousel.start,
       custom: internal.custom.start,
+      "wall-of-text": internal.wallOfText.start,
     } as const;
 
     const starter = STARTERS[args.formatId as keyof typeof STARTERS];

@@ -19,6 +19,7 @@ import type * as lib_carouselPrompt from "../lib/carouselPrompt.js";
 import type * as lib_fal from "../lib/fal.js";
 import type * as run from "../run.js";
 import type * as uploads from "../uploads.js";
+import type * as wallOfText from "../wallOfText.js";
 
 import type {
   ApiFromModules,
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   "lib/fal": typeof lib_fal;
   run: typeof run;
   uploads: typeof uploads;
+  wallOfText: typeof wallOfText;
 }>;
 
 /**
