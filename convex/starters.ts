@@ -42,6 +42,7 @@ export const STARTERS: Record<string, Starter> = {
   "cutting-fruit": internal.cuttingFruit.start,
   claymation: internal.claymation.start,
   skeleton: internal.skeleton.start,
+  "character-swap": internal.characterSwap.start,
 };
 
 export type RunnableFormatId =
@@ -59,4 +60,5 @@ export type RunnableFormatId =
   | "green-screen-mobile"
   | "cutting-fruit"
   | "claymation"
-  | "skeleton";
+  | "skeleton"
+  | "character-swap";

@@ -11,6 +11,7 @@
 import type * as assets from "../assets.js";
 import type * as avatars from "../avatars.js";
 import type * as carousel from "../carousel.js";
+import type * as characterSwap from "../characterSwap.js";
 import type * as claymation from "../claymation.js";
 import type * as clients from "../clients.js";
 import type * as clips from "../clips.js";
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   assets: typeof assets;
   avatars: typeof avatars;
   carousel: typeof carousel;
+  characterSwap: typeof characterSwap;
   claymation: typeof claymation;
   clients: typeof clients;
   clips: typeof clips;

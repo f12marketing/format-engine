@@ -514,7 +514,7 @@ export const characterSwap = defineFormat({
   icon: "🔄",
   group: "swap-custom",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 6,
   config: {
     sourceVideo: field.video({ label: "Source video" }),
