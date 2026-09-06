@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
@@ -82,10 +82,15 @@ export const inspect = internalQuery({
       costUsd: job.costUsd,
       error: job.error,
       steps: job.steps.map((s) => ({ id: s.id, state: s.state, error: s.error })),
-      renderedFiles:
-        (job.steps.find((s) => s.id === "render")?.output as
-          | { files?: { name: string }[] }
-          | undefined)?.files?.map((f) => f.name) ?? [],
+      // Whichever step produced files -- "render" for carousel, "composite"
+      // for custom. Hardcoding one step id made this lie for every format
+      // whose last step happens to be named something else.
+      renderedFiles: job.steps.flatMap(
+        (s) =>
+          (s.output as { files?: { name: string }[] } | undefined)?.files?.map(
+            (f) => f.name,
+          ) ?? [],
+      ),
       assets: await Promise.all(
         (
           await ctx.db
@@ -109,5 +114,57 @@ export const inspect = internalQuery({
         costUsd: l.costUsd,
       })),
     };
+  },
+});
+
+/**
+ * Seeds an asset straight from base64, so the pipeline can be exercised before
+ * the browser upload control exists. Dev-only, like everything else here.
+ */
+export const seedAsset = internalAction({
+  args: {
+    clientId: v.id("clients"),
+    base64: v.string(),
+    mimeType: v.string(),
+  },
+  handler: async (ctx, { clientId, base64, mimeType }): Promise<Id<"assets">> => {
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const storageId = await ctx.storage.store(
+      new Blob([bytes as unknown as BlobPart], { type: mimeType }),
+    );
+    return ctx.runMutation(internal.assets.record, {
+      clientId,
+      storageId,
+      mimeType,
+      bytes: bytes.byteLength,
+    });
+  },
+});
+
+/** Starts any registered format for a client, bypassing the auth-scoped path. */
+export const startJob = internalMutation({
+  args: {
+    clientId: v.id("clients"),
+    formatId: v.string(),
+    config: v.any(),
+    steps: v.array(v.object({ id: v.string(), primitive: v.string(), label: v.string() })),
+  },
+  handler: async (ctx, { clientId, formatId, config, steps }): Promise<Id<"jobs">> => {
+    const jobId = await ctx.db.insert("jobs", {
+      clientId,
+      formatId,
+      config,
+      status: "running",
+      steps: steps.map((s) => ({ ...s, state: "pending" as const })),
+      costUsd: 0,
+    });
+    const starters: Record<string, typeof internal.carousel.start> = {
+      carousel: internal.carousel.start,
+      custom: internal.custom.start,
+    };
+    const starter = starters[formatId];
+    if (!starter) throw new Error(`no pipeline for ${formatId}`);
+    await ctx.runMutation(starter, { jobId, clientId });
+    return jobId;
   },
 });

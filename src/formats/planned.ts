@@ -87,7 +87,7 @@ export const custom = defineFormat({
   icon: "🧩",
   group: "swap-custom",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 1,
   config: {
     source: field.video({ label: "Video or image" }),
@@ -96,13 +96,33 @@ export const custom = defineFormat({
       options: ["9:16", "1:1", "4:5", "16:9"],
       default: "9:16",
     }),
+    fit: field.choice({
+      label: "Framing",
+      options: ["Fit (letterbox)", "Fill (crop)"],
+      default: "Fit (letterbox)",
+      help: "Fit keeps the whole upload. Fill crops the edges to fill the frame.",
+    }),
+    durationSec: field.seconds({
+      label: "Duration",
+      min: 1,
+      max: 60,
+      default: 5,
+      help: "Used for still images. A video keeps its own length.",
+    }),
     text: field.longText({ label: "Text", optional: true }),
+    captionStyle: field.captionStyle(),
+    captionPosition: field.choice({
+      label: "Text position",
+      options: ["bottom", "center", "top"],
+      default: "bottom",
+    }),
     overlay: field.image({ label: "Overlay", optional: true }),
   },
   // No model calls at all -- this one exists to exercise the render service.
+  // Composite and type land on the same ffmpeg invocation, so it is one step
+  // rather than two: splitting them would re-encode an intermediate for nothing.
   pipeline: [
-    { id: "composite", primitive: "P7", label: "Compose" },
-    { id: "render", primitive: "P8", label: "Add text and overlays" },
+    { id: "composite", primitive: "P7", label: "Compose and caption" },
   ],
 });
 

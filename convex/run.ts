@@ -24,12 +24,16 @@ export const generate = mutation({
   handler: async (ctx, args): Promise<Id<"jobs">> => {
     const client = await requireClient(ctx);
 
-    // Phase 0 ships one runnable format. Adding the second is a line here plus
-    // its workflow -- not a new route, and not a branch in the frontend.
-    if (args.formatId !== "carousel") {
-      throw new Error(
-        `${args.formatId} has no pipeline yet. Only Carousel runs in Phase 0.`,
-      );
+    // One line per runnable format, plus its workflow. Not a new route, and
+    // not a branch anywhere in the frontend.
+    const STARTERS = {
+      carousel: internal.carousel.start,
+      custom: internal.custom.start,
+    } as const;
+
+    const starter = STARTERS[args.formatId as keyof typeof STARTERS];
+    if (!starter) {
+      throw new Error(`${args.formatId} has no pipeline yet.`);
     }
 
     const jobId = await ctx.db.insert("jobs", {
@@ -44,12 +48,9 @@ export const generate = mutation({
       remixedFromJobId: args.remixedFromJobId,
     });
 
-    // carousel.start records the workflowId on the job itself, so there is a
+    // The starter records the workflowId on the job itself, so there is a
     // single writer for that field.
-    await ctx.runMutation(internal.carousel.start, {
-      jobId,
-      clientId: client._id,
-    });
+    await ctx.runMutation(starter, { jobId, clientId: client._id });
 
     return jobId;
   },

@@ -124,7 +124,19 @@ export const finish = internalMutation({
     error: v.optional(v.string()),
   },
   handler: async (ctx, { jobId, status, outputAssetIds, error }) => {
-    await ctx.db.patch(jobId, { status, outputAssetIds, error });
+    /**
+     * Only patch what was actually supplied.
+     *
+     * Convex treats `patch({ field: undefined })` as "delete this field", so
+     * passing the whole destructured object wiped outputAssetIds and error on
+     * every successful finish -- the render step had just set them, and this
+     * removed them a moment later. The assets survived; the job's pointer to
+     * them did not.
+     */
+    const patch: Record<string, unknown> = { status };
+    if (outputAssetIds !== undefined) patch.outputAssetIds = outputAssetIds;
+    if (error !== undefined) patch.error = error;
+    await ctx.db.patch(jobId, patch);
   },
 });
 

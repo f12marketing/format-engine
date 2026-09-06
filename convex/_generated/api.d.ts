@@ -11,12 +11,14 @@
 import type * as assets from "../assets.js";
 import type * as carousel from "../carousel.js";
 import type * as clients from "../clients.js";
+import type * as custom from "../custom.js";
 import type * as dev from "../dev.js";
 import type * as jobs from "../jobs.js";
 import type * as ledger from "../ledger.js";
 import type * as lib_carouselPrompt from "../lib/carouselPrompt.js";
 import type * as lib_fal from "../lib/fal.js";
 import type * as run from "../run.js";
+import type * as uploads from "../uploads.js";
 
 import type {
   ApiFromModules,
@@ -28,12 +30,14 @@ declare const fullApi: ApiFromModules<{
   assets: typeof assets;
   carousel: typeof carousel;
   clients: typeof clients;
+  custom: typeof custom;
   dev: typeof dev;
   jobs: typeof jobs;
   ledger: typeof ledger;
   "lib/carouselPrompt": typeof lib_carouselPrompt;
   "lib/fal": typeof lib_fal;
   run: typeof run;
+  uploads: typeof uploads;
 }>;
 
 /**
