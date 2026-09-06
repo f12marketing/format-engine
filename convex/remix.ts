@@ -31,7 +31,7 @@ import { STARTERS, type RunnableFormatId } from "./starters";
  */
 const COPY_PRIMITIVES = new Set(["P1"]);
 const ALWAYS_RERUN_PRIMITIVES = new Set(["P7", "P8"]);
-const GATED_FORMATS = new Set(["video-animation"]);
+const GATED_FORMATS = new Set(["video-animation", "product-spokesperson"]);
 
 export const remix = mutation({
   args: {

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { FormatPicker } from "@/components/FormatPicker";
 import { JobList } from "@/components/JobList";
 import { AuthStatus } from "@/components/AuthStatus";
+import { AuthorisedBoundary } from "@/components/AuthorisedBoundary";
 import {
   authConfigured,
   backendConfigured,
@@ -49,7 +50,9 @@ export default function Dashboard() {
         )}
       </div>
       {backendConfigured ? (
-        <JobList />
+        <AuthorisedBoundary>
+          <JobList />
+        </AuthorisedBoundary>
       ) : (
         <div className="mt-2 rounded-xl border border-dashed border-line p-6 text-sm text-muted">
           <p className="font-medium text-foreground">

@@ -34,6 +34,14 @@ export const STARTERS: Record<string, Starter> = {
   "video-animation": internal.videoAnimation.start,
   "video-hook-demo": internal.videoHookDemo.start,
   "green-screen-meme": internal.greenScreenMeme.start,
+  "talking-head-ugc": internal.talkingHeadUgc.start,
+  "speaking-hook-demo": internal.speakingHookDemo.start,
+  "talking-head-green-screen": internal.talkingHeadGreenScreen.start,
+  "product-spokesperson": internal.productSpokesperson.start,
+  "green-screen-mobile": internal.greenScreenMobile.start,
+  "cutting-fruit": internal.cuttingFruit.start,
+  claymation: internal.claymation.start,
+  skeleton: internal.skeleton.start,
 };
 
 export type RunnableFormatId =
@@ -43,4 +51,12 @@ export type RunnableFormatId =
   | "slideshow"
   | "video-animation"
   | "video-hook-demo"
-  | "green-screen-meme";
+  | "green-screen-meme"
+  | "talking-head-ugc"
+  | "speaking-hook-demo"
+  | "talking-head-green-screen"
+  | "product-spokesperson"
+  | "green-screen-mobile"
+  | "cutting-fruit"
+  | "claymation"
+  | "skeleton";

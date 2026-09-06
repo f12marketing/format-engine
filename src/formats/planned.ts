@@ -263,13 +263,19 @@ export const talkingHeadUgc = defineFormat({
   icon: "🗣️",
   group: "avatars",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 4,
+  // FLAG: the spec named no avatar picker and no separate topic field, yet
+  // declares a P5 avatar step and a P1 step that generates "script" from
+  // something -- neither is possible without them. Added both rather than
+  // block; nothing else invented.
   config: {
     mode: field.mode(),
+    avatar: field.avatar({ label: "AI influencer" }),
     duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
     language: field.language(),
     captionStyle: field.captionStyle(),
+    prompt: field.prompt(),
     script: field.longText({ label: "Script", optional: true, generatedBy: "P1" }),
   },
   pipeline: [
@@ -287,9 +293,13 @@ export const speakingHookDemo = defineFormat({
   icon: "📣",
   group: "avatars",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 4,
+  // FLAG: no avatar picker in the spec's list despite a P5 step -- added,
+  // same reasoning as Talking Head UGC. "Hook" already supplies P1 its topic,
+  // so no extra prompt field is needed here.
   config: {
+    speaker: field.avatar({ label: "Speaker" }),
     hook: field.shortText({ label: "Hook" }),
     demoVideo: field.video({ label: "Demo video" }),
     language: field.language(),
@@ -302,12 +312,15 @@ export const speakingHookDemo = defineFormat({
     }),
     mentionBusiness: field.mentionBusiness(),
   },
+  /**
+   * "Stitch" absorbs the caption burn-in, same reasoning as every other
+   * format that combines them: one ffmpeg encode, one declared step.
+   */
   pipeline: [
     { id: "copy", primitive: "P1", label: "Write the hook", when: { field: "saying", is: "empty" } },
     { id: "speech", primitive: "P4", label: "Generate the voice" },
     { id: "avatar", primitive: "P5", label: "Render the speaker" },
-    { id: "stitch", primitive: "P7", label: "Stitch onto the demo" },
-    { id: "captions", primitive: "P8", label: "Burn in captions" },
+    { id: "stitch", primitive: "P7", label: "Stitch onto the demo and caption" },
   ],
 });
 
@@ -318,23 +331,25 @@ export const talkingHeadGreenScreen = defineFormat({
   icon: "👤",
   group: "avatars",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 4,
   // FLAG: the spec's config list opens with the format's own name where a
-  // field should be. The four below are the ones it actually names; the
-  // missing one is most likely Mode or Caption style. Nothing invented.
+  // field should be, and names no topic field for the P1 step. The missing
+  // slot is most likely Mode or Caption style; added a Prompt field for P1
+  // to generate from, same reasoning as Talking Head UGC. Nothing else
+  // invented.
   config: {
     demoVideo: field.video({ label: "Demo video" }),
     avatar: field.avatar({ label: "Avatar" }),
     duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
+    prompt: field.prompt(),
     script: field.longText({ label: "Script", optional: true, generatedBy: "P1" }),
   },
   pipeline: [
     { id: "copy", primitive: "P1", label: "Write the script", when: { field: "script", is: "empty" } },
     { id: "speech", primitive: "P4", label: "Generate the voice" },
     { id: "avatar", primitive: "P5", label: "Render the avatar" },
-    { id: "pip", primitive: "P7", label: "Key and place picture-in-picture" },
-    { id: "captions", primitive: "P8", label: "Burn in captions" },
+    { id: "pip", primitive: "P7", label: "Key, place picture-in-picture and caption" },
   ],
 });
 
@@ -345,8 +360,10 @@ export const productSpokesperson = defineFormat({
   icon: "🎁",
   group: "avatars",
   preview: "image", // stops on the still until you approve it
-  status: "planned",
+  status: "ready",
   phase: 4,
+  // FLAG: added a Prompt field, same reasoning as Talking Head UGC -- P1
+  // needs a topic to write the script from when the field is left empty.
   config: {
     // Step 1 -- create the spokesperson image
     avatar: field.avatar({ label: "Avatar" }),
@@ -355,6 +372,7 @@ export const productSpokesperson = defineFormat({
     duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
     language: field.language(),
     captionStyle: field.captionStyle(),
+    prompt: field.prompt(),
     script: field.longText({ label: "Script", optional: true, generatedBy: "P1" }),
   },
   pipeline: [
@@ -373,12 +391,13 @@ export const greenScreenMobile = defineFormat({
   icon: "📱",
   group: "avatars",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 4,
-  // The simplest config in the set: three fields, and the script is optional.
+  // FLAG: added a Prompt field, same reasoning as Talking Head UGC.
   config: {
     appScreenshot: field.image({ label: "App screenshot" }),
     presenter: field.avatar({ label: "Presenter" }),
+    prompt: field.prompt(),
     script: field.longText({ label: "Script", optional: true, generatedBy: "P1" }),
   },
   pipeline: [
@@ -399,7 +418,7 @@ export const cuttingFruit = defineFormat({
   icon: "🍉",
   group: "generated",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 5,
   config: {
     mentionBusiness: field.mentionBusiness(),
@@ -446,6 +465,10 @@ const clayLikeConfig = {
   }),
   captionStyle: field.captionStyle(),
   narration: field.longText({ label: "Narration", optional: true, generatedBy: "P1" }),
+  // FLAG: the spec gives this format a P1-generated narration field but no
+  // topic to generate it FROM -- the same gap already found and fixed this
+  // way for four avatar formats in Phase 4.
+  prompt: field.prompt(),
 };
 
 const clayLikePipeline = (artDirection: string) => [
@@ -463,7 +486,7 @@ export const claymation = defineFormat({
   icon: "🧱",
   group: "generated",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 5,
   config: clayLikeConfig,
   pipeline: clayLikePipeline("CLAY_STYLE"),
@@ -476,7 +499,7 @@ export const skeleton = defineFormat({
   icon: "💀",
   group: "generated",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 5,
   config: clayLikeConfig,
   pipeline: clayLikePipeline("SKELETON_STYLE"),

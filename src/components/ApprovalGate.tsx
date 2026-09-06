@@ -82,6 +82,7 @@ export function ApprovalGate({
 
       {stepId === "characters" && <CharactersReview output={output} />}
       {stepId === "shots" && <ShotsReview output={output} />}
+      {stepId === "composite" && <CompositeReview output={output} />}
 
       {error && <p className="mt-2 text-sm text-accent">{error}</p>}
 
@@ -95,6 +96,20 @@ export function ApprovalGate({
         {busy ? "Approving…" : "Approve and continue"}
       </button>
     </div>
+  );
+}
+
+/** Product Spokesperson's single gate: the composited still, before paying for P5 on top of it. */
+function CompositeReview({ output }: { output: unknown }) {
+  const imageUrl = (output as { imageUrl?: string } | undefined)?.imageUrl;
+  if (!imageUrl) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={imageUrl}
+      alt="Composited spokesperson"
+      className="w-full max-w-sm rounded-lg border border-line object-cover"
+    />
   );
 }
 

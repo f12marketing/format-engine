@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 
@@ -38,6 +38,36 @@ export async function requireClient(
   }
   return client;
 }
+
+/**
+ * `requireClient` needs `ctx.db`, which an action doesn't have -- an action
+ * only gets `ctx.auth`. This is the same lookup, reachable via `ctx.runQuery`
+ * from the one place so far that needs client identity inside an action
+ * (`avatars.generate`, which calls fal directly and so must be an action).
+ */
+export const getByAuthUserId = internalQuery({
+  args: { authUserId: v.string() },
+  handler: async (ctx, { authUserId }) => {
+    const client = await ctx.db
+      .query("clients")
+      .withIndex("by_auth_user", (q) => q.eq("authUserId", authUserId))
+      .unique();
+    return client && !client.archived ? client : null;
+  },
+});
+
+/**
+ * Whether the invite-only gate has admitted anyone yet -- lets the frontend
+ * skip even attempting `bootstrapFirstClient` once that's settled, instead of
+ * calling a mutation that can only fail from then on. Convex's client logs a
+ * mutation's server-side error to the console regardless of whether the
+ * caller catches the rejection, so a doomed call is not just wasted, it is a
+ * console error on every load for every non-owner.
+ */
+export const anyClientExists = query({
+  args: {},
+  handler: async (ctx) => (await ctx.db.query("clients").first()) !== null,
+});
 
 export const me = query({
   args: {},

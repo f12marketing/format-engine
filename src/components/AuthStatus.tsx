@@ -16,18 +16,26 @@ import { getSupabaseClient } from "@/lib/supabaseClient";
 export function AuthStatus() {
   const { isAuthenticated } = useConvexAuth();
   const me = useQuery(api.clients.me, isAuthenticated ? {} : "skip");
+  const anyClientExists = useQuery(
+    api.clients.anyClientExists,
+    isAuthenticated && me === null ? {} : "skip",
+  );
   const bootstrap = useMutation(api.clients.bootstrapFirstClient);
   const [bootstrapped, setBootstrapped] = useState(false);
 
   useEffect(() => {
-    if (isAuthenticated && me === null && !bootstrapped) {
+    // Only ever worth trying while the gate has admitted no one -- once
+    // someone owns this deployment, the call can only fail, and Convex logs
+    // that failure to the console even though `bootstrapped` never fires
+    // again this session.
+    if (isAuthenticated && me === null && anyClientExists === false && !bootstrapped) {
       setBootstrapped(true);
       bootstrap({}).catch(() => {
-        // Not the first sign-in -- someone else already owns this deployment.
-        // clients.me staying null is the correct, visible state for that.
+        // Lost a race with another first sign-in between the check above and
+        // this call. clients.me staying null is the correct, visible state.
       });
     }
-  }, [isAuthenticated, me, bootstrapped, bootstrap]);
+  }, [isAuthenticated, me, anyClientExists, bootstrapped, bootstrap]);
 
   if (!isAuthenticated) {
     return (

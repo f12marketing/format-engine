@@ -24,8 +24,8 @@ export const RATES = {
   viduPerSec: { "360p": 0.035, "540p": 0.035, "720p": 0.077, "1080p": 0.077 },
   /** fal-ai/elevenlabs/tts, per 1000 characters. */
   ttsPer1000Chars: 0.05,
-  /** bytedance/omnihuman, per second. The single most expensive line here. */
-  avatarPerSec: 0.14,
+  /** fal-ai/bytedance/omnihuman/v1.5, per second. The single most expensive line here. */
+  avatarPerSec: 0.16,
   /** decart/lucy-2-5, per processed second. */
   swapPerSec: 0.04,
 } as const;
@@ -65,7 +65,11 @@ export function estimateCost(
 
   const duration = num(values.duration, 30);
   const slideCount = num(values.slideCount, 7);
-  const imageCount = num(values.images, 10);
+  // Slideshow's own "images" field supplies its real value once the config
+  // panel initializes; 1 (not that field's default of 10) is the right
+  // fallback for every other P2 format, which composites exactly one image
+  // (Product Spokesperson, Green Screen Mobile) and has no such field at all.
+  const imageCount = num(values.images, 1);
   const inputWords = words(values.logline) || words(values.prompt);
   const resolution = "720p" as keyof typeof RATES.viduPerSec;
 

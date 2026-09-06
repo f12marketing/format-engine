@@ -203,11 +203,27 @@ function detailArray(body: unknown): { type?: string }[] | null {
   return Array.isArray(detail) ? (detail as { type?: string }[]) : null;
 }
 
+/**
+ * Also covers `no_media_generated` -- a different `detail[].type` string,
+ * reproduced live generating an avatar portrait on an entirely benign
+ * prompt ("man in his 30s, short beard, friendly expression, studio
+ * background"), immediately followed by success on an identical retry. It
+ * is not literally a content-policy rejection, but it is the same shape of
+ * problem for a caller: the model declined to produce anything, and the
+ * same fallback ladder (retry, then reword, then a minimal prompt) is the
+ * right response rather than failing the step outright on what may just be
+ * one queue worker's transient miss.
+ */
 function isContentPolicyBody(body: unknown): boolean {
   const detail = detailArray(body);
-  if (detail?.some((d) => d?.type === "content_policy_violation")) return true;
+  if (detail?.some((d) => d?.type === "content_policy_violation" || d?.type === "no_media_generated"))
+    return true;
   const s = typeof body === "string" ? body : JSON.stringify(body ?? "");
-  return s.includes("content_policy_violation") || s.includes("flagged by a content checker");
+  return (
+    s.includes("content_policy_violation") ||
+    s.includes("flagged by a content checker") ||
+    s.includes("no_media_generated")
+  );
 }
 
 /**
