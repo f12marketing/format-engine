@@ -11,17 +11,23 @@
 import type * as assets from "../assets.js";
 import type * as carousel from "../carousel.js";
 import type * as clients from "../clients.js";
+import type * as clips from "../clips.js";
 import type * as custom from "../custom.js";
 import type * as dev from "../dev.js";
+import type * as greenScreenMeme from "../greenScreenMeme.js";
 import type * as jobs from "../jobs.js";
 import type * as ledger from "../ledger.js";
 import type * as lib_carouselPrompt from "../lib/carouselPrompt.js";
+import type * as lib_clipIngest from "../lib/clipIngest.js";
 import type * as lib_fal from "../lib/fal.js";
 import type * as lib_nodeStorage from "../lib/nodeStorage.js";
+import type * as remix from "../remix.js";
 import type * as run from "../run.js";
 import type * as slideshow from "../slideshow.js";
+import type * as starters from "../starters.js";
 import type * as uploads from "../uploads.js";
 import type * as videoAnimation from "../videoAnimation.js";
+import type * as videoHookDemo from "../videoHookDemo.js";
 import type * as wallOfText from "../wallOfText.js";
 
 import type {
@@ -34,17 +40,23 @@ declare const fullApi: ApiFromModules<{
   assets: typeof assets;
   carousel: typeof carousel;
   clients: typeof clients;
+  clips: typeof clips;
   custom: typeof custom;
   dev: typeof dev;
+  greenScreenMeme: typeof greenScreenMeme;
   jobs: typeof jobs;
   ledger: typeof ledger;
   "lib/carouselPrompt": typeof lib_carouselPrompt;
+  "lib/clipIngest": typeof lib_clipIngest;
   "lib/fal": typeof lib_fal;
   "lib/nodeStorage": typeof lib_nodeStorage;
+  remix: typeof remix;
   run: typeof run;
   slideshow: typeof slideshow;
+  starters: typeof starters;
   uploads: typeof uploads;
   videoAnimation: typeof videoAnimation;
+  videoHookDemo: typeof videoHookDemo;
   wallOfText: typeof wallOfText;
 }>;
 

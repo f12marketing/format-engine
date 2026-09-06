@@ -1,8 +1,8 @@
 import { v } from "convex/values";
 import { mutation } from "./_generated/server";
-import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { requireClient } from "./clients";
+import { STARTERS, type RunnableFormatId } from "./starters";
 
 /**
  * The Generate button's single entry point, for every format.
@@ -24,17 +24,7 @@ export const generate = mutation({
   handler: async (ctx, args): Promise<Id<"jobs">> => {
     const client = await requireClient(ctx);
 
-    // One line per runnable format, plus its workflow. Not a new route, and
-    // not a branch anywhere in the frontend.
-    const STARTERS = {
-      carousel: internal.carousel.start,
-      custom: internal.custom.start,
-      "wall-of-text": internal.wallOfText.start,
-      slideshow: internal.slideshow.start,
-      "video-animation": internal.videoAnimation.start,
-    } as const;
-
-    const starter = STARTERS[args.formatId as keyof typeof STARTERS];
+    const starter = STARTERS[args.formatId as RunnableFormatId];
     if (!starter) {
       throw new Error(`${args.formatId} has no pipeline yet.`);
     }

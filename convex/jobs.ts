@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import { sendEvent } from "@convex-dev/workflow";
 import type { WorkflowId } from "@convex-dev/workflow";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
@@ -39,6 +40,37 @@ export const list = query({
       .withIndex("by_client", (q) => q.eq("clientId", client._id))
       .order("desc")
       .take(limit ?? 25);
+  },
+});
+
+/**
+ * The full history, paginated -- unlike `list`'s flat `take(25)` for the
+ * dashboard's recent-runs strip, this is what a dedicated history page
+ * scrolls through.
+ */
+export const history = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
+    const client = await requireClient(ctx);
+    return ctx.db
+      .query("jobs")
+      .withIndex("by_client", (q) => q.eq("clientId", client._id))
+      .order("desc")
+      .paginate(paginationOpts);
+  },
+});
+
+/** Every job remixed FROM this one -- the other half of `remixedFromJobId`. */
+export const remixesOf = query({
+  args: { jobId: v.id("jobs") },
+  handler: async (ctx, { jobId }) => {
+    const client = await requireClient(ctx);
+    const source = await ctx.db.get(jobId);
+    if (!source || source.clientId !== client._id) return [];
+    return ctx.db
+      .query("jobs")
+      .withIndex("by_remixed_from", (q) => q.eq("remixedFromJobId", jobId))
+      .collect();
   },
 });
 
@@ -216,12 +248,23 @@ export const getInternal = internalMutation({
   handler: async (ctx, { jobId }) => ctx.db.get(jobId),
 });
 
-/** The step ids this job actually plans to run. Read from inside the workflow. */
+/**
+ * The step ids this job actually still needs to run. Read from inside the
+ * workflow, which uses it to decide whether to call a step's action at all.
+ *
+ * A step already sitting at "done" is excluded alongside one that was never
+ * in the plan at all (a hand-written deck skipping "copy", say). The two
+ * look the same to a workflow deciding whether to bother running something --
+ * the difference is only WHY nothing needs to happen: `when` decided at
+ * creation that the step never applied, remix decided the step's existing
+ * output should be kept. Every ordinarily-created job starts every step at
+ * "pending", so this changes nothing for a job that isn't a remix.
+ */
 export const plannedStepIds = internalQuery({
   args: { jobId: v.id("jobs") },
   handler: async (ctx, { jobId }): Promise<string[]> => {
     const job = await ctx.db.get(jobId);
-    return job ? job.steps.map((s) => s.id) : [];
+    return job ? job.steps.filter((s) => s.state !== "done").map((s) => s.id) : [];
   },
 });
 

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { getFormat } from "@/formats";
@@ -34,20 +35,22 @@ export function JobList() {
         const format = getFormat(job.formatId);
         const done = job.steps.filter((s) => s.state === "done").length;
         return (
-          <li
-            key={job._id}
-            className="flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3"
-          >
-            <span className="text-lg leading-none">{format?.icon ?? "•"}</span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-medium">
-                {format?.name ?? job.formatId}
+          <li key={job._id}>
+            <Link
+              href={`/jobs/${job._id}`}
+              className="flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 hover:border-accent"
+            >
+              <span className="text-lg leading-none">{format?.icon ?? "•"}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">
+                  {format?.name ?? job.formatId}
+                </span>
+                <span className="block font-mono text-xs text-muted">
+                  {done} / {job.steps.length} steps · ${job.costUsd.toFixed(3)}
+                </span>
               </span>
-              <span className="block font-mono text-xs text-muted">
-                {done} / {job.steps.length} steps · ${job.costUsd.toFixed(3)}
-              </span>
-            </span>
-            <StatusPill status={job.status} />
+              <StatusPill status={job.status} />
+            </Link>
           </li>
         );
       })}

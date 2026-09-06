@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalMutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireClient } from "./clients";
 
@@ -38,6 +38,12 @@ export const record = internalMutation({
   },
   handler: async (ctx, args): Promise<Id<"assets">> =>
     ctx.db.insert("assets", { ...args, kind: kindForMime(args.mimeType) }),
+});
+
+/** Reads an asset row from inside a workflow step, where auth context isn't available. */
+export const getInternal = internalQuery({
+  args: { assetId: v.id("assets") },
+  handler: async (ctx, { assetId }) => ctx.db.get(assetId),
 });
 
 /**
