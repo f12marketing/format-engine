@@ -23,24 +23,65 @@ npm run dev
 Generate is disabled until Convex is connected. Everything above runs with no
 accounts and no keys.
 
-## What I can't do for you
+## Setup — the parts only you can do
 
-These need your accounts, and each one hands back a key:
+**Do not paste keys into a chat.** Everything below you run yourself; the
+values live in files and in Convex's own env store.
 
-| Service | What to do | Where the key goes |
-| --- | --- | --- |
-| **Convex** | `npx convex dev` — opens a browser to log in, then creates the project | writes `.env.local` itself |
-| **Clerk** | Create an app at clerk.com, enable invite-only | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` |
-| **fal.ai** | Existing key from `../app/.env` works | `FAL_KEY` (Convex env, not `.env.local`) |
-| **Railway** | Later — Phase 0's render step can run locally first | — |
+### 1. Convex
 
-Put the Clerk keys in `.env.local`; set `FAL_KEY` with
-`npx convex env set FAL_KEY <key>` so it lives server-side only.
+```bash
+cd format-engine && npx convex dev
+```
 
-> **Note on Clerk + Next 16:** `middleware.ts` is deprecated in favour of
-> `proxy.ts` with an exported `proxy` function, and the `edge` runtime isn't
-> supported there. Worth checking Clerk's own Next 16 guidance before wiring
-> `clerkMiddleware`, rather than copying a Next 15 snippet.
+Opens a browser to log in, provisions the deployment, generates
+`convex/_generated/`, and writes `CONVEX_DEPLOYMENT` and
+`NEXT_PUBLIC_CONVEX_URL` into `.env.local` for you. Leave it running — it
+watches and pushes.
+
+If you would rather not log in interactively, put a deploy key in `.env.local`
+as `CONVEX_DEPLOY_KEY=...` and use `npx convex dev --once` instead.
+
+### 2. Clerk
+
+Copy `.env.local.example` to `.env.local` and fill in the two keys from your
+Clerk application's **API Keys** page:
+
+```
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
+CLERK_SECRET_KEY=sk_...
+```
+
+Then in Clerk, create a **JWT template named `convex`**, copy its Issuer URL,
+and give it to the Convex deployment:
+
+```bash
+npx convex env set CLERK_JWT_ISSUER_DOMAIN https://<your-app>.clerk.accounts.dev
+```
+
+### 3. Server-side keys on Convex
+
+These never go in `.env.local` — they belong to the deployment:
+
+```bash
+npx convex env set FAL_API_KEY <your existing fal key from ../app/.env>
+npx convex env set RENDER_SERVICE_URL http://localhost:4000
+```
+
+### 4. Render service
+
+```bash
+cd render-service && npm start
+```
+
+Needs Chrome or Edge installed; set `CHROME_BIN` if it can't find one.
+Deploys to Railway unchanged.
+
+### 5. Admit yourself
+
+Sign in once, then run `clients:bootstrapFirstClient` from the Convex
+dashboard. It only ever creates a row when the table is empty — that is the
+owner bootstrap. Every client after that is added deliberately.
 
 ## Layout
 

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { FormatPicker } from "@/components/FormatPicker";
+import { JobList } from "@/components/JobList";
+import { backendConfigured } from "./ConvexClientProvider";
 import { FORMATS } from "@/formats";
 
 export default function Dashboard() {
@@ -27,11 +29,18 @@ export default function Dashboard() {
       <h2 className="mt-10 font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">
         Recent jobs
       </h2>
-      <div className="mt-2 rounded-xl border border-dashed border-line p-8 text-center text-sm text-muted">
-        No jobs yet. Convex isn&rsquo;t connected — run{" "}
-        <code className="font-mono text-xs">npx convex dev</code> to wire the
-        job list up.
-      </div>
+      {backendConfigured ? (
+        <JobList />
+      ) : (
+        <div className="mt-2 rounded-xl border border-dashed border-line p-6 text-sm text-muted">
+          <p className="font-medium text-foreground">Backend not connected yet</p>
+          <p className="mt-1">
+            Run <code className="font-mono text-xs">npx convex dev</code> and add
+            your Clerk keys to <code className="font-mono text-xs">.env.local</code>.
+            The picker, config panels and cost estimates all work without it.
+          </p>
+        </div>
+      )}
 
       {pickerOpen && <FormatPicker onClose={() => setPickerOpen(false)} />}
     </main>
