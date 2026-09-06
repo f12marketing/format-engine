@@ -1,0 +1,147 @@
+import { stepApplies } from "@/formats/types";
+import type { FormatDefinition, Primitive } from "@/formats/types";
+
+/**
+ * The pre-flight cost estimate, driven by a format's pipeline rather than
+ * written per format. The old app's dashboard estimator ported across and
+ * generalised: it knew about three modes, this knows about primitives, so a
+ * new format is costed the day it is declared.
+ *
+ * Published fal rates at the time of writing. Treat every number as a FLOOR --
+ * these are list prices and exclude retries, which on generative video are not
+ * rare.
+ */
+
+export const RATES = {
+  /** Claude via the fal OpenRouter passthrough, per 1M tokens. */
+  llmInputPer1M: 3.0,
+  llmOutputPer1M: 15.0,
+  /** fal-ai/nano-banana, per image. */
+  imagePerUnit: 0.039,
+  /** fal-ai/flux-2-pro/edit, flat per composite at ~1920x1080. */
+  compositePerUnit: 0.045,
+  /** fal-ai/vidu/q3 image-to-video, per video-second. */
+  viduPerSec: { "360p": 0.035, "540p": 0.035, "720p": 0.077, "1080p": 0.077 },
+  /** fal-ai/elevenlabs/tts, per 1000 characters. */
+  ttsPer1000Chars: 0.05,
+  /** bytedance/omnihuman, per second. The single most expensive line here. */
+  avatarPerSec: 0.14,
+  /** decart/lucy-2-5, per processed second. */
+  swapPerSec: 0.04,
+} as const;
+
+export interface EstimateLine {
+  label: string;
+  costUsd: number;
+}
+
+export interface Estimate {
+  lines: EstimateLine[];
+  totalUsd: number;
+}
+
+const TOKENS_PER_WORD = 1.35;
+const AVG_SPEECH_CHARS_PER_SEC = 15;
+
+function words(text: unknown): number {
+  if (typeof text !== "string") return 0;
+  return text.trim().match(/\S+/g)?.length ?? 0;
+}
+
+function num(v: unknown, fallback: number): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+}
+
+/**
+ * One case per primitive. A format that adds a step gets costed automatically;
+ * a format whose steps are all free (Custom, Wall of Text) totals zero without
+ * anyone writing a special case for it.
+ */
+export function estimateCost(
+  format: FormatDefinition,
+  values: Record<string, unknown>,
+): Estimate {
+  const lines: EstimateLine[] = [];
+
+  const duration = num(values.duration, 30);
+  const slideCount = num(values.slideCount, 7);
+  const imageCount = num(values.images, 10);
+  const inputWords = words(values.logline) || words(values.prompt);
+  const resolution = "720p" as keyof typeof RATES.viduPerSec;
+
+  for (const step of format.pipeline) {
+    // Honour the declaration's own skip logic -- a user-written script means
+    // no P1 call, and the estimate should say so before the run, not after.
+    if (!stepApplies(step, values)) continue;
+
+    const cost = costForStep(step.primitive, {
+      duration,
+      slideCount,
+      imageCount,
+      inputWords,
+      resolution,
+      format,
+    });
+    if (cost !== null) lines.push({ label: step.label, costUsd: cost });
+  }
+
+  return {
+    lines,
+    totalUsd: lines.reduce((sum, l) => sum + l.costUsd, 0),
+  };
+}
+
+function costForStep(
+  primitive: Primitive,
+  ctx: {
+    duration: number;
+    slideCount: number;
+    imageCount: number;
+    inputWords: number;
+    resolution: keyof typeof RATES.viduPerSec;
+    format: FormatDefinition;
+  },
+): number | null {
+  switch (primitive) {
+    case "P1": {
+      // Roughly: a fixed system-prompt floor plus the user's own input, and an
+      // output that scales with how many slides or seconds are being written.
+      const inputTokens = 1250 + ctx.inputWords * TOKENS_PER_WORD;
+      const outputUnits =
+        ctx.format.preview === "deck" ? ctx.slideCount * 110 + 160 : ctx.duration * 12 + 200;
+      return (
+        (inputTokens / 1e6) * RATES.llmInputPer1M +
+        (outputUnits / 1e6) * RATES.llmOutputPer1M
+      );
+    }
+
+    case "P2": {
+      const units = ctx.format.preview === "deck" ? 0 : ctx.imageCount;
+      return units * RATES.imagePerUnit;
+    }
+
+    case "P3":
+      return ctx.duration * RATES.viduPerSec[ctx.resolution];
+
+    case "P4":
+      return ((ctx.duration * AVG_SPEECH_CHARS_PER_SEC) / 1000) * RATES.ttsPer1000Chars;
+
+    case "P5":
+      return ctx.duration * RATES.avatarPerSec;
+
+    case "P6":
+      return ctx.duration * RATES.swapPerSec;
+
+    // Composites, typesetting and library reads run on your own hardware or
+    // read from cache. Free at the margin, which is exactly why the render
+    // service is the highest-leverage thing to get right.
+    case "P7":
+    case "P8":
+    case "P9":
+    case "P10":
+      return 0;
+
+    default:
+      return null;
+  }
+}
