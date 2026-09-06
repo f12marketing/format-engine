@@ -100,7 +100,38 @@ export function JobView({ jobId }: { jobId: string }) {
           <h2 className="mt-8 font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">
             Output — {assets.length} files
           </h2>
-          <ul className="mt-2 flex flex-wrap gap-2">
+
+          {/*
+            Show the result, don't just link to it. A job page that lists
+            "video · 37kB" makes you download a file to find out whether the
+            run was any good.
+          */}
+          <div className="mt-2 space-y-3">
+            {assets
+              .filter((a) => a.url && (a.kind === "video" || a.kind === "image"))
+              .slice(0, 4)
+              .map((a) =>
+                a.kind === "video" ? (
+                  <video
+                    key={a.id}
+                    src={a.url!}
+                    controls
+                    playsInline
+                    className="w-full max-w-[280px] rounded-xl border border-line bg-black"
+                  />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={a.id}
+                    src={a.url!}
+                    alt="Rendered output"
+                    className="w-full max-w-[280px] rounded-xl border border-line"
+                  />
+                ),
+              )}
+          </div>
+
+          <ul className="mt-3 flex flex-wrap gap-2">
             {assets.map((a) =>
               a.url ? (
                 <li key={a.id}>

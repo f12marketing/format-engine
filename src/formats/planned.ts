@@ -110,7 +110,7 @@ export const custom = defineFormat({
   status: "ready",
   phase: 1,
   config: {
-    source: field.video({ label: "Video or image" }),
+    sourceAssetId: field.video({ label: "Video or image" }),
     dimensions: field.choice({
       label: "Dimensions",
       options: ["9:16", "1:1", "4:5", "16:9"],
@@ -136,7 +136,7 @@ export const custom = defineFormat({
       options: ["bottom", "center", "top"],
       default: "bottom",
     }),
-    overlay: field.image({ label: "Overlay", optional: true }),
+    overlayAssetId: field.image({ label: "Overlay", optional: true }),
   },
   // No model calls at all -- this one exists to exercise the render service.
   // Composite and type land on the same ffmpeg invocation, so it is one step

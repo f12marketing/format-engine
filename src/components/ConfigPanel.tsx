@@ -1,5 +1,7 @@
 "use client";
 
+import { UploadField } from "./UploadField";
+import { convexConfigured } from "@/app/ConvexClientProvider";
 import type { Field, FormatDefinition } from "@/formats/types";
 
 /**
@@ -193,11 +195,23 @@ function Control({
         </select>
       );
 
-    // Uploads, the avatar roster and the clip library all need storage or an
-    // ingested table behind them. Declared now, wired in their own phases --
-    // the placeholder names which one so the gap is legible rather than blank.
     case "image":
     case "video":
+      // Needs a deployment to upload to; without one the control would fail on
+      // its first click, so say why instead.
+      return convexConfigured ? (
+        <UploadField
+          accept={field.kind === "video" ? "video" : "image"}
+          value={value}
+          onChange={onChange}
+        />
+      ) : (
+        <Placeholder kind={field.kind} />
+      );
+
+    // The avatar roster and the clip library need tables that arrive with
+    // their own phases. The placeholder names which one, so the gap is legible
+    // rather than blank.
     case "avatar":
     case "trendingClip":
       return <Placeholder kind={field.kind} />;
@@ -208,8 +222,8 @@ function Control({
 }
 
 const PLACEHOLDER_NOTE: Record<string, string> = {
-  image: "Upload — needs Convex file storage",
-  video: "Upload — needs Convex file storage",
+  image: "Upload — connect Convex to enable",
+  video: "Upload — connect Convex to enable",
   avatar: "Roster picker — P10, Phase 4",
   trendingClip: "Clip library — P9, Phase 3",
 };
