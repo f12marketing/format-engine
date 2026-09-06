@@ -109,6 +109,75 @@ export async function callTool(
 }
 
 /**
+ * One forced-tool-call LLM request that can also look at images -- Character
+ * Swap's verification step is the only caller, comparing a frame of the swap
+ * output against the character reference image. Kept separate from
+ * `callTool` rather than adding an optional images param to it: every other
+ * caller sends plain text, and OpenRouter's content-array shape only applies
+ * once there is at least one image to attach.
+ */
+export async function callVisionTool(
+  system: string,
+  userPrompt: string,
+  imageUrls: string[],
+  tool: ToolSpec,
+): Promise<ToolCallResult> {
+  const res = await fetch(`${LLM_BASE}/chat/completions`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      model: LLM_MODEL,
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: userPrompt },
+            ...imageUrls.map((url) => ({ type: "image_url", image_url: { url } })),
+          ],
+        },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.input_schema,
+          },
+        },
+      ],
+      tool_choice: { type: "function", function: { name: tool.name } },
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`fal vision LLM call failed: ${res.status} ${await res.text()}`);
+  }
+
+  const body = (await res.json()) as {
+    choices?: { message?: { tool_calls?: { function: { arguments: string } }[] } }[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
+
+  const call = body.choices?.[0]?.message?.tool_calls?.[0];
+  if (!call) throw new Error("model did not return a tool call");
+
+  let value: unknown;
+  try {
+    value = JSON.parse(call.function.arguments);
+  } catch {
+    throw new Error("model returned unparseable tool call arguments");
+  }
+
+  return {
+    value,
+    inputTokens: body.usage?.prompt_tokens ?? 0,
+    outputTokens: body.usage?.completion_tokens ?? 0,
+  };
+}
+
+/**
  * Submit to the queue and poll until terminal.
  *
  * Deliberately capped well under the action timeout: a step that hasn't

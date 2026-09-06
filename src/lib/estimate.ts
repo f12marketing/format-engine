@@ -26,8 +26,16 @@ export const RATES = {
   ttsPer1000Chars: 0.05,
   /** fal-ai/bytedance/omnihuman/v1.5, per second. The single most expensive line here. */
   avatarPerSec: 0.16,
-  /** decart/lucy-2-5, per processed second. */
+  /**
+   * fal-ai/wan/v2.2-14b/animate/{replace,move}, 480p, per processed second.
+   * `decart/lucy-2-5` -- this constant's original name -- turned out to be a
+   * real-time WebRTC model with no batch API, discovered live while building
+   * Character Swap; this rate happened to already match Wan-Animate's 480p
+   * tier exactly, so only the name needed correcting.
+   */
   swapPerSec: 0.04,
+  /** fal-ai/elevenlabs/voice-changer, $0.30/minute -- Character Swap's voice conversion, not TTS. */
+  voiceChangePerSec: 0.005,
 } as const;
 
 export interface EstimateLine {
@@ -128,6 +136,11 @@ function costForStep(
       return ctx.duration * RATES.viduPerSec[ctx.resolution];
 
     case "P4":
+      // Character Swap's "voice" step is audio-to-audio voice conversion,
+      // priced per second of input like the swap itself -- not
+      // text-to-speech, so the usual chars-per-second formula below would be
+      // answering a question this step never asks.
+      if (ctx.format.id === "character-swap") return ctx.duration * RATES.voiceChangePerSec;
       return ((ctx.duration * AVG_SPEECH_CHARS_PER_SEC) / 1000) * RATES.ttsPer1000Chars;
 
     case "P5":
