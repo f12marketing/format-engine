@@ -16,6 +16,7 @@ import { getFormat } from "@/formats";
  */
 export function JobView({ jobId }: { jobId: string }) {
   const job = useQuery(api.jobs.get, { jobId: jobId as Id<"jobs"> });
+  const assets = useQuery(api.assets.forJob, { jobId: jobId as Id<"jobs"> });
 
   if (job === undefined) {
     return <Shell><p className="text-sm text-muted">Loading…</p></Shell>;
@@ -94,7 +95,28 @@ export function JobView({ jobId }: { jobId: string }) {
         </>
       ) : null}
 
-      {files?.length ? (
+      {assets?.length ? (
+        <>
+          <h2 className="mt-8 font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">
+            Output — {assets.length} files
+          </h2>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {assets.map((a) =>
+              a.url ? (
+                <li key={a.id}>
+                  <a
+                    href={a.url}
+                    download
+                    className="block rounded-md border border-line bg-surface-sub px-2 py-1 font-mono text-xs hover:border-accent"
+                  >
+                    {a.kind} · {(a.bytes / 1024).toFixed(0)}kB
+                  </a>
+                </li>
+              ) : null,
+            )}
+          </ul>
+        </>
+      ) : files?.length ? (
         <>
           <h2 className="mt-8 font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">
             Rendered
@@ -111,6 +133,7 @@ export function JobView({ jobId }: { jobId: string }) {
           </ul>
         </>
       ) : null}
+
     </Shell>
   );
 }

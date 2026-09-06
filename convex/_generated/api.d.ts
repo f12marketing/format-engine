@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as assets from "../assets.js";
 import type * as carousel from "../carousel.js";
 import type * as clients from "../clients.js";
 import type * as dev from "../dev.js";
@@ -24,6 +25,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  assets: typeof assets;
   carousel: typeof carousel;
   clients: typeof clients;
   dev: typeof dev;

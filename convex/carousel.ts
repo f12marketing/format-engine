@@ -204,7 +204,34 @@ export const renderDeck = internalAction({
       throw new Error(`render service failed: ${res.status} ${await res.text()}`);
     }
 
-    const out = (await res.json()) as { files: { name: string; url: string }[] };
+    const out = (await res.json()) as {
+      files: { name: string; contentType: string; base64: string }[];
+    };
+
+    /**
+     * Store the bytes, not just a note that they existed.
+     *
+     * The render service hands back base64 because it is stateless -- it does
+     * not know where the deliverable should live. Persisting here, and pointing
+     * each asset at the job that produced it, is what makes the output
+     * downloadable and survivable.
+     */
+    const assetIds = [];
+    for (const file of out.files) {
+      const bytes = Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0));
+      const storageId = await ctx.storage.store(
+        new Blob([bytes as unknown as BlobPart], { type: file.contentType }),
+      );
+      assetIds.push(
+        await ctx.runMutation(internal.assets.record, {
+          clientId,
+          producedByJobId: jobId,
+          storageId,
+          mimeType: file.contentType,
+          bytes: bytes.byteLength,
+        }),
+      );
+    }
 
     // Recorded at zero so the run's line items stay complete: a reader should
     // see that rendering happened and cost nothing, not that it is missing.
@@ -223,8 +250,10 @@ export const renderDeck = internalAction({
       jobId,
       stepId: "render",
       state: "done",
-      output: out,
+      // Names only: keeping base64 in the job row would bloat every read of it.
+      output: { files: out.files.map((f) => ({ name: f.name })) },
     });
+    await ctx.runMutation(internal.jobs.setOutputs, { jobId, assetIds });
     return null;
   },
 });

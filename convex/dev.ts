@@ -86,6 +86,20 @@ export const inspect = internalQuery({
         (job.steps.find((s) => s.id === "render")?.output as
           | { files?: { name: string }[] }
           | undefined)?.files?.map((f) => f.name) ?? [],
+      assets: await Promise.all(
+        (
+          await ctx.db
+            .query("assets")
+            .withIndex("by_job", (q) => q.eq("producedByJobId", jobId))
+            .collect()
+        ).map(async (a) => ({
+          kind: a.kind,
+          mimeType: a.mimeType,
+          bytes: a.bytes,
+          url: await ctx.storage.getUrl(a.storageId),
+        })),
+      ),
+      outputAssetCount: job.outputAssetIds?.length ?? 0,
       ledger: ledger.map((l) => ({
         stepId: l.stepId,
         primitive: l.primitive,

@@ -142,3 +142,11 @@ export const plannedStepIds = internalQuery({
     return job ? job.steps.map((s) => s.id) : [];
   },
 });
+
+/** Points the job at what it produced, so the outputs survive independently. */
+export const setOutputs = internalMutation({
+  args: { jobId: v.id("jobs"), assetIds: v.array(v.id("assets")) },
+  handler: async (ctx, { jobId, assetIds }) => {
+    await ctx.db.patch(jobId, { outputAssetIds: assetIds });
+  },
+});
