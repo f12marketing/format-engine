@@ -15,6 +15,33 @@ import { STARTERS, type RunnableFormatId } from "./starters";
  * end to end before Clerk is configured, which is otherwise a chicken and egg.
  */
 
+/**
+ * Admits a real signed-in identity as a client. `clients.bootstrapFirstClient`
+ * only ever works once, for whoever signs in while the table is empty --
+ * dev-seeded rows from CLI testing (`seedClient`, namespaced "dev:...") burn
+ * that slot, so the actual owner's real Supabase sign-in gets the honest
+ * "invite-only" refusal too. This is the dashboard-row-edit the error message
+ * points at, just scriptable: run it once with the owner's real Supabase user
+ * id (Supabase Studio -> Authentication -> Users, after signing in once via
+ * magic link) to admit them regardless of what else is already in the table.
+ */
+export const admitClient = internalMutation({
+  args: { authUserId: v.string(), displayName: v.string(), capUsd: v.optional(v.number()) },
+  handler: async (ctx, { authUserId, displayName, capUsd }): Promise<Id<"clients">> => {
+    const existing = await ctx.db
+      .query("clients")
+      .withIndex("by_auth_user", (q) => q.eq("authUserId", authUserId))
+      .unique();
+    if (existing) return existing._id;
+
+    return ctx.db.insert("clients", {
+      authUserId,
+      displayName,
+      monthlySpendCapUsd: capUsd ?? 50,
+    });
+  },
+});
+
 export const seedClient = internalMutation({
   args: { displayName: v.string(), capUsd: v.optional(v.number()) },
   handler: async (ctx, { displayName, capUsd }): Promise<Id<"clients">> => {
@@ -71,6 +98,12 @@ export const startCarousel = internalMutation({
 });
 
 /** The whole picture for one job: status, steps, and its ledger rows. */
+/** A signed URL for any storage id, for eyeballing a stored file from the CLI. */
+export const storageUrl = internalQuery({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, { storageId }): Promise<string | null> => ctx.storage.getUrl(storageId),
+});
+
 export const inspect = internalQuery({
   args: { jobId: v.id("jobs") },
   handler: async (ctx, { jobId }) => {

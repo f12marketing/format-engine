@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePaginatedQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { getFormat } from "@/formats";
+import { AuthorisedBoundary } from "@/components/AuthorisedBoundary";
 
 /**
  * Every job, not just the dashboard's most-recent-25 strip. Paginated rather
@@ -11,12 +12,6 @@ import { getFormat } from "@/formats";
  * more jobs than any page should load at once.
  */
 export default function HistoryPage() {
-  const { results, status, loadMore } = usePaginatedQuery(
-    api.jobs.history,
-    {},
-    { initialNumItems: 25 },
-  );
-
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-12">
       <Link href="/" className="font-mono text-xs text-muted hover:text-accent">
@@ -24,6 +19,27 @@ export default function HistoryPage() {
       </Link>
       <h1 className="mt-3 text-xl font-semibold tracking-tight">Job history</h1>
 
+      <AuthorisedBoundary>
+        <HistoryList />
+      </AuthorisedBoundary>
+    </main>
+  );
+}
+
+/**
+ * Split out from `HistoryPage` so `AuthorisedBoundary` sits above the hook
+ * that can throw -- the static header above it has nothing to do with auth
+ * and shouldn't disappear if the query below it isn't authorised yet.
+ */
+function HistoryList() {
+  const { results, status, loadMore } = usePaginatedQuery(
+    api.jobs.history,
+    {},
+    { initialNumItems: 25 },
+  );
+
+  return (
+    <>
       {status === "LoadingFirstPage" ? (
         <div className="mt-6 rounded-xl border border-line p-6 text-sm text-muted">
           Loading…
@@ -77,7 +93,7 @@ export default function HistoryPage() {
       {status === "LoadingMore" && (
         <p className="mt-4 text-center text-sm text-muted">Loading more…</p>
       )}
-    </main>
+    </>
   );
 }
 

@@ -2,6 +2,8 @@
 
 import { UploadField } from "./UploadField";
 import { TrendingClipField } from "./TrendingClipField";
+import { AvatarField } from "./AvatarField";
+import { AuthorisedBoundary } from "./AuthorisedBoundary";
 import { convexConfigured } from "@/app/ConvexClientProvider";
 import type { Field, FormatDefinition } from "@/formats/types";
 
@@ -217,9 +219,14 @@ function Control({
         <Placeholder kind={field.kind} />
       );
 
-    // The avatar roster needs a table that arrives with its own phase.
     case "avatar":
-      return <Placeholder kind={field.kind} />;
+      return convexConfigured ? (
+        <AuthorisedBoundary>
+          <AvatarField value={value} onChange={onChange} />
+        </AuthorisedBoundary>
+      ) : (
+        <Placeholder kind={field.kind} />
+      );
 
     default:
       return <Placeholder kind={(field as Field).kind} />;
@@ -229,7 +236,7 @@ function Control({
 const PLACEHOLDER_NOTE: Record<string, string> = {
   image: "Upload — connect Convex to enable",
   video: "Upload — connect Convex to enable",
-  avatar: "Roster picker — P10, Phase 4",
+  avatar: "Roster picker — connect Convex to enable",
   trendingClip: "Clip library — connect Convex to enable",
 };
 
