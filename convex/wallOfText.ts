@@ -1,7 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import { callTool, LLM_MODEL } from "./lib/fal";
 
@@ -173,24 +172,17 @@ export const render = internalAction({
       files: { name: string; contentType: string; base64: string }[];
     };
 
-    const assetIds: Id<"assets">[] = [];
-    for (const file of out.files) {
-      const bytes = Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0));
-      const storageId = await ctx.storage.store(
-        new Blob([bytes as unknown as BlobPart], { type: file.contentType }),
-      );
-      assetIds.push(
-        await ctx.runMutation(internal.assets.record, {
-          clientId,
-          producedByJobId: jobId,
-          storageId,
-          mimeType: file.contentType,
-          bytes: bytes.byteLength,
-          width: out.width,
-          height: out.height,
-        }),
-      );
-    }
+    // Delegated to a "use node" action -- see nodeStorage.ts. The default
+    // action runtime's 64MB heap ceiling is a real limit a per-character
+    // atob() decode can cross; this was found on Video Animation's stitched
+    // output and applies here too as outputs grow.
+    const assetIds = await ctx.runAction(internal.lib.nodeStorage.storeRenderedFiles, {
+      clientId,
+      jobId,
+      files: out.files,
+      width: out.width,
+      height: out.height,
+    });
 
     await ctx.runMutation(internal.ledger.record, {
       clientId,

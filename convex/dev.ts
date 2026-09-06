@@ -1,4 +1,6 @@
 import { v } from "convex/values";
+import { sendEvent } from "@convex-dev/workflow";
+import { components } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -82,6 +84,9 @@ export const inspect = internalQuery({
       costUsd: job.costUsd,
       error: job.error,
       steps: job.steps.map((s) => ({ id: s.id, state: s.state, error: s.error })),
+      // The full output of whichever step is sitting at a gate, so a CLI run
+      // can review it without a browser.
+      gateOutput: job.steps.find((s) => s.state === "awaiting_approval")?.output ?? null,
       // Whichever step produced files -- "render" for carousel, "composite"
       // for custom. Hardcoding one step id made this lie for every format
       // whose last step happens to be named something else.
@@ -163,10 +168,34 @@ export const startJob = internalMutation({
       custom: internal.custom.start,
       "wall-of-text": internal.wallOfText.start,
       slideshow: internal.slideshow.start,
+      "video-animation": internal.videoAnimation.start,
     };
     const starter = starters[formatId];
     if (!starter) throw new Error(`no pipeline for ${formatId}`);
     await ctx.runMutation(starter, { jobId, clientId });
     return jobId;
+  },
+});
+
+/** Auth-free equivalent of jobs.approveStep, for exercising a gate from the CLI. */
+export const approveStep = internalMutation({
+  args: { jobId: v.id("jobs"), stepId: v.string(), edits: v.optional(v.any()) },
+  handler: async (ctx, { jobId, stepId, edits }): Promise<null> => {
+    const job = await ctx.db.get(jobId);
+    if (!job) throw new Error("unknown job");
+    const step = job.steps.find((s) => s.id === stepId);
+    if (!step || step.state !== "awaiting_approval") {
+      throw new Error(`step "${stepId}" is not awaiting approval`);
+    }
+    if (edits !== undefined) {
+      const steps = job.steps.map((s) => (s.id === stepId ? { ...s, output: edits } : s));
+      await ctx.db.patch(jobId, { steps });
+    }
+    if (!job.workflowId) throw new Error("job has no running workflow");
+    await sendEvent(ctx, components.workflow, {
+      name: `approve:${jobId}:${stepId}`,
+      workflowId: job.workflowId as unknown as import("@convex-dev/workflow").WorkflowId,
+    });
+    return null;
   },
 });

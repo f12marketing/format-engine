@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { getFormat } from "@/formats";
+import { ApprovalGate } from "@/components/ApprovalGate";
 
 /**
  * The run, watched live.
@@ -52,6 +53,14 @@ export function JobView({ jobId }: { jobId: string }) {
           {job.error}
         </p>
       )}
+
+      {job.status === "awaiting_approval" &&
+        (() => {
+          const gated = job.steps.find((s) => s.state === "awaiting_approval");
+          return gated ? (
+            <ApprovalGate jobId={job._id} stepId={gated.id} output={gated.output} />
+          ) : null;
+        })()}
 
       <h2 className="mt-8 font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">
         Steps

@@ -31,6 +31,7 @@ export const generate = mutation({
       custom: internal.custom.start,
       "wall-of-text": internal.wallOfText.start,
       slideshow: internal.slideshow.start,
+      "video-animation": internal.videoAnimation.start,
     } as const;
 
     const starter = STARTERS[args.formatId as keyof typeof STARTERS];

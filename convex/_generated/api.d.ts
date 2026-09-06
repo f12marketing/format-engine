@@ -17,9 +17,11 @@ import type * as jobs from "../jobs.js";
 import type * as ledger from "../ledger.js";
 import type * as lib_carouselPrompt from "../lib/carouselPrompt.js";
 import type * as lib_fal from "../lib/fal.js";
+import type * as lib_nodeStorage from "../lib/nodeStorage.js";
 import type * as run from "../run.js";
 import type * as slideshow from "../slideshow.js";
 import type * as uploads from "../uploads.js";
+import type * as videoAnimation from "../videoAnimation.js";
 import type * as wallOfText from "../wallOfText.js";
 
 import type {
@@ -38,9 +40,11 @@ declare const fullApi: ApiFromModules<{
   ledger: typeof ledger;
   "lib/carouselPrompt": typeof lib_carouselPrompt;
   "lib/fal": typeof lib_fal;
+  "lib/nodeStorage": typeof lib_nodeStorage;
   run: typeof run;
   slideshow: typeof slideshow;
   uploads: typeof uploads;
+  videoAnimation: typeof videoAnimation;
   wallOfText: typeof wallOfText;
 }>;
 

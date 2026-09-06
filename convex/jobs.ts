@@ -1,5 +1,8 @@
 import { v } from "convex/values";
+import { sendEvent } from "@convex-dev/workflow";
+import type { WorkflowId } from "@convex-dev/workflow";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { components } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { requireClient } from "./clients";
 
@@ -113,6 +116,73 @@ export const patchStep = internalMutation({
       };
     });
     await ctx.db.patch(jobId, { steps });
+  },
+});
+
+/**
+ * Approval gates, for Video Animation's three review points (and Product
+ * Spokesperson's one, later). A gated step finishes its work, calls this to
+ * park itself, then the workflow calls `step.awaitEvent` -- which is what
+ * actually suspends it, consuming no resources while it waits. This mutation
+ * only records that the job is now sitting at a gate, so the UI has
+ * something to render.
+ */
+export const setAwaitingApproval = internalMutation({
+  args: { jobId: v.id("jobs"), stepId: v.string(), output: v.any() },
+  handler: async (ctx, { jobId, stepId, output }) => {
+    const job = await ctx.db.get(jobId);
+    if (!job) throw new Error("unknown job");
+    const steps = job.steps.map((s) =>
+      s.id === stepId ? { ...s, state: "awaiting_approval" as const, output } : s,
+    );
+    await ctx.db.patch(jobId, { steps, status: "awaiting_approval" });
+  },
+});
+
+/** Flips the job back to "running" once a gate's event has been sent. */
+export const setRunning = internalMutation({
+  args: { jobId: v.id("jobs") },
+  handler: async (ctx, { jobId }) => {
+    await ctx.db.patch(jobId, { status: "running" });
+  },
+});
+
+/**
+ * The Approve button's mutation. `edits`, when given, replaces the gated
+ * step's output before sending the event -- so approving a story you tweaked
+ * a line of is one action, not "save" then "approve".
+ *
+ * Scoped by client, not by job id: an id is not an authorisation, and a
+ * workflow only resumes for an event sent with ITS OWN workflowId, so there
+ * is no risk of approving a step on someone else's run even with the same
+ * stepId string.
+ */
+export const approveStep = mutation({
+  args: { jobId: v.id("jobs"), stepId: v.string(), edits: v.optional(v.any()) },
+  handler: async (ctx, { jobId, stepId, edits }) => {
+    const client = await requireClient(ctx);
+    const job = await ctx.db.get(jobId);
+    if (!job || job.clientId !== client._id) throw new Error("job not found");
+    if (!job.workflowId) throw new Error("job has no running workflow");
+
+    const step = job.steps.find((s) => s.id === stepId);
+    if (!step || step.state !== "awaiting_approval") {
+      throw new Error(`step "${stepId}" is not awaiting approval`);
+    }
+
+    if (edits !== undefined) {
+      const steps = job.steps.map((s) => (s.id === stepId ? { ...s, output: edits } : s));
+      await ctx.db.patch(jobId, { steps });
+    }
+
+    await sendEvent(ctx, components.workflow, {
+      name: `approve:${jobId}:${stepId}`,
+      // The schema stores this as a plain string (jobs.workflowId is set from
+      // every format's own `start` mutation, none of which import this
+      // component-specific branded type) -- safe to assert here since it was
+      // produced by this same workflow component's own `start()` call.
+      workflowId: job.workflowId as WorkflowId,
+    });
   },
 });
 

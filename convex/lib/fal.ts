@@ -1,21 +1,26 @@
 /**
  * The fal.ai client.
  *
- * Two transports, because fal has two shapes:
+ * Three transports, because fal has three shapes:
  *
  *  - `callTool` hits the OpenRouter passthrough, an OpenAI-compatible chat
  *    endpoint, and forces a tool call so the response shape is guaranteed by
  *    the API rather than regex-parsed out of prose.
- *  - `submitAndPoll` hits the queue API, which every media model uses. It is
+ *  - `submitAndPoll` hits the queue API, which most media models use. It is
  *    submit-then-poll and never blocks, which is not a style preference: a
  *    Convex action is killed at 10 minutes, and a 60-second avatar render can
  *    take longer than that to come back.
+ *  - `callSync` hits a model's direct (non-queue) endpoint. Only for models
+ *    fast enough that fal itself doesn't queue them -- ElevenLabs TTS is the
+ *    one in use here, confirmed against the old app's worker, which calls
+ *    this exact endpoint with no status_url/response_url at all.
  *
  * Auth is fal's own scheme -- `Authorization: Key <token>`, not Bearer.
  */
 
 const LLM_BASE = "https://fal.run/openrouter/router/openai/v1";
 const QUEUE_BASE = "https://queue.fal.run";
+const SYNC_BASE = "https://fal.run";
 
 export const LLM_MODEL = "anthropic/claude-sonnet-4.5";
 
@@ -142,11 +147,33 @@ export async function submitAndPoll(
 
     const { status } = (await statusRes.json()) as { status: string };
     if (status === "COMPLETED") {
-      const out = await fetch(response_url, { headers: authHeaders() });
-      if (!out.ok) {
-        throw new Error(`fal result fetch failed: ${out.status}`);
+      let lastStatus = 0;
+      let lastText = "";
+      // fal can also report COMPLETED slightly before the result is actually
+      // fetchable at response_url -- observed directly as a transient 422
+      // that then succeeded seconds later when reproduced by hand with the
+      // identical payload. A short retry closes that window instead of
+      // failing (and re-billing every other item in the same Promise.all)
+      // over what is fal's own propagation delay -- but only when the body
+      // isn't a content-policy rejection, which is deterministic and won't
+      // change on retry.
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 1500));
+        const out = await fetch(response_url, { headers: authHeaders() });
+        lastText = await out.text();
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(lastText);
+        } catch {
+          parsed = null;
+        }
+        if (isContentPolicyBody(parsed ?? lastText)) {
+          throw new FalContentPolicyError(`content checker rejected the request to ${model}`);
+        }
+        if (out.ok) return parsed;
+        lastStatus = out.status;
       }
-      return out.json();
+      throw new Error(`fal result fetch failed: ${lastStatus} ${lastText}`);
     }
     if (status === "FAILED") {
       throw new Error(`fal job failed for ${model}`);
@@ -154,4 +181,120 @@ export async function submitAndPoll(
   }
 
   throw new Error(`fal job for ${model} did not finish within ${timeoutMs}ms`);
+}
+
+/**
+ * Thrown when fal's content checker rejects a request. Distinguished from a
+ * generic fetch failure so a caller can run a fallback ladder instead of just
+ * failing the whole step -- discovered live, not ported speculatively: the
+ * old app's Python worker documented this arriving as a COMPLETED status
+ * whose body carries a `detail` array; here the identical shape arrived on a
+ * hard 422 instead. Both are checked.
+ */
+export class FalContentPolicyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FalContentPolicyError";
+  }
+}
+
+function detailArray(body: unknown): { type?: string }[] | null {
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  return Array.isArray(detail) ? (detail as { type?: string }[]) : null;
+}
+
+function isContentPolicyBody(body: unknown): boolean {
+  const detail = detailArray(body);
+  if (detail?.some((d) => d?.type === "content_policy_violation")) return true;
+  const s = typeof body === "string" ? body : JSON.stringify(body ?? "");
+  return s.includes("content_policy_violation") || s.includes("flagged by a content checker");
+}
+
+/**
+ * One neutral-language chat call, used only to reword a prompt fal's checker
+ * rejected. Plain completion, not a forced tool call -- the old app's own
+ * version of this used a bare chat completion with temperature 0.2, and there
+ * is no structured shape to enforce for a single string of prose.
+ */
+export async function rewritePromptNeutrally(originalPrompt: string): Promise<string> {
+  const system = `You rewrite image-generation prompts that an automated content filter rejected. The scenes are from animated storytelling and are not intended to be graphic. Rewrite the prompt so it describes the SAME scene, composition, characters and mood using calm, non-graphic visual language.
+Rules:
+- Keep every @imageN reference tag exactly as written, in the same order.
+- Keep the art style, framing, lighting and camera notes unchanged.
+- Replace depictions of injury, blood, wounds, violence, death or physical suffering with restrained visual equivalents (posture, expression, symbolism, colour, shadow).
+- Do not add new characters, objects or narrative.
+- Never try to disguise or smuggle prohibited content; if a scene cannot be shown acceptably, describe it symbolically instead.
+Reply with ONLY the rewritten prompt text, no preamble or quotes.`;
+
+  const res = await fetch(`${LLM_BASE}/chat/completions`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      model: LLM_MODEL,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: originalPrompt },
+      ],
+      temperature: 0.2,
+    }),
+  });
+  if (!res.ok) throw new Error(`prompt rewrite failed: ${res.status} ${await res.text()}`);
+  const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  const rewritten = body.choices?.[0]?.message?.content?.trim();
+  if (!rewritten) throw new Error("prompt rewrite returned no text");
+  return rewritten;
+}
+
+/**
+ * Three rungs, ported from the old app's `_generate_with_policy_fallback`:
+ * the original prompt, then an LLM-neutralised rewrite of it, then a minimal
+ * prompt supplied by the caller that keeps only the bare essentials (a
+ * character's neutral reference pose, a shot's scene title and mood). All
+ * three failing is a real, visible error rather than a silent skip -- the
+ * old app's own message is kept because it tells you exactly where to look.
+ */
+export async function submitWithContentPolicyFallback(
+  model: string,
+  buildInput: (prompt: string) => Record<string, unknown>,
+  originalPrompt: string,
+  minimalPrompt: () => string,
+  opts?: { timeoutMs?: number; pollMs?: number },
+): Promise<unknown> {
+  try {
+    return await submitAndPoll(model, buildInput(originalPrompt), opts);
+  } catch (e) {
+    if (!(e instanceof FalContentPolicyError)) throw e;
+  }
+
+  try {
+    const reworded = await rewritePromptNeutrally(originalPrompt);
+    return await submitAndPoll(model, buildInput(reworded), opts);
+  } catch (e) {
+    if (!(e instanceof FalContentPolicyError)) throw e;
+  }
+
+  try {
+    return await submitAndPoll(model, buildInput(minimalPrompt()), opts);
+  } catch (e) {
+    if (e instanceof FalContentPolicyError) {
+      throw new Error(
+        "content checker rejected this shot on all three prompt variants " +
+          "(original, reworded, minimal) -- edit the shot and retry.",
+      );
+    }
+    throw e;
+  }
+}
+
+/** A model fast enough that fal serves it directly, no queue. */
+export async function callSync(model: string, input: unknown): Promise<unknown> {
+  const res = await fetch(`${SYNC_BASE}/${model}`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new Error(`fal sync call failed for ${model}: ${res.status} ${await res.text()}`);
+  }
+  return res.json();
 }

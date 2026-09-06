@@ -156,10 +156,17 @@ export const videoAnimation = defineFormat({
   group: "generated",
   preview: "video",
   shipsToday: true,
-  status: "planned",
+  status: "ready",
   phase: 2,
   config: {
     logline: field.longText({ label: "Logline or script" }),
+    durationSec: field.seconds({
+      label: "Target length",
+      min: 15,
+      max: 90,
+      default: 30,
+      help: "Shots are 5s each, so this sets roughly how many the story is broken into.",
+    }),
     style: field.choice({
       label: "Image style",
       options: ["Pixar 3D", "Anime", "Watercolor", "Photorealistic", "Claymation"],
@@ -176,6 +183,11 @@ export const videoAnimation = defineFormat({
   /**
    * Three gates, which is why porting this early is worth it: the approval
    * step type it forces is the same one Product Spokesperson needs in Phase 4.
+   *
+   * "stitch" absorbs what would have been a separate "captions" step -- same
+   * reasoning as Custom's composite step: burning captions in is the same
+   * ffmpeg invocation as the mux, so a second declared step would describe
+   * two things happening when only one encode actually runs.
    */
   pipeline: [
     { id: "story", primitive: "P1", label: "Write the story", gate: true },
@@ -184,8 +196,7 @@ export const videoAnimation = defineFormat({
     { id: "scenes", primitive: "P2", label: "Composite each scene" },
     { id: "clips", primitive: "P3", label: "Animate each shot" },
     { id: "voice", primitive: "P4", label: "Record voiceover" },
-    { id: "stitch", primitive: "P7", label: "Stitch and mux" },
-    { id: "captions", primitive: "P8", label: "Burn in captions" },
+    { id: "stitch", primitive: "P7", label: "Stitch, caption and mux" },
   ],
 });
 
