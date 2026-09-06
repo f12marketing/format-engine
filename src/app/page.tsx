@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { FormatPicker } from "@/components/FormatPicker";
 import { JobList } from "@/components/JobList";
 import { AuthStatus } from "@/components/AuthStatus";
@@ -34,9 +35,19 @@ export default function Dashboard() {
         + Create new content
       </button>
 
-      <h2 className="mt-10 font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">
-        Recent jobs
-      </h2>
+      <div className="mt-10 flex items-baseline justify-between">
+        <h2 className="font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">
+          Recent jobs
+        </h2>
+        {backendConfigured && (
+          <Link
+            href="/history"
+            className="font-mono text-[0.65rem] uppercase tracking-wide text-muted hover:text-accent"
+          >
+            View all →
+          </Link>
+        )}
+      </div>
       {backendConfigured ? (
         <JobList />
       ) : (

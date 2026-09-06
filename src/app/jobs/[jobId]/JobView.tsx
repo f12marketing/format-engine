@@ -6,6 +6,7 @@ import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { getFormat } from "@/formats";
 import { ApprovalGate } from "@/components/ApprovalGate";
+import { RemixActions } from "@/components/RemixActions";
 
 /**
  * The run, watched live.
@@ -18,6 +19,7 @@ import { ApprovalGate } from "@/components/ApprovalGate";
 export function JobView({ jobId }: { jobId: string }) {
   const job = useQuery(api.jobs.get, { jobId: jobId as Id<"jobs"> });
   const assets = useQuery(api.assets.forJob, { jobId: jobId as Id<"jobs"> });
+  const remixes = useQuery(api.jobs.remixesOf, { jobId: jobId as Id<"jobs"> });
 
   if (job === undefined) {
     return <Shell><p className="text-sm text-muted">Loading…</p></Shell>;
@@ -45,6 +47,17 @@ export function JobView({ jobId }: { jobId: string }) {
           <p className="font-mono text-xs text-muted">
             {job.status} · ${job.costUsd.toFixed(4)}
           </p>
+          {job.remixedFromJobId && (
+            <p className="mt-0.5 text-xs text-muted">
+              Remixed from{" "}
+              <Link
+                href={`/jobs/${job.remixedFromJobId}`}
+                className="underline hover:text-accent"
+              >
+                this job
+              </Link>
+            </p>
+          )}
         </div>
       </header>
 
@@ -61,6 +74,10 @@ export function JobView({ jobId }: { jobId: string }) {
             <ApprovalGate jobId={job._id} stepId={gated.id} output={gated.output} />
           ) : null;
         })()}
+
+      {job.status === "done" && (
+        <RemixActions jobId={job._id} formatId={job.formatId} steps={job.steps} />
+      )}
 
       <h2 className="mt-8 font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">
         Steps
@@ -168,6 +185,29 @@ export function JobView({ jobId }: { jobId: string }) {
                 className="rounded-md border border-line bg-surface-sub px-2 py-1 font-mono text-xs"
               >
                 {f.name}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+
+      {remixes?.length ? (
+        <>
+          <h2 className="mt-8 font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">
+            Remixed as
+          </h2>
+          <ul className="mt-2 space-y-2">
+            {remixes.map((r) => (
+              <li key={r._id}>
+                <Link
+                  href={`/jobs/${r._id}`}
+                  className="flex items-center justify-between rounded-lg border border-line bg-surface-sub px-3 py-2 text-sm hover:border-accent"
+                >
+                  <span>{r.status}</span>
+                  <span className="font-mono text-xs text-muted">
+                    ${r.costUsd.toFixed(3)}
+                  </span>
+                </Link>
               </li>
             ))}
           </ul>

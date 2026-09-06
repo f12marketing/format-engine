@@ -119,7 +119,8 @@ export default defineSchema({
     error: v.optional(v.string()),
   })
     .index("by_client", ["clientId"])
-    .index("by_client_and_format", ["clientId", "formatId"]),
+    .index("by_client_and_format", ["clientId", "formatId"])
+    .index("by_remixed_from", ["remixedFromJobId"]),
 
   /**
    * Written per step, in the same transaction that records the step.

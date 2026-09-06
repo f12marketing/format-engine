@@ -1,6 +1,7 @@
 "use client";
 
 import { UploadField } from "./UploadField";
+import { TrendingClipField } from "./TrendingClipField";
 import { convexConfigured } from "@/app/ConvexClientProvider";
 import type { Field, FormatDefinition } from "@/formats/types";
 
@@ -209,11 +210,15 @@ function Control({
         <Placeholder kind={field.kind} />
       );
 
-    // The avatar roster and the clip library need tables that arrive with
-    // their own phases. The placeholder names which one, so the gap is legible
-    // rather than blank.
-    case "avatar":
     case "trendingClip":
+      return convexConfigured ? (
+        <TrendingClipField value={value} onChange={onChange} />
+      ) : (
+        <Placeholder kind={field.kind} />
+      );
+
+    // The avatar roster needs a table that arrives with its own phase.
+    case "avatar":
       return <Placeholder kind={field.kind} />;
 
     default:
@@ -225,7 +230,7 @@ const PLACEHOLDER_NOTE: Record<string, string> = {
   image: "Upload — connect Convex to enable",
   video: "Upload — connect Convex to enable",
   avatar: "Roster picker — P10, Phase 4",
-  trendingClip: "Clip library — P9, Phase 3",
+  trendingClip: "Clip library — connect Convex to enable",
 };
 
 function Placeholder({ kind }: { kind: string }) {

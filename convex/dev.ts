@@ -4,6 +4,7 @@ import { components } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { STARTERS, type RunnableFormatId } from "./starters";
 
 /**
  * Dev-only helpers, callable from the CLI with `npx convex run`.
@@ -146,6 +147,35 @@ export const seedAsset = internalAction({
   },
 });
 
+/**
+ * Seeds a clip straight into the shared library from base64, bypassing
+ * ScrapeCreators -- for exercising Video Hook & Demo / Green Screen Meme
+ * before a SCRAPECREATORS_API_KEY exists. Dev-only, like everything else here.
+ */
+export const seedClip = internalAction({
+  args: {
+    base64: v.string(),
+    durationSec: v.number(),
+    width: v.number(),
+    height: v.number(),
+  },
+  handler: async (ctx, { base64, durationSec, width, height }): Promise<Id<"clips">> => {
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const storageId = await ctx.storage.store(
+      new Blob([bytes as unknown as BlobPart], { type: "video/mp4" }),
+    );
+    return ctx.runMutation(internal.clips.record, {
+      source: "dev-seed",
+      sourceUrl: "dev://seed",
+      storageId,
+      durationSec,
+      width,
+      height,
+      tags: [],
+    });
+  },
+});
+
 /** Starts any registered format for a client, bypassing the auth-scoped path. */
 export const startJob = internalMutation({
   args: {
@@ -163,17 +193,65 @@ export const startJob = internalMutation({
       steps: steps.map((s) => ({ ...s, state: "pending" as const })),
       costUsd: 0,
     });
-    const starters: Record<string, typeof internal.carousel.start> = {
-      carousel: internal.carousel.start,
-      custom: internal.custom.start,
-      "wall-of-text": internal.wallOfText.start,
-      slideshow: internal.slideshow.start,
-      "video-animation": internal.videoAnimation.start,
-    };
-    const starter = starters[formatId];
+    const starter = STARTERS[formatId as RunnableFormatId];
     if (!starter) throw new Error(`no pipeline for ${formatId}`);
     await ctx.runMutation(starter, { jobId, clientId });
     return jobId;
+  },
+});
+
+/** Triggers a TikTok clip ingestion from the CLI. Needs SCRAPECREATORS_API_KEY set. */
+export const ingestTikTokClip = internalAction({
+  args: { sourceUrl: v.string(), tags: v.optional(v.array(v.string())) },
+  handler: async (ctx, { sourceUrl, tags }): Promise<Id<"clips">> =>
+    ctx.runAction(internal.lib.clipIngest.ingestTikTok, { sourceUrl, tags }),
+});
+
+/** Auth-free equivalent of remix.remix, for exercising it from the CLI. */
+export const remixJob = internalMutation({
+  args: {
+    jobId: v.id("jobs"),
+    action: v.union(v.literal("remixVisuals"), v.literal("regenerateCopy")),
+  },
+  handler: async (ctx, { jobId, action }): Promise<Id<"jobs">> => {
+    const COPY_PRIMITIVES = new Set(["P1"]);
+    const ALWAYS_RERUN_PRIMITIVES = new Set(["P7", "P8"]);
+
+    const source = await ctx.db.get(jobId);
+    if (!source) throw new Error("job not found");
+    if (source.status !== "done") throw new Error("Only a finished job can be remixed.");
+
+    const starter = STARTERS[source.formatId as RunnableFormatId];
+    if (!starter) throw new Error(`${source.formatId} has no pipeline.`);
+
+    const keepDone = (primitive: string) =>
+      action === "remixVisuals" ? COPY_PRIMITIVES.has(primitive) : !COPY_PRIMITIVES.has(primitive);
+
+    const steps = source.steps.map((s) => {
+      if (!ALWAYS_RERUN_PRIMITIVES.has(s.primitive) && keepDone(s.primitive)) {
+        return {
+          id: s.id,
+          primitive: s.primitive,
+          label: s.label,
+          state: "done" as const,
+          output: s.output,
+        };
+      }
+      return { id: s.id, primitive: s.primitive, label: s.label, state: "pending" as const };
+    });
+
+    const newJobId = await ctx.db.insert("jobs", {
+      clientId: source.clientId,
+      formatId: source.formatId,
+      config: source.config,
+      status: "running",
+      steps,
+      costUsd: 0,
+      remixedFromJobId: jobId,
+    });
+
+    await ctx.runMutation(starter, { jobId: newJobId, clientId: source.clientId });
+    return newJobId;
   },
 });
 

@@ -209,7 +209,7 @@ export const videoHookDemo = defineFormat({
   icon: "🪝",
   group: "trending",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 3,
   config: {
     mode: field.mode(),
@@ -218,11 +218,16 @@ export const videoHookDemo = defineFormat({
     demoVideo: field.video({ label: "Demo video" }),
     prompt: field.prompt(),
   },
+  /**
+   * "Stitch" absorbs the caption burn-in -- same reasoning as Video
+   * Animation's "stitch" step: both happen in one ffmpeg encode, so a second
+   * declared step would describe two things happening when only one render
+   * actually runs.
+   */
   pipeline: [
     { id: "clip", primitive: "P9", label: "Fetch the hook clip" },
     { id: "copy", primitive: "P1", label: "Write the captions" },
-    { id: "stitch", primitive: "P7", label: "Stitch hook onto demo" },
-    { id: "captions", primitive: "P8", label: "Burn in captions" },
+    { id: "stitch", primitive: "P7", label: "Stitch hook onto demo and caption" },
   ],
 });
 
@@ -233,7 +238,7 @@ export const greenScreenMeme = defineFormat({
   icon: "🟩",
   group: "trending",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 3,
   config: {
     mode: field.mode(),
@@ -245,8 +250,7 @@ export const greenScreenMeme = defineFormat({
   pipeline: [
     { id: "clip", primitive: "P9", label: "Fetch the clip" },
     { id: "copy", primitive: "P1", label: "Write the captions" },
-    { id: "key", primitive: "P7", label: "Chroma key and composite" },
-    { id: "captions", primitive: "P8", label: "Burn in captions" },
+    { id: "key", primitive: "P7", label: "Chroma key, composite and caption" },
   ],
 });
 
