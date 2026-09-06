@@ -162,6 +162,7 @@ export const startJob = internalMutation({
       carousel: internal.carousel.start,
       custom: internal.custom.start,
       "wall-of-text": internal.wallOfText.start,
+      slideshow: internal.slideshow.start,
     };
     const starter = starters[formatId];
     if (!starter) throw new Error(`no pipeline for ${formatId}`);

@@ -25,7 +25,7 @@ export const slideshow = defineFormat({
   group: "slides-text",
   preview: "video",
   shipsToday: true, // the old app's Image Slideshow mode
-  status: "planned",
+  status: "ready",
   phase: 1,
   config: {
     mode: field.mode(),
