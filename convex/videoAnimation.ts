@@ -69,12 +69,12 @@ export const run = workflow
   });
 
 // ---------------------------------------------------------------- pricing
-const LLM_INPUT_PER_1M = 3.0;
-const LLM_OUTPUT_PER_1M = 15.0;
-const IMAGE_PRICE_PER_UNIT = 0.039; // fal-ai/nano-banana
-const COMPOSITE_PRICE_PER_UNIT = 0.045; // fal-ai/flux-2-pro/edit
+const LLM_INPUT_PER_1M = 2.0;
+const LLM_OUTPUT_PER_1M = 10.0;
+const IMAGE_PRICE_PER_UNIT = 0.08; // fal-ai/nano-banana-2 at 1K
+const COMPOSITE_PRICE_PER_UNIT = 0.04; // alibaba/qwen-image-3/edit at 1K
 const VIDU_PRICE_PER_SEC = 0.077; // fal-ai/vidu/q3/image-to-video/turbo, 720p
-const TTS_PRICE_PER_1000_CHARS = 0.05; // fal-ai/elevenlabs/tts/turbo-v2.5
+const TTS_PRICE_PER_1000_CHARS = 0.1; // fal-ai/elevenlabs/tts/eleven-v3
 
 function llmCost(inputTokens: number, outputTokens: number): number {
   return (inputTokens / 1e6) * LLM_INPUT_PER_1M + (outputTokens / 1e6) * LLM_OUTPUT_PER_1M;
@@ -358,7 +358,7 @@ export const designCharacters = internalAction({
           // pose. This is what actually cleared the checker in the old app's
           // own recorded case where reasonable prose was rejected twice.
           const result = (await submitWithContentPolicyFallback(
-            "fal-ai/nano-banana",
+            "fal-ai/nano-banana-2",
             buildInput,
             c.prompt,
             () =>
@@ -380,7 +380,7 @@ export const designCharacters = internalAction({
             num_images: 1,
           });
           const result = (await submitWithContentPolicyFallback(
-            "fal-ai/nano-banana",
+            "fal-ai/nano-banana-2",
             buildInput,
             b.prompt,
             () =>
@@ -400,7 +400,7 @@ export const designCharacters = internalAction({
       jobId,
       stepId: "characters",
       primitive: "P2",
-      model: "fal-ai/nano-banana",
+      model: "fal-ai/nano-banana-2",
       units: imageCount,
       unitLabel: "images",
       costUsd: imageCount * IMAGE_PRICE_PER_UNIT,
@@ -625,12 +625,15 @@ export const compositeScenes = internalAction({
         // reveal a glowing seed"). fal's checker is documented as sometimes
         // sensitive to phrasing rather than content, which is exactly why a
         // reworded retry is rung 2 rather than giving up after rung 1.
+        // `safety_tolerance` was flux-2-pro/edit's own knob and has no
+        // equivalent on qwen-image-3/edit; `enable_safety_checker` is the
+        // one both accept. The image_size enum is identical between them,
+        // so the aspect-ratio table above carries over untouched.
         const buildInput = (prompt: string) => ({
           prompt,
           image_urls: imageUrls,
           image_size: imageSize,
           output_format: "jpeg",
-          safety_tolerance: "2",
           enable_safety_checker: true,
         });
         // Rung 3: the full wrapper survives, only the scene prose is dropped
@@ -643,7 +646,7 @@ export const compositeScenes = internalAction({
           );
 
         const result = (await submitWithContentPolicyFallback(
-          "fal-ai/flux-2-pro/edit",
+          "alibaba/qwen-image-3/edit",
           buildInput,
           wrap(shot.action),
           minimalPrompt,
@@ -659,7 +662,7 @@ export const compositeScenes = internalAction({
       jobId,
       stepId: "scenes",
       primitive: "P2",
-      model: "fal-ai/flux-2-pro/edit",
+      model: "alibaba/qwen-image-3/edit",
       units: composited.length,
       unitLabel: "composites",
       costUsd: composited.length * COMPOSITE_PRICE_PER_UNIT,
@@ -774,13 +777,12 @@ export const generateVoiceover = internalAction({
       shots.map(async (shot) => {
         const text = (shot.dialogue ?? "").trim();
         if (!text) return shot;
-        const result = (await callSync("fal-ai/elevenlabs/tts/turbo-v2.5", {
+        // eleven-v3: `similarity_boost`, `style` and `speed` are not in its
+        // schema (see speechPrimitive.ts for the full note).
+        const result = (await callSync("fal-ai/elevenlabs/tts/eleven-v3", {
           text,
           voice: "Sarah",
           stability: 0.5,
-          similarity_boost: 0.75,
-          style: 0.0,
-          speed: 1.0,
           language_code: languageCode,
           apply_text_normalization: "auto",
         })) as { audio?: { url?: string } };
@@ -796,7 +798,7 @@ export const generateVoiceover = internalAction({
         jobId,
         stepId: "voice",
         primitive: "P4",
-        model: "fal-ai/elevenlabs/tts/turbo-v2.5",
+        model: "fal-ai/elevenlabs/tts/eleven-v3",
         units: totalChars,
         unitLabel: "chars",
         costUsd: (totalChars / 1000) * TTS_PRICE_PER_1000_CHARS,

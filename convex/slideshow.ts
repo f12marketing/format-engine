@@ -74,9 +74,9 @@ const SLIDESHOW_TOOL = {
   },
 };
 
-const LLM_INPUT_PER_1M = 3.0;
-const LLM_OUTPUT_PER_1M = 15.0;
-const IMAGE_PRICE_PER_UNIT = 0.039; // fal-ai/nano-banana, per image
+const LLM_INPUT_PER_1M = 2.0;
+const LLM_OUTPUT_PER_1M = 10.0;
+const IMAGE_PRICE_PER_UNIT = 0.08; // fal-ai/nano-banana-2, per image at 1K
 const MAX_CAPTION_CHARS = 90;
 
 interface SlidePlan {
@@ -191,7 +191,7 @@ export const generateImages = internalAction({
       plan.map(async (slide) => {
         // Same request shape as the old app's stage_images(): nano-banana,
         // one image, a fixed safety tolerance that has been fine in practice.
-        const result = (await submitAndPoll("fal-ai/nano-banana", {
+        const result = (await submitAndPoll("fal-ai/nano-banana-2", {
           prompt: slide.imagePrompt,
           aspect_ratio: "9:16",
           output_format: "png",
@@ -209,7 +209,7 @@ export const generateImages = internalAction({
       jobId,
       stepId: "images",
       primitive: "P2",
-      model: "fal-ai/nano-banana",
+      model: "fal-ai/nano-banana-2",
       units: plan.length,
       unitLabel: "images",
       costUsd: plan.length * IMAGE_PRICE_PER_UNIT,

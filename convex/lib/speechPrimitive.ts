@@ -10,7 +10,7 @@ import { callSync } from "./fal";
  * ran -- same "either P1 wrote it, or the user did" fallback every other
  * format's render step already uses.
  */
-const TTS_PRICE_PER_1000_CHARS = 0.05;
+const TTS_PRICE_PER_1000_CHARS = 0.1; // fal-ai/elevenlabs/tts/eleven-v3
 const AVG_SPEECH_CHARS_PER_SEC = 15;
 
 export const generateSpeech = internalAction({
@@ -39,13 +39,16 @@ export const generateSpeech = internalAction({
       aboutToSpendUsd: (text.length / 1000) * TTS_PRICE_PER_1000_CHARS * 1.2,
     });
 
-    const result = (await callSync("fal-ai/elevenlabs/tts/turbo-v2.5", {
+    // eleven-v3 rather than turbo-v2.5: the expressive flagship, and
+    // turbo-v2.5 was the oldest model left in the stack (Feb 2025). Its
+    // schema is narrower -- `similarity_boost`, `style` and `speed` simply
+    // do not exist on v3 and were dropped rather than sent and ignored.
+    // Twice the price ($0.10 vs $0.05 per 1k chars), which the rate constant
+    // above reflects.
+    const result = (await callSync("fal-ai/elevenlabs/tts/eleven-v3", {
       text,
       voice: voice ?? "Sarah",
       stability: 0.5,
-      similarity_boost: 0.75,
-      style: 0.0,
-      speed: 1.0,
       language_code: (config.language as string | undefined) ?? "en",
       apply_text_normalization: "auto",
     })) as { audio?: { url?: string } };
@@ -57,7 +60,7 @@ export const generateSpeech = internalAction({
       jobId,
       stepId: "speech",
       primitive: "P4",
-      model: "fal-ai/elevenlabs/tts/turbo-v2.5",
+      model: "fal-ai/elevenlabs/tts/eleven-v3",
       units: text.length,
       unitLabel: "characters",
       costUsd: (text.length / 1000) * TTS_PRICE_PER_1000_CHARS,

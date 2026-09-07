@@ -42,7 +42,7 @@ export const run = workflow
     return null;
   });
 
-const COMPOSITE_PRICE_PER_UNIT = 0.045; // fal-ai/flux-2-pro/edit
+const COMPOSITE_PRICE_PER_UNIT = 0.04; // alibaba/qwen-image-3/edit at 1K
 
 /** P2. Composites the roster presenter holding a phone showing the app screenshot. */
 export const composite = internalAction({
@@ -98,7 +98,7 @@ export const composite = internalAction({
     });
 
     const result = (await submitWithContentPolicyFallback(
-      "fal-ai/flux-2-pro/edit",
+      "alibaba/qwen-image-3/edit",
       buildInput,
       wrap("presenting the app with an engaged, friendly expression"),
       () => wrap("standing"),
@@ -121,7 +121,7 @@ export const composite = internalAction({
       jobId,
       stepId: "composite",
       primitive: "P2",
-      model: "fal-ai/flux-2-pro/edit",
+      model: "alibaba/qwen-image-3/edit",
       units: 1,
       unitLabel: "images",
       costUsd: COMPOSITE_PRICE_PER_UNIT,

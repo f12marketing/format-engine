@@ -61,8 +61,8 @@ const WALL_TOOL = {
   },
 };
 
-const LLM_INPUT_PER_1M = 3.0;
-const LLM_OUTPUT_PER_1M = 15.0;
+const LLM_INPUT_PER_1M = 2.0;
+const LLM_OUTPUT_PER_1M = 10.0;
 const MAX_CHARS = 140;
 
 export const writeText = internalAction({
