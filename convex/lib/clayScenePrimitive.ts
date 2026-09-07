@@ -13,7 +13,7 @@ import { submitWithContentPolicyFallback } from "./fal";
  * declared on the Step in `planned.ts` is UI-facing metadata only, nothing
  * server-side reads a Step's `options` at run time.
  */
-const COMPOSITE_PRICE_PER_UNIT = 0.045; // fal-ai/flux-2-pro/edit
+const COMPOSITE_PRICE_PER_UNIT = 0.04; // alibaba/qwen-image-3/edit at 1K
 
 export const composeClayScene = internalAction({
   args: { jobId: v.id("jobs"), clientId: v.id("clients"), artDirection: v.string() },
@@ -49,7 +49,7 @@ export const composeClayScene = internalAction({
     });
 
     const result = (await submitWithContentPolicyFallback(
-      "fal-ai/flux-2-pro/edit",
+      "alibaba/qwen-image-3/edit",
       buildInput,
       wrap("Place the product naturally into the scene, as the clear focal point."),
       () => wrap("Show the product plainly in the scene."),
@@ -72,7 +72,7 @@ export const composeClayScene = internalAction({
       jobId,
       stepId: "scene",
       primitive: "P2",
-      model: "fal-ai/flux-2-pro/edit",
+      model: "alibaba/qwen-image-3/edit",
       units: 1,
       unitLabel: "images",
       costUsd: COMPOSITE_PRICE_PER_UNIT,

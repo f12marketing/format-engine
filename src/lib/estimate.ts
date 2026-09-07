@@ -13,17 +13,17 @@ import type { FormatDefinition, Primitive } from "@/formats/types";
  */
 
 export const RATES = {
-  /** Claude via the fal OpenRouter passthrough, per 1M tokens. */
-  llmInputPer1M: 3.0,
-  llmOutputPer1M: 15.0,
-  /** fal-ai/nano-banana, per image. */
-  imagePerUnit: 0.039,
-  /** fal-ai/flux-2-pro/edit, flat per composite at ~1920x1080. */
-  compositePerUnit: 0.045,
+  /** Claude Sonnet 5 via the fal OpenRouter passthrough, per 1M tokens. */
+  llmInputPer1M: 2.0,
+  llmOutputPer1M: 10.0,
+  /** fal-ai/nano-banana-2, per image at its 1K default. */
+  imagePerUnit: 0.08,
+  /** alibaba/qwen-image-3/edit at 1K, per composite. */
+  compositePerUnit: 0.04,
   /** fal-ai/vidu/q3 image-to-video, per video-second. */
   viduPerSec: { "360p": 0.035, "540p": 0.035, "720p": 0.077, "1080p": 0.077 },
-  /** fal-ai/elevenlabs/tts, per 1000 characters. */
-  ttsPer1000Chars: 0.05,
+  /** fal-ai/elevenlabs/tts/eleven-v3, per 1000 characters. */
+  ttsPer1000Chars: 0.1,
   /** fal-ai/bytedance/omnihuman/v1.5, per second. The single most expensive line here. */
   avatarPerSec: 0.16,
   /**

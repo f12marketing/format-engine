@@ -47,7 +47,7 @@ export const run = workflow
     return null;
   });
 
-const COMPOSITE_PRICE_PER_UNIT = 0.045; // fal-ai/flux-2-pro/edit
+const COMPOSITE_PRICE_PER_UNIT = 0.04; // alibaba/qwen-image-3/edit at 1K
 
 /** P2. Composites the roster avatar into a kitchen, mid-cut. */
 export const composeKitchenScene = internalAction({
@@ -93,7 +93,7 @@ export const composeKitchenScene = internalAction({
     });
 
     const result = (await submitWithContentPolicyFallback(
-      "fal-ai/flux-2-pro/edit",
+      "alibaba/qwen-image-3/edit",
       buildInput,
       wrap("mid-motion cutting a piece of fruit"),
       () => wrap("holding a knife over a cutting board with fruit"),
@@ -115,7 +115,7 @@ export const composeKitchenScene = internalAction({
       jobId,
       stepId: "scene",
       primitive: "P2",
-      model: "fal-ai/flux-2-pro/edit",
+      model: "alibaba/qwen-image-3/edit",
       units: 1,
       unitLabel: "images",
       costUsd: COMPOSITE_PRICE_PER_UNIT,

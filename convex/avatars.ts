@@ -137,7 +137,7 @@ export const generateForClient = internalAction({
       num_images: 1,
     });
     const result = (await submitWithContentPolicyFallback(
-      "fal-ai/nano-banana",
+      "fal-ai/nano-banana-2",
       buildInput,
       `Portrait reference image for a talking-head avatar. ${lookNotes}. ` +
         "Shoulders-up framing, facing the camera directly, neutral studio " +

@@ -34,8 +34,8 @@ const SCRIPT_TOOL = {
   },
 };
 
-const LLM_INPUT_PER_1M = 3.0;
-const LLM_OUTPUT_PER_1M = 15.0;
+const LLM_INPUT_PER_1M = 2.0;
+const LLM_OUTPUT_PER_1M = 10.0;
 
 export const writeScript = internalAction({
   args: { jobId: v.id("jobs"), clientId: v.id("clients") },

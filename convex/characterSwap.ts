@@ -23,7 +23,7 @@ import { submitAndPoll, submitWithContentPolicyFallback, callVisionTool } from "
  *  - "Recreate" -> no matching endpoint exists, so it's composed from two
  *    calls already used elsewhere in this app: the clip's first frame is
  *    extracted, the character is composited into THAT frame with
- *    flux-2-pro/edit (Product Spokesperson's own move), and the result is
+ *    qwen-image-3/edit (Product Spokesperson's own move), and the result is
  *    fed into animate/move -- background comes from the clip's first frame,
  *    not the character photo, which is what "best for a still background"
  *    in the spec's own help text is describing.
@@ -60,15 +60,20 @@ export const run = workflow
     return null;
   });
 
-// fal-ai/wan/v2.2-14b/animate/{replace,move}, 480p -- chosen to match the
-// rate this app had already budgeted before a real model was picked; 720p is
-// double at $0.08/sec if quality demands it later.
-const SWAP_PRICE_PER_SEC = 0.04;
+/**
+ * Keyed by model so a future endpoint swap can't silently bill at the old
+ * one's rate. Both Wan-Animate endpoints are $0.04/sec at the 480p tier they
+ * default to ($0.06 at 580p, $0.08 at 720p).
+ */
+const SWAP_PRICE_PER_SEC: Record<string, number> = {
+  "fal-ai/wan/v2.2-14b/animate/replace": 0.04,
+  "fal-ai/wan/v2.2-14b/animate/move": 0.04,
+};
 // fal-ai/elevenlabs/voice-changer, $0.30/minute.
 const VOICE_CHANGE_PRICE_PER_SEC = 0.005;
-// fal-ai/flux-2-pro/edit -- only spent in Recreate mode, for the extra
+// alibaba/qwen-image-3/edit at 1K -- only spent in Recreate mode, for the extra
 // first-frame composite that mode alone needs.
-const COMPOSITE_PRICE_PER_UNIT = 0.045;
+const COMPOSITE_PRICE_PER_UNIT = 0.04;
 
 function renderServiceBase(): string {
   const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
@@ -119,12 +124,28 @@ export const swap = internalAction({
     const durationSec = Math.max(1, Math.round(inspected.durationSec || 0));
     if (!inspected.durationSec) throw new Error("Could not read the source video's duration.");
 
+    const sceneControl = config.sceneControl ?? "Image";
+    /**
+     * fal-ai/wan-motion was tried here and rejected on measured evidence, not
+     * on paper: it is the better model (same Wan-Animate family, plus pose
+     * retargeting for mismatched builds, and cheaper at 720p), and its schema
+     * is a drop-in. But a 10-second driving clip took ~12 minutes to come
+     * back, against animate/move's ~5 for the identical input. That is past
+     * this step's own 8-minute budget AND past Convex's hard 10-minute action
+     * ceiling, so adopting it would trade a working step for one that times
+     * out and re-bills on retry. Revisit if fal speeds it up.
+     */
+    const model =
+      sceneControl === "Video"
+        ? "fal-ai/wan/v2.2-14b/animate/replace"
+        : "fal-ai/wan/v2.2-14b/animate/move";
+    const swapPricePerSec = SWAP_PRICE_PER_SEC[model];
+
     await ctx.runMutation(internal.ledger.assertUnderCap, {
       clientId,
-      aboutToSpendUsd: durationSec * SWAP_PRICE_PER_SEC + COMPOSITE_PRICE_PER_UNIT * 1.2,
+      aboutToSpendUsd: durationSec * swapPricePerSec + COMPOSITE_PRICE_PER_UNIT * 1.2,
     });
 
-    const sceneControl = config.sceneControl ?? "Image";
     const ledgerIds: Id<"spend_ledger">[] = [];
     let animateImageUrl = characterImageUrl;
 
@@ -153,7 +174,7 @@ export const swap = internalAction({
         num_images: 1,
       });
       const compositeResult = (await submitWithContentPolicyFallback(
-        "fal-ai/flux-2-pro/edit",
+        "alibaba/qwen-image-3/edit",
         buildInput,
         wrap("Replace the person in the frame with the character, matching their original pose."),
         () => wrap("Place the character naturally into the frame."),
@@ -175,7 +196,7 @@ export const swap = internalAction({
           jobId,
           stepId: "swap",
           primitive: "P2",
-          model: "fal-ai/flux-2-pro/edit",
+          model: "alibaba/qwen-image-3/edit",
           units: 1,
           unitLabel: "images",
           costUsd: COMPOSITE_PRICE_PER_UNIT,
@@ -183,10 +204,6 @@ export const swap = internalAction({
       );
     }
 
-    const model =
-      sceneControl === "Video"
-        ? "fal-ai/wan/v2.2-14b/animate/replace"
-        : "fal-ai/wan/v2.2-14b/animate/move";
     const result = (await submitAndPoll(
       model,
       { video_url: sourceVideoUrl, image_url: animateImageUrl },
@@ -214,7 +231,7 @@ export const swap = internalAction({
         model,
         units: durationSec,
         unitLabel: "seconds",
-        costUsd: durationSec * SWAP_PRICE_PER_SEC,
+        costUsd: durationSec * swapPricePerSec,
       }),
     );
     await ctx.runMutation(internal.jobs.patchStep, {

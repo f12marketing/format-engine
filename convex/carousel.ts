@@ -16,8 +16,8 @@ import {
 export const workflow = new WorkflowManager(components.workflow);
 
 /** Anthropic list rates. fal may add margin, so treat these as a floor. */
-const LLM_INPUT_PER_1M = 3.0;
-const LLM_OUTPUT_PER_1M = 15.0;
+const LLM_INPUT_PER_1M = 2.0;
+const LLM_OUTPUT_PER_1M = 10.0;
 
 /**
  * Phase 0's whole pipeline: write the deck, then render it.

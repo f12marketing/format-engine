@@ -22,7 +22,14 @@ const LLM_BASE = "https://fal.run/openrouter/router/openai/v1";
 const QUEUE_BASE = "https://queue.fal.run";
 const SYNC_BASE = "https://fal.run";
 
-export const LLM_MODEL = "anthropic/claude-sonnet-4.5";
+/**
+ * Sonnet 5 rather than 4.5: strictly better on both axes, verified against
+ * OpenRouter's own pricing endpoint during the model audit -- newer, and
+ * $2/$10 per M tokens against 4.5's $3/$15, so every P1 step in the app got
+ * cheaper and more capable at once. The per-file LLM_INPUT_PER_1M /
+ * LLM_OUTPUT_PER_1M constants were moved with it.
+ */
+export const LLM_MODEL = "anthropic/claude-sonnet-5";
 
 function key(): string {
   const k = (process.env.FAL_API_KEY ?? "").trim();
