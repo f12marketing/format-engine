@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { submitWithContentPolicyFallback } from "./fal";
+import { resolveRosterPersona } from "./roster";
 
 /**
  * P5, shared by all five avatar formats -- every one of them names this step
@@ -12,8 +13,10 @@ import { submitWithContentPolicyFallback } from "./fal";
  * The driving image is resolved two ways: if a "composite" step exists and
  * produced one (Product Spokesperson, Green Screen Mobile -- the avatar has
  * been placed with a product or a phone first), that composite IS the
- * driving image; otherwise it's the roster avatar's own reference portrait.
- * Exactly one of those two exists for any given format's pipeline, so this
+ * driving image; otherwise it's `rosterRef`'s own photo, resolved by
+ * `resolveRosterPersona` -- a P10 avatar's reference portrait, or a trained
+ * influencer's training photo, indistinguishable from here on. Exactly one
+ * of composite/rosterRef exists for any given format's pipeline, so this
  * needs no format-specific branch.
  *
  * fal-ai/bytedance/omnihuman/v1.5 over fal-ai/infinitalk: infinitalk caps at
@@ -31,11 +34,11 @@ export const renderAvatarClip = internalAction({
   args: {
     jobId: v.id("jobs"),
     clientId: v.id("clients"),
-    /** The roster avatar to animate, when no composite step supplies the image instead. */
-    avatarId: v.optional(v.id("avatars")),
+    /** The roster avatar or influencer to animate, when no composite step supplies the image instead. */
+    rosterRef: v.optional(v.string()),
     prompt: v.optional(v.string()),
   },
-  handler: async (ctx, { jobId, clientId, avatarId, prompt }): Promise<null> => {
+  handler: async (ctx, { jobId, clientId, rosterRef, prompt }): Promise<null> => {
     await ctx.runMutation(internal.jobs.patchStep, { jobId, stepId: "avatar", state: "running" });
 
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
@@ -47,15 +50,8 @@ export const renderAvatarClip = internalAction({
 
     let imageUrl = compositeUrl;
     if (!imageUrl) {
-      if (!avatarId) throw new Error("No avatar selected, and no composite step produced an image.");
-      const avatar = await ctx.runQuery(internal.avatars.getInternal, { avatarId });
-      if (!avatar) throw new Error("The selected avatar no longer exists.");
-      const refAssetId = avatar.referenceAssetIds[0];
-      if (!refAssetId) throw new Error("The selected avatar has no reference image.");
-      const asset = await ctx.runQuery(internal.assets.getInternal, { assetId: refAssetId });
-      if (!asset) throw new Error("The avatar's reference image could not be found.");
-      imageUrl = (await ctx.storage.getUrl(asset.storageId)) ?? undefined;
-      if (!imageUrl) throw new Error("The avatar's reference image could not be read.");
+      if (!rosterRef) throw new Error("No avatar selected, and no composite step produced an image.");
+      imageUrl = (await resolveRosterPersona(ctx, rosterRef)).imageUrl;
     }
 
     const speech = job.steps.find((s) => s.id === "speech")?.output as

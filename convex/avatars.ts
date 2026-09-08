@@ -35,6 +35,10 @@ export const list = query({
         lookNotes: a.lookNotes,
         house: a.clientId === undefined,
         imageUrl: await resolveFirstImage(ctx, a.referenceAssetIds),
+        // Exposed so a caller (the influencer training-set picker) can reuse
+        // an existing avatar's photo as a training image without a second
+        // asset-scoped lookup.
+        referenceAssetIds: a.referenceAssetIds,
       })),
     );
   },

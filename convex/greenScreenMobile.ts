@@ -4,6 +4,7 @@ import { internalAction, internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import { submitWithContentPolicyFallback } from "./lib/fal";
+import { resolveRosterPersona } from "./lib/roster";
 
 /**
  * Green Screen Mobile with App: a presenter holding a phone with the app on
@@ -56,29 +57,17 @@ export const composite = internalAction({
 
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
-    const config = job.config as { presenter?: Id<"avatars">; appScreenshot?: Id<"assets"> };
+    const config = job.config as { presenter?: string; appScreenshot?: Id<"assets"> };
     if (!config.presenter) throw new Error("No presenter selected.");
     if (!config.appScreenshot) throw new Error("An app screenshot is required.");
 
-    const avatar = await ctx.runQuery(internal.avatars.getInternal, {
-      avatarId: config.presenter,
-    });
-    if (!avatar) throw new Error("The selected presenter no longer exists.");
-    const avatarAssetId = avatar.referenceAssetIds[0];
-    if (!avatarAssetId) throw new Error("The selected presenter has no reference image.");
-
-    const [avatarAsset, screenshotAsset] = await Promise.all([
-      ctx.runQuery(internal.assets.getInternal, { assetId: avatarAssetId }),
+    const [{ imageUrl: avatarUrl, description }, screenshotAsset] = await Promise.all([
+      resolveRosterPersona(ctx, config.presenter),
       ctx.runQuery(internal.assets.getInternal, { assetId: config.appScreenshot }),
     ]);
-    if (!avatarAsset) throw new Error("The presenter's reference image could not be found.");
     if (!screenshotAsset) throw new Error("The app screenshot could not be found.");
-
-    const [avatarUrl, screenshotUrl] = await Promise.all([
-      ctx.storage.getUrl(avatarAsset.storageId),
-      ctx.storage.getUrl(screenshotAsset.storageId),
-    ]);
-    if (!avatarUrl || !screenshotUrl) throw new Error("Could not read the reference images.");
+    const screenshotUrl = await ctx.storage.getUrl(screenshotAsset.storageId);
+    if (!screenshotUrl) throw new Error("Could not read the app screenshot.");
 
     await ctx.runMutation(internal.ledger.assertUnderCap, {
       clientId,
@@ -86,7 +75,7 @@ export const composite = internalAction({
     });
 
     const wrap = (action: string) =>
-      `@image1 is the presenter (${avatar.lookNotes || avatar.name}). @image2 is an app screenshot. ` +
+      `@image1 is the presenter (${description}). @image2 is an app screenshot. ` +
       `Composite a single photorealistic image of the presenter ${action}, holding a smartphone ` +
       "at chest height angled toward the camera, @image2 shown accurately and fully readable on " +
       "the phone's screen, consistent lighting and shadows, plain neutral background.";

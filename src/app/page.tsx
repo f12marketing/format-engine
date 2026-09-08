@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { FormatPicker } from "@/components/FormatPicker";
 import { JobList } from "@/components/JobList";
+import { InfluencerRoster } from "@/components/InfluencerRoster";
+import { NewInfluencerModal } from "@/components/NewInfluencerModal";
 import { AuthStatus } from "@/components/AuthStatus";
 import { AuthorisedBoundary } from "@/components/AuthorisedBoundary";
 import {
@@ -15,6 +17,7 @@ import { FORMATS } from "@/formats";
 
 export default function Dashboard() {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [influencerModalOpen, setInfluencerModalOpen] = useState(false);
   const ready = FORMATS.filter((f) => f.status === "ready").length;
 
   return (
@@ -29,12 +32,22 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <button
-        onClick={() => setPickerOpen(true)}
-        className="mt-6 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
-      >
-        + Create new content
-      </button>
+      <div className="mt-6 flex flex-wrap gap-3">
+        <button
+          onClick={() => setPickerOpen(true)}
+          className="rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+        >
+          + Create new content
+        </button>
+        {backendConfigured && (
+          <button
+            onClick={() => setInfluencerModalOpen(true)}
+            className="rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+          >
+            + New influencer
+          </button>
+        )}
+      </div>
 
       <div className="mt-10 flex items-baseline justify-between">
         <h2 className="font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">
@@ -78,7 +91,19 @@ export default function Dashboard() {
         </div>
       )}
 
+      {backendConfigured && (
+        <AuthorisedBoundary>
+          <InfluencerRoster />
+        </AuthorisedBoundary>
+      )}
+
       {pickerOpen && <FormatPicker onClose={() => setPickerOpen(false)} />}
+      {influencerModalOpen && (
+        <NewInfluencerModal
+          onClose={() => setInfluencerModalOpen(false)}
+          onCreated={() => {}}
+        />
+      )}
     </main>
   );
 }

@@ -116,7 +116,7 @@ export const animateAvatar = internalAction({
   handler: async (ctx, { jobId, clientId }): Promise<null> => {
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
-    const config = job.config as { speaker?: Id<"avatars">; delivery?: string };
+    const config = job.config as { speaker?: string; delivery?: string };
     if (!config.speaker) throw new Error("No speaker selected.");
 
     const deliveryPrompt =
@@ -127,7 +127,7 @@ export const animateAvatar = internalAction({
     return ctx.runAction(internal.lib.avatarPrimitive.renderAvatarClip, {
       jobId,
       clientId,
-      avatarId: config.speaker,
+      rosterRef: config.speaker,
       prompt: deliveryPrompt,
     });
   },

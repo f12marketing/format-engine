@@ -1,9 +1,9 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import { submitWithContentPolicyFallback } from "./lib/fal";
+import { resolveRosterPersona } from "./lib/roster";
 
 /**
  * Cutting Fruit: narration -> speech -> a kitchen scene composited around the
@@ -57,22 +57,10 @@ export const composeKitchenScene = internalAction({
 
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
-    const config = job.config as { whosCutting?: Id<"avatars">; prompt?: string; style?: string };
+    const config = job.config as { whosCutting?: string; prompt?: string; style?: string };
     if (!config.whosCutting) throw new Error("Choose who's cutting.");
 
-    const avatar = await ctx.runQuery(internal.avatars.getInternal, {
-      avatarId: config.whosCutting,
-    });
-    if (!avatar) throw new Error("The selected avatar no longer exists.");
-    const avatarAssetId = avatar.referenceAssetIds[0];
-    if (!avatarAssetId) throw new Error("The selected avatar has no reference image.");
-
-    const avatarAsset = await ctx.runQuery(internal.assets.getInternal, {
-      assetId: avatarAssetId,
-    });
-    if (!avatarAsset) throw new Error("The avatar's reference image could not be found.");
-    const avatarUrl = await ctx.storage.getUrl(avatarAsset.storageId);
-    if (!avatarUrl) throw new Error("Could not read the avatar's reference image.");
+    const { imageUrl: avatarUrl, description } = await resolveRosterPersona(ctx, config.whosCutting);
 
     await ctx.runMutation(internal.ledger.assertUnderCap, {
       clientId,
@@ -81,7 +69,7 @@ export const composeKitchenScene = internalAction({
 
     const topic = (config.prompt ?? "").trim();
     const wrap = (action: string) =>
-      `@image1 is a person (${avatar.lookNotes || avatar.name}). Photorealistic kitchen counter ` +
+      `@image1 is a person (${description}). Photorealistic kitchen counter ` +
       `scene, overhead or three-quarter angle on their hands, ${action}, cutting board, a sharp ` +
       `kitchen knife, natural light. ${topic ? `Context: ${topic}. ` : ""}` +
       `${config.style ? `Tone: ${config.style}. ` : ""}High quality, no text, no UI elements.`;

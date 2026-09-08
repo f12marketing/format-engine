@@ -4,6 +4,7 @@ import { internalAction, internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import { submitWithContentPolicyFallback } from "./lib/fal";
+import { resolveRosterPersona } from "./lib/roster";
 
 /**
  * Product Spokesperson: the avatar holds the product and talks about it.
@@ -65,27 +66,17 @@ export const composite = internalAction({
 
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
-    const config = job.config as { avatar?: Id<"avatars">; productImage?: Id<"assets"> };
+    const config = job.config as { avatar?: string; productImage?: Id<"assets"> };
     if (!config.avatar) throw new Error("No avatar selected.");
     if (!config.productImage) throw new Error("A product image is required.");
 
-    const avatar = await ctx.runQuery(internal.avatars.getInternal, { avatarId: config.avatar });
-    if (!avatar) throw new Error("The selected avatar no longer exists.");
-    const avatarAssetId = avatar.referenceAssetIds[0];
-    if (!avatarAssetId) throw new Error("The selected avatar has no reference image.");
-
-    const [avatarAsset, productAsset] = await Promise.all([
-      ctx.runQuery(internal.assets.getInternal, { assetId: avatarAssetId }),
+    const [{ imageUrl: avatarUrl, description }, productAsset] = await Promise.all([
+      resolveRosterPersona(ctx, config.avatar),
       ctx.runQuery(internal.assets.getInternal, { assetId: config.productImage }),
     ]);
-    if (!avatarAsset) throw new Error("The avatar's reference image could not be found.");
     if (!productAsset) throw new Error("The product image could not be found.");
-
-    const [avatarUrl, productUrl] = await Promise.all([
-      ctx.storage.getUrl(avatarAsset.storageId),
-      ctx.storage.getUrl(productAsset.storageId),
-    ]);
-    if (!avatarUrl || !productUrl) throw new Error("Could not read the reference images.");
+    const productUrl = await ctx.storage.getUrl(productAsset.storageId);
+    if (!productUrl) throw new Error("Could not read the product image.");
 
     await ctx.runMutation(internal.ledger.assertUnderCap, {
       clientId,
@@ -93,7 +84,7 @@ export const composite = internalAction({
     });
 
     const wrap = (action: string) =>
-      `@image1 is the spokesperson (${avatar.lookNotes || avatar.name}). @image2 is the product. ` +
+      `@image1 is the spokesperson (${description}). @image2 is the product. ` +
       `Composite a single photorealistic image of the spokesperson ${action}, holding the product ` +
       "naturally at chest height, facing the camera, product label clearly visible, consistent " +
       "lighting and shadows between subject and product, plain neutral background.";
