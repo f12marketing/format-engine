@@ -47,6 +47,27 @@ export const getInternal = internalQuery({
 });
 
 /**
+ * Signed URLs for a client's own assets, keyed by id -- the influencer
+ * training-set picker's thumbnail grid, for assets that don't belong to a
+ * job yet (generated or uploaded straight into a not-yet-created draft).
+ * Scoped by ownership check per id, same reasoning as `forJob`: an id is not
+ * an authorisation.
+ */
+export const urlsFor = query({
+  args: { assetIds: v.array(v.id("assets")) },
+  handler: async (ctx, { assetIds }) => {
+    const client = await requireClient(ctx);
+    const rows = await Promise.all(assetIds.map((id) => ctx.db.get(id)));
+    return Promise.all(
+      rows.map(async (a, i) => {
+        if (!a || a.clientId !== client._id) return null;
+        return { id: assetIds[i], url: await ctx.storage.getUrl(a.storageId) };
+      }),
+    );
+  },
+});
+
+/**
  * Signed URLs for a job's outputs.
  *
  * Scoped by client rather than by id, because an id is not an authorisation --

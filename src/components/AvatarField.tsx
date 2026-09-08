@@ -1,23 +1,33 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery, useAction } from "convex/react";
+import { useQuery, useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 
 /**
- * P10's picker: a grid over the roster (the client's own avatars plus the
- * shared house roster), with inline creation so picking an avatar and making
- * a new one are the same control rather than a trip to a separate page that
- * doesn't exist yet.
+ * P10's picker: a grid over the roster (the client's own avatars, the shared
+ * house roster, and any of the client's trained influencers that have
+ * finished training), with inline creation so picking an avatar and making a
+ * new one are the same control rather than a trip to a separate page. A new
+ * influencer isn't created inline here the way a quick avatar is -- training
+ * a persona is a heavier flow (persona notes, a training set, a real cost)
+ * than this compact field should try to host; that lives on the dashboard's
+ * own "+ New influencer" button.
  */
 export function AvatarField({
   value,
   onChange,
 }: {
   value: unknown;
-  onChange: (avatarId: string | null) => void;
+  onChange: (rosterRef: string | null) => void;
 }) {
   const avatars = useQuery(api.avatars.list);
+  // Trained influencers slot into the same picker as a second kind of
+  // persona -- see convex/lib/roster.ts for how a selection here (tagged
+  // "influencer:<id>") resolves downstream indistinguishably from an avatar.
+  // Only "ready" ones: a draft or still-training influencer has no finished
+  // persona worth picking yet.
+  const influencers = useQuery(api.influencers.list);
   const [creating, setCreating] = useState(false);
 
   if (avatars === undefined) {
@@ -28,9 +38,11 @@ export function AvatarField({
     );
   }
 
+  const readyInfluencers = (influencers ?? []).filter((i) => i.status === "ready");
+
   return (
     <div className="space-y-2">
-      {avatars.length > 0 && (
+      {(avatars.length > 0 || readyInfluencers.length > 0) && (
         <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
           {avatars.map((a) => {
             const selected = value === a.id;
@@ -56,6 +68,34 @@ export function AvatarField({
                 <p className="truncate px-1 py-0.5 font-mono text-[0.55rem] text-muted">
                   {a.name}
                   {a.house && " · house"}
+                </p>
+              </button>
+            );
+          })}
+          {readyInfluencers.map((inf) => {
+            const rosterRef = `influencer:${inf._id}`;
+            const selected = value === rosterRef;
+            return (
+              <button
+                key={inf._id}
+                type="button"
+                onClick={() => onChange(selected ? null : rosterRef)}
+                className={`overflow-hidden rounded-md border text-left transition ${
+                  selected ? "border-accent ring-2 ring-accent" : "border-line hover:border-accent"
+                }`}
+              >
+                {inf.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={inf.imageUrl}
+                    alt={inf.name}
+                    className="aspect-square w-full bg-black object-cover"
+                  />
+                ) : (
+                  <div className="aspect-square w-full bg-line-strong" />
+                )}
+                <p className="truncate px-1 py-0.5 font-mono text-[0.55rem] text-muted">
+                  {inf.name} · trained
                 </p>
               </button>
             );

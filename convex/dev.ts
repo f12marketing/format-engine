@@ -209,6 +209,30 @@ export const seedClip = internalAction({
   },
 });
 
+/**
+ * Inserts a job row with no starter invocation -- for calling a single step
+ * action directly (e.g. `cuttingFruit:composeKitchenScene`) against a real
+ * row, without paying for or waiting on every other step in its pipeline.
+ * `startJob` below is for exercising a whole pipeline; this is for one step.
+ */
+export const seedBareJob = internalMutation({
+  args: {
+    clientId: v.id("clients"),
+    formatId: v.string(),
+    config: v.any(),
+    steps: v.array(v.object({ id: v.string(), primitive: v.string(), label: v.string() })),
+  },
+  handler: async (ctx, { clientId, formatId, config, steps }): Promise<Id<"jobs">> =>
+    ctx.db.insert("jobs", {
+      clientId,
+      formatId,
+      config,
+      status: "running",
+      steps: steps.map((s) => ({ ...s, state: "pending" as const })),
+      costUsd: 0,
+    }),
+});
+
 /** Starts any registered format for a client, bypassing the auth-scoped path. */
 export const startJob = internalMutation({
   args: {
@@ -285,6 +309,27 @@ export const remixJob = internalMutation({
 
     await ctx.runMutation(starter, { jobId: newJobId, clientId: source.clientId });
     return newJobId;
+  },
+});
+
+/** Auth-free equivalent of influencers.create, for exercising training from the CLI. */
+export const seedInfluencerDraft = internalMutation({
+  args: {
+    clientId: v.id("clients"),
+    name: v.string(),
+    personaNotes: v.string(),
+    trainingImageAssetIds: v.array(v.id("assets")),
+  },
+  handler: async (ctx, { clientId, name, personaNotes, trainingImageAssetIds }): Promise<Id<"influencers">> => {
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+    return ctx.db.insert("influencers", {
+      clientId,
+      name,
+      personaNotes,
+      triggerPhrase: `${slug || "influencer"}${Date.now().toString(36)}`,
+      status: "draft",
+      trainingImageAssetIds,
+    });
   },
 });
 

@@ -129,7 +129,10 @@ export default defineSchema({
    */
   spend_ledger: defineTable({
     clientId: v.id("clients"),
-    jobId: v.id("jobs"),
+    // Optional for spend outside any of the 16 formats' pipelines --
+    // influencer training is the first such case. `by_client` still sums
+    // every row regardless, which is the one that actually gates the cap.
+    jobId: v.optional(v.id("jobs")),
     stepId: v.string(),
     primitive: v.string(),
     model: v.string(),
@@ -140,6 +143,46 @@ export default defineSchema({
   })
     .index("by_client", ["clientId"])
     .index("by_job", ["jobId"]),
+
+  /**
+   * A trained persona, not a reference photo. `avatars` holds identity as one
+   * image; a face composited from it drifts shot to shot. An influencer holds
+   * identity as a LoRA trained on 10-50 images, so it stays the same person
+   * across arbitrary generated scenes. Never used directly by the 16
+   * formats' pipelines -- its only job is to *produce* a reference still,
+   * which then feeds the avatar/composite steps that already exist
+   * unchanged. A separate table from `avatars` rather than more optional
+   * columns on it: a trained persona has a lifecycle (queued, running,
+   * failed, retrainable) an avatar row has no concept of.
+   */
+  influencers: defineTable({
+    clientId: v.id("clients"),
+    name: v.string(),
+    personaNotes: v.string(),
+    /** LoRA activation token -- implementation detail, never shown as a concept to the user. */
+    triggerPhrase: v.string(),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("training"),
+      v.literal("ready"),
+      v.literal("failed"),
+    ),
+    trainingImageAssetIds: v.array(v.id("assets")),
+    /** fal-ai/flux-lora-portrait-trainer's diffusers_lora_file.url, once ready. */
+    loraUrl: v.optional(v.string()),
+    /** Correlates the training webhook (and the reconciliation cron) back to this row. */
+    falRequestId: v.optional(v.string()),
+    steps: v.optional(v.number()),
+    costUsd: v.optional(v.number()),
+    /** Set when the training charge was recorded, so a failed run can reverse the exact row. */
+    ledgerId: v.optional(v.id("spend_ledger")),
+    startedAt: v.optional(v.number()),
+    finishedAt: v.optional(v.number()), // paired with startedAt -> the one real timing signal fal itself won't give you
+    error: v.optional(v.string()),
+    archived: v.optional(v.boolean()),
+  })
+    .index("by_client", ["clientId"])
+    .index("by_request", ["falRequestId"]),
 
   /**
    * P9. Append-only: a client re-rendering last month's ad needs the exact

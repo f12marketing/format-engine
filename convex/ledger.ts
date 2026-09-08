@@ -92,7 +92,9 @@ export const assertUnderCap = internalMutation({
 export const record = internalMutation({
   args: {
     clientId: v.id("clients"),
-    jobId: v.id("jobs"),
+    // Optional: spend outside any of the 16 formats' pipelines -- influencer
+    // training, so far -- has no job to attribute to.
+    jobId: v.optional(v.id("jobs")),
     stepId: v.string(),
     primitive: v.string(),
     model: v.string(),
@@ -104,10 +106,12 @@ export const record = internalMutation({
   handler: async (ctx, args): Promise<Id<"spend_ledger">> => {
     const id = await ctx.db.insert("spend_ledger", args);
 
-    // Keep the job's running total in step with its rows.
-    const job = await ctx.db.get(args.jobId);
-    if (job) {
-      await ctx.db.patch(args.jobId, { costUsd: job.costUsd + args.costUsd });
+    // Keep the job's running total in step with its rows, when there is one.
+    if (args.jobId) {
+      const job = await ctx.db.get(args.jobId);
+      if (job) {
+        await ctx.db.patch(args.jobId, { costUsd: job.costUsd + args.costUsd });
+      }
     }
     return id;
   },
@@ -124,15 +128,30 @@ export const reverse = internalMutation({
     if (!original) throw new Error("unknown ledger row");
     if (original.reversalOfId) throw new Error("cannot reverse a reversal");
 
+    // Never spread `original` wholesale into insert() -- it carries `_id`
+    // and `_creationTime`, and Convex rejects an insert whose object already
+    // has an `_id` that doesn't match the one it's about to assign. Never
+    // actually hit until today: every prior call to `reverse` was
+    // Character Swap's, and every test of it failed a step earlier than
+    // `verify`, so this line had never actually run.
+    const { clientId, jobId, stepId, primitive, model, units, unitLabel } = original;
     await ctx.db.insert("spend_ledger", {
-      ...original,
+      clientId,
+      jobId,
+      stepId,
+      primitive,
+      model,
+      units,
+      unitLabel,
       costUsd: -original.costUsd,
       reversalOfId: ledgerId,
     });
 
-    const job = await ctx.db.get(original.jobId);
-    if (job) {
-      await ctx.db.patch(original.jobId, { costUsd: job.costUsd - original.costUsd });
+    if (original.jobId) {
+      const job = await ctx.db.get(original.jobId);
+      if (job) {
+        await ctx.db.patch(original.jobId, { costUsd: job.costUsd - original.costUsd });
+      }
     }
   },
 });

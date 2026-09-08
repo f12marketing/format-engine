@@ -185,6 +185,35 @@ export async function callVisionTool(
 }
 
 /**
+ * Submit to the queue with a webhook and return immediately -- no polling at
+ * all, not even a capped one. `submitAndPoll`'s cap exists because a normal
+ * generation step still finishes within an action's lifetime most of the
+ * time; a LoRA training run does not; measured at ~5 minutes for the cheapest
+ * 1000-step tier, and Convex kills an action at 10 minutes regardless. fal
+ * calls `webhookUrl` on completion (see the influencers.ts webhook receiver
+ * for the other half of this).
+ */
+export async function submitWithWebhook(
+  model: string,
+  input: unknown,
+  webhookUrl: string,
+): Promise<{ requestId: string }> {
+  const url = new URL(`${QUEUE_BASE}/${model}`);
+  url.searchParams.set("fal_webhook", webhookUrl);
+
+  const submit = await fetch(url, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!submit.ok) {
+    throw new Error(`fal submit failed: ${submit.status} ${await submit.text()}`);
+  }
+  const { request_id } = (await submit.json()) as { request_id: string };
+  return { requestId: request_id };
+}
+
+/**
  * Submit to the queue and poll until terminal.
  *
  * Deliberately capped well under the action timeout: a step that hasn't
