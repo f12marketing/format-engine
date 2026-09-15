@@ -137,6 +137,50 @@ export async function disconnectAccount(accountId: string): Promise<void> {
   await zernioFetch(`/accounts/${accountId}`, { method: "DELETE" });
 }
 
+// ---------------------------------------------------------------- tiktok info
+//
+// `privacy_level` is not a fixed four-value enum in practice: TikTok grants
+// each creator its own subset, and posting with one outside it is rejected
+// with "Selected privacy level 'X' is not available for this creator." --
+// confirmed against Zernio's raw OpenAPI reference, per
+// GET /v1/accounts/{accountId}/tiktok/creator-info.
+
+export interface TikTokPrivacyLevel {
+  value: string;
+  label: string;
+}
+
+export interface TikTokInteractionDescriptor {
+  enabled: boolean;
+  required: boolean;
+  default: boolean;
+  label: string;
+}
+
+export interface TikTokCreatorInfo {
+  creator: { nickname: string; avatarUrl: string; isVerified: boolean; canPostMore: boolean };
+  privacyLevels: TikTokPrivacyLevel[];
+  postingLimits: {
+    maxVideoDurationSec: number;
+    interactionSettings: {
+      allow_comment: TikTokInteractionDescriptor;
+      // Null when mediaType is "photo" -- TikTok doesn't apply duet or
+      // stitch to photo posts.
+      allow_duet: TikTokInteractionDescriptor | null;
+      allow_stitch: TikTokInteractionDescriptor | null;
+    };
+  };
+  commercialContentTypes: { value: string; label: string; requires: string[] }[];
+}
+
+export async function getTikTokCreatorInfo(
+  accountId: string,
+  mediaType?: "video" | "photo",
+): Promise<TikTokCreatorInfo> {
+  const qs = mediaType ? `?mediaType=${mediaType}` : "";
+  return zernioFetch(`/accounts/${accountId}/tiktok/creator-info${qs}`);
+}
+
 // --------------------------------------------------------------------- posts
 
 export interface ZernioMediaItem {

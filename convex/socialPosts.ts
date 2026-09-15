@@ -62,7 +62,11 @@ export const list = query({
 
 /**
  * Posts whose scheduled time falls inside a window -- the Calendar's month
- * view. Drafts have no `scheduledFor` and so are deliberately absent.
+ * view. Filtered on `scheduledFor` alone, not status: a draft with no time
+ * picked yet has no `scheduledFor` and so is absent, same as any other post
+ * with none -- but the composer's "Save draft" button doesn't clear a time
+ * you already picked, so a draft that has one still shows up here, on its
+ * own day, same as a scheduled post would.
  */
 export const inRange = query({
   args: { from: v.number(), to: v.number() },

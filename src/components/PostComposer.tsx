@@ -94,6 +94,67 @@ export function PostComposer({
     [chosen],
   );
 
+  // Real allowed values for the selected TikTok account(s), not the static
+  // four-value list -- Zernio grants each creator its own subset, and
+  // posting outside it is rejected at publish time. Keyed as a plain string
+  // (not the array itself) so the effect below doesn't refetch on every
+  // render just because `chosen` is a fresh array each time.
+  const tiktokIdsKey = chosen
+    .filter((a) => a.platform === "tiktok")
+    .map((a) => a._id)
+    .join(",");
+  const mediaKind = media.length === 0 ? undefined : media[0].facts.kind === "video" ? "video" : "photo";
+
+  const fetchTiktokCreatorInfo = useAction(api.social.tiktokCreatorInfo);
+  const [tiktokPrivacyLevels, setTiktokPrivacyLevels] = useState<
+    { value: string; label: string }[] | null
+  >(null);
+
+  useEffect(() => {
+    // No synchronous setState in the effect body itself -- even the "nothing
+    // selected" case resolves through the same async continuation below, so
+    // every update happens from a callback rather than the effect's own run.
+    let cancelled = false;
+    const ids = tiktokIdsKey ? tiktokIdsKey.split(",") : [];
+    Promise.all(
+      ids.map((id) =>
+        fetchTiktokCreatorInfo({
+          socialAccountId: id as Id<"socialAccounts">,
+          mediaType: mediaKind,
+        }).catch(() => null),
+      ),
+    ).then((results) => {
+      if (cancelled) return;
+      const lists = results.filter((r) => r !== null).map((r) => r.privacyLevels);
+      if (lists.length === 0) {
+        // Nothing selected, or every lookup failed -- fall back to the
+        // static list rather than block posting over a Zernio hiccup.
+        setTiktokPrivacyLevels(null);
+        return;
+      }
+      // A level must be valid for every selected TikTok account, not just
+      // one of them, so intersect rather than union.
+      const [first, ...rest] = lists;
+      setTiktokPrivacyLevels(
+        first.filter((level) => rest.every((list) => list.some((l) => l.value === level.value))),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tiktokIdsKey, mediaKind, fetchTiktokCreatorInfo]);
+
+  // Derived, not stored: if the creator's real options don't include
+  // whatever's currently selected (their first load, or a stricter set for
+  // a newly-added second account), fall back to the first real option
+  // instead of sending a value TikTok will reject.
+  const tiktokPrivacyOptions = tiktokPrivacyLevels ?? TIKTOK_PRIVACY_LEVELS;
+  const effectiveTiktokPrivacyLevel = tiktokPrivacyOptions.some(
+    (l) => l.value === tiktok.privacy_level,
+  )
+    ? tiktok.privacy_level
+    : (tiktokPrivacyOptions[0]?.value ?? tiktok.privacy_level);
+
   const issues = useMemo(() => {
     // A Set, not an array: preflight() re-checks the caption against the
     // same limit for every asset, and that message is identical every time --
@@ -112,11 +173,16 @@ export function PostComposer({
     if (platforms.includes("tiktok") && !tiktok.consent) {
       out.add("TikTok requires confirming the preview and consent before posting.");
     }
+    if (platforms.includes("tiktok") && tiktokPrivacyLevels?.length === 0) {
+      out.add(
+        "These TikTok accounts have no privacy level in common -- post to them separately.",
+      );
+    }
     if (platforms.includes("youtube") && youtube.title.length > YOUTUBE_TITLE_LIMIT) {
       out.add(`YouTube title is over ${YOUTUBE_TITLE_LIMIT} characters.`);
     }
     return [...out];
-  }, [platforms, caption, media, tiktok.consent, youtube.title]);
+  }, [platforms, caption, media, tiktok.consent, tiktokPrivacyLevels, youtube.title]);
 
   function buildTargets() {
     return chosen.map((account) => {
@@ -124,7 +190,7 @@ export function PostComposer({
       let platformSpecificData: Record<string, unknown> | undefined;
       if (platform === "tiktok") {
         platformSpecificData = {
-          privacy_level: tiktok.privacy_level,
+          privacy_level: effectiveTiktokPrivacyLevel,
           allow_comment: tiktok.allow_comment,
           allow_duet: tiktok.allow_duet,
           allow_stitch: tiktok.allow_stitch,
@@ -309,17 +375,23 @@ export function PostComposer({
             <Row>
               <span className="flex-1">Who can see this</span>
               <select
-                value={tiktok.privacy_level}
+                value={effectiveTiktokPrivacyLevel}
                 onChange={(e) => setTiktok({ ...tiktok, privacy_level: e.target.value })}
                 className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm"
               >
-                {TIKTOK_PRIVACY_LEVELS.map((p) => (
+                {tiktokPrivacyOptions.map((p) => (
                   <option key={p.value} value={p.value}>
                     {p.label}
                   </option>
                 ))}
               </select>
             </Row>
+            {tiktokPrivacyLevels !== null && (
+              <p className="text-xs text-muted">
+                Only what {tiktokIdsKey.includes(",") ? "these accounts allow" : "this account allows"}
+                {" "}is shown -- TikTok grants each creator its own subset.
+              </p>
+            )}
             <Toggle
               label="Allow comments"
               checked={tiktok.allow_comment}
