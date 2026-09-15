@@ -40,6 +40,8 @@ export const STARTERS: Record<string, Starter> = {
   "product-spokesperson": internal.productSpokesperson.start,
   "green-screen-mobile": internal.greenScreenMobile.start,
   "cutting-fruit": internal.cuttingFruit.start,
+  "on-a-walk": internal.onAWalk.start,
+  "netflix-documentary": internal.netflixDocumentary.start,
   claymation: internal.claymation.start,
   skeleton: internal.skeleton.start,
   "character-swap": internal.characterSwap.start,
@@ -59,6 +61,8 @@ export type RunnableFormatId =
   | "product-spokesperson"
   | "green-screen-mobile"
   | "cutting-fruit"
+  | "on-a-walk"
+  | "netflix-documentary"
   | "claymation"
   | "skeleton"
   | "character-swap";

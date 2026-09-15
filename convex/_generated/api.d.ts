@@ -42,6 +42,8 @@ import type * as lib_roster from "../lib/roster.js";
 import type * as lib_scriptPrimitive from "../lib/scriptPrimitive.js";
 import type * as lib_speechPrimitive from "../lib/speechPrimitive.js";
 import type * as lib_zernio from "../lib/zernio.js";
+import type * as netflixDocumentary from "../netflixDocumentary.js";
+import type * as onAWalk from "../onAWalk.js";
 import type * as productSpokesperson from "../productSpokesperson.js";
 import type * as remix from "../remix.js";
 import type * as run from "../run.js";
@@ -99,6 +101,8 @@ declare const fullApi: ApiFromModules<{
   "lib/scriptPrimitive": typeof lib_scriptPrimitive;
   "lib/speechPrimitive": typeof lib_speechPrimitive;
   "lib/zernio": typeof lib_zernio;
+  netflixDocumentary: typeof netflixDocumentary;
+  onAWalk: typeof onAWalk;
   productSpokesperson: typeof productSpokesperson;
   remix: typeof remix;
   run: typeof run;

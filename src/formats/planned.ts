@@ -606,7 +606,7 @@ export const onAWalk = defineFormat({
   icon: "🚶",
   group: "generated",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 7,
   config: {
     mentionBusiness: field.mentionBusiness(),
@@ -626,7 +626,7 @@ export const netflixDocumentary = defineFormat({
   icon: "🎬",
   group: "generated",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 7,
   config: {
     mentionBusiness: field.mentionBusiness(),
