@@ -14,6 +14,12 @@ import {
   type Platform,
 } from "@/lib/socialPlatforms";
 
+export interface ComposerMedia {
+  id: Id<"assets">;
+  facts: MediaFacts;
+  url: string | null;
+}
+
 /**
  * Compose a post and hand it to Zernio.
  *
@@ -26,6 +32,14 @@ import {
  * makes is AI-generated, so YouTube's `containsSyntheticMedia` and
  * Instagram's `isAiGenerated` default ON; turning them off is a deliberate
  * act, not the path of least resistance.
+ *
+ * `media` is an array rather than a single item so a carousel (several
+ * images posted together) is representable at all -- `mediaAssetIds` was
+ * already an array everywhere from `socialPosts.createDraft` down to
+ * Zernio's own `mediaItems`, but this component used to hardcode a single
+ * element into it. Callers decide what belongs together (the Library's
+ * asset grid lets you pick several images; a job page hands over the one
+ * video it produced) -- this component just reviews and submits the set.
  */
 export function PostComposer({
   jobId,
@@ -33,7 +47,7 @@ export function PostComposer({
   onClose,
 }: {
   jobId?: Id<"jobs">;
-  media: { id: Id<"assets">; facts: MediaFacts; url: string | null } | null;
+  media: ComposerMedia[];
   onClose: () => void;
 }) {
   const accounts = useQuery(api.social.listAccounts);
@@ -81,19 +95,27 @@ export function PostComposer({
   );
 
   const issues = useMemo(() => {
-    const out: string[] = [];
+    // A Set, not an array: preflight() re-checks the caption against the
+    // same limit for every asset, and that message is identical every time --
+    // collecting into a Set is what keeps a 3-image carousel from showing the
+    // same "caption too long" line three times over.
+    const out = new Set<string>();
     for (const platform of platforms) {
-      for (const issue of preflight(platform, caption, media?.facts ?? null)) {
-        out.push(issue);
+      if (media.length === 0) {
+        for (const issue of preflight(platform, caption, null)) out.add(issue);
+        continue;
+      }
+      for (const item of media) {
+        for (const issue of preflight(platform, caption, item.facts)) out.add(issue);
       }
     }
     if (platforms.includes("tiktok") && !tiktok.consent) {
-      out.push("TikTok requires confirming the preview and consent before posting.");
+      out.add("TikTok requires confirming the preview and consent before posting.");
     }
     if (platforms.includes("youtube") && youtube.title.length > YOUTUBE_TITLE_LIMIT) {
-      out.push(`YouTube title is over ${YOUTUBE_TITLE_LIMIT} characters.`);
+      out.add(`YouTube title is over ${YOUTUBE_TITLE_LIMIT} characters.`);
     }
-    return out;
+    return [...out];
   }, [platforms, caption, media, tiktok.consent, youtube.title]);
 
   function buildTargets() {
@@ -135,13 +157,13 @@ export function PostComposer({
   }
 
   async function submit(mode: "draft" | "schedule") {
-    if (!media) return;
+    if (media.length === 0) return;
     setBusy(mode);
     setError(null);
     try {
       const postId = await createDraft({
         caption,
-        mediaAssetIds: [media.id],
+        mediaAssetIds: media.map((m) => m.id),
         jobId,
         targets: buildTargets(),
         scheduledFor: when ? new Date(when).getTime() : undefined,
@@ -155,7 +177,7 @@ export function PostComposer({
     }
   }
 
-  const canSubmit = chosen.length > 0 && Boolean(media) && issues.length === 0;
+  const canSubmit = chosen.length > 0 && media.length > 0 && issues.length === 0;
 
   return (
     <div
@@ -183,15 +205,34 @@ export function PostComposer({
           </button>
         </div>
 
-        {/* TikTok's consent is an attestation about *this* video, so the video
-            has to be on screen next to it. */}
-        {media?.url && media.facts.kind === "video" && (
-          <video
-            src={media.url}
-            controls
-            playsInline
-            className="mt-4 max-h-64 w-full rounded-xl border border-line bg-black object-contain"
-          />
+        {/* TikTok's consent is an attestation about *this* media, so it has
+            to be on screen next to it -- every selected item, not just one,
+            since a carousel's consent covers the whole set. */}
+        {media.length > 0 && (
+          <div className="mt-4 flex gap-2 overflow-x-auto">
+            {media.map((item) =>
+              !item.url ? null : item.facts.kind === "video" ? (
+                <video
+                  key={item.id}
+                  src={item.url}
+                  controls
+                  playsInline
+                  className="h-48 w-auto shrink-0 rounded-xl border border-line bg-black object-contain"
+                />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={item.id}
+                  src={item.url}
+                  alt=""
+                  className="h-48 w-auto shrink-0 rounded-xl border border-line object-contain"
+                />
+              ),
+            )}
+          </div>
+        )}
+        {media.length > 1 && (
+          <p className="mt-1.5 text-xs text-muted">{media.length} items, posted as a carousel.</p>
         )}
 
         <Label>Post to</Label>
@@ -377,7 +418,7 @@ export function PostComposer({
         <div className="mt-5 flex gap-2">
           <button
             onClick={() => submit("draft")}
-            disabled={busy !== null || !media || chosen.length === 0}
+            disabled={busy !== null || media.length === 0 || chosen.length === 0}
             className="rounded-lg border border-line px-3 py-2 text-sm text-muted hover:text-foreground disabled:opacity-60"
           >
             {busy === "draft" ? "Saving…" : "Save draft"}
