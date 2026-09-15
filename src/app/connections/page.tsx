@@ -62,6 +62,10 @@ export default function ConnectionsPage() {
 function ConnectionsBody() {
   const params = useSearchParams();
   const justConnected = params.get("connected");
+  // Zernio's own failure path -- oauth_denied, no_facebook_pages, and the
+  // rest of the codes on GET /v1/connect/{platform} -- lands here too, with
+  // `error` (and `platform`) appended instead of `connected`.
+  const connectError = params.get("error");
 
   const configured = useQuery(api.social.configured);
   const accounts = useQuery(api.social.listAccounts);
@@ -70,6 +74,9 @@ function ConnectionsBody() {
 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A plain projection of the URL, not state that needs syncing in an
+  // effect -- a click-to-connect failure (below) still wins once it happens.
+  const displayError = error ?? (connectError ? `Zernio couldn't complete that connection: ${connectError}` : null);
 
   // Coming back from the platform's OAuth screen: Zernio has the account by
   // now, so pull the authoritative list rather than trusting the query string.
@@ -81,7 +88,11 @@ function ConnectionsBody() {
     setBusy(platform);
     setError(null);
     try {
-      const { authUrl } = await startConnect({ platform });
+      // Zernio needs an absolute URL to bounce the browser back to once the
+      // platform's OAuth screen finishes -- without one it has nowhere to
+      // send the user, and the flow dead-ends on Zernio's own side.
+      const redirectUrl = `${window.location.origin}/connections`;
+      const { authUrl } = await startConnect({ platform, redirectUrl });
       window.location.assign(authUrl);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -103,7 +114,7 @@ function ConnectionsBody() {
 
   return (
     <>
-      {error && <p className="mt-4 text-sm text-accent">{error}</p>}
+      {displayError && <p className="mt-4 text-sm text-accent">{displayError}</p>}
       <ul className="mt-6 space-y-2">
         {PLATFORMS.map((platform) => {
           const connected = accounts?.filter((a) => a.platform === platform.id) ?? [];

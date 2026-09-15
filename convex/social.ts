@@ -75,8 +75,8 @@ export const setProfileId = internalMutation({
  * isn't social.
  */
 export const startConnect = action({
-  args: { platform: PLATFORM },
-  handler: async (ctx, { platform }): Promise<{ authUrl: string }> => {
+  args: { platform: PLATFORM, redirectUrl: v.string() },
+  handler: async (ctx, { platform, redirectUrl }): Promise<{ authUrl: string }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
@@ -93,7 +93,7 @@ export const startConnect = action({
       });
     }
 
-    return { authUrl: await zernio.connectUrl(platform, profileId) };
+    return { authUrl: await zernio.connectUrl(platform, profileId, redirectUrl) };
   },
 });
 

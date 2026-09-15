@@ -96,17 +96,24 @@ export async function createProfile(name: string): Promise<string> {
 // ------------------------------------------------------------------ accounts
 
 /**
- * The OAuth handoff. Returns the URL to send the user's browser to; Zernio
- * bounces them back to the redirect configured on the Zernio dashboard with
- * `?connected=&profileId=&accountId=&username=` appended.
+ * The OAuth handoff. Returns the URL to send the user's browser to.
+ *
+ * `redirect_url` is a per-request query param, not a fixed dashboard
+ * setting -- confirmed against Zernio's raw OpenAPI reference after this
+ * file's first version, written against a summary, assumed the latter and
+ * never sent it. Without it Zernio has nowhere to bounce the browser back
+ * to once the platform finishes: the account still connects on Zernio's
+ * side, but the user is left stranded on whatever Zernio shows instead of
+ * returning to this app. On success Zernio appends
+ * `?connected=&profileId=&accountId=&username=`; on failure `?error=&platform=`.
  */
 export async function connectUrl(
   platform: ZernioPlatform,
   profileId: string,
+  redirectUrl: string,
 ): Promise<string> {
-  const out = await zernioFetch<{ authUrl: string }>(
-    `/connect/${platform}?profileId=${encodeURIComponent(profileId)}`,
-  );
+  const qs = new URLSearchParams({ profileId, redirect_url: redirectUrl });
+  const out = await zernioFetch<{ authUrl: string }>(`/connect/${platform}?${qs.toString()}`);
   return out.authUrl;
 }
 
