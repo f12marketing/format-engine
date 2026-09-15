@@ -5,6 +5,7 @@ import { internalAction, internalMutation, internalQuery } from "./_generated/se
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { STARTERS, type RunnableFormatId } from "./starters";
+import * as zernio from "./lib/zernio";
 
 /**
  * Dev-only helpers, callable from the CLI with `npx convex run`.
@@ -360,6 +361,79 @@ export const seedInfluencerDraft = internalMutation({
       triggerPhrase: `${slug || "influencer"}${Date.now().toString(36)}`,
       status: "draft",
       trainingImageAssetIds,
+    });
+  },
+});
+
+/** Auth-free equivalent of socialPosts.createDraft, for exercising the composer's path from the CLI. */
+export const createSocialDraft = internalMutation({
+  args: {
+    clientId: v.id("clients"),
+    caption: v.string(),
+    mediaAssetIds: v.array(v.id("assets")),
+    targets: v.array(
+      v.object({
+        platform: v.string(),
+        zernioAccountId: v.string(),
+        socialAccountId: v.id("socialAccounts"),
+      }),
+    ),
+  },
+  handler: async (ctx, { clientId, caption, mediaAssetIds, targets }): Promise<Id<"socialPosts">> => {
+    for (const assetId of mediaAssetIds) {
+      const asset = await ctx.db.get(assetId);
+      if (!asset || asset.clientId !== clientId) throw new Error("Unknown asset.");
+    }
+    for (const target of targets) {
+      const account = await ctx.db.get(target.socialAccountId);
+      if (!account || account.clientId !== clientId) throw new Error("Unknown account.");
+    }
+    return ctx.db.insert("socialPosts", {
+      clientId,
+      status: "draft",
+      caption,
+      mediaAssetIds,
+      targets: targets.map((t) => ({ ...t, status: "pending" as const })),
+    });
+  },
+});
+
+/**
+ * Auth-free equivalent of socialPosts.schedule's dry-run half -- calls
+ * Zernio's real pre-flight validate endpoint (no publish, no media
+ * processing, no rate-limit spend per its own docs) without the second half
+ * that would actually call createPost. For confirming a real multi-item
+ * mediaItems body is accepted by the real API before wiring the write path
+ * through a CLI-only auth bypass too.
+ */
+export const validateSocialDraft = internalAction({
+  args: { postId: v.id("socialPosts") },
+  handler: async (ctx, { postId }): Promise<zernio.ValidatePostResult> => {
+    const loaded: {
+      post: {
+        caption: string;
+        targets: { platform: string; zernioAccountId: string; platformSpecificData?: unknown }[];
+      };
+      media: { kind: string; url: string | null }[];
+    } | null = await ctx.runQuery(internal.socialPosts.getForSchedule, { postId });
+    if (!loaded) throw new Error("post not found");
+    const { post, media } = loaded;
+    if (!media.length) throw new Error("A post needs at least one video or image.");
+
+    const platformSpecificData: Record<string, unknown> = {};
+    for (const t of post.targets) {
+      if (t.platformSpecificData) platformSpecificData[t.platform] = t.platformSpecificData;
+    }
+    return zernio.validatePost({
+      content: post.caption,
+      platforms: post.targets.map((t) => ({ platform: t.platform, accountId: t.zernioAccountId })),
+      mediaItems: media.map((m) => ({
+        url: m.url as string,
+        type: m.kind === "video" ? ("video" as const) : ("image" as const),
+      })),
+      platformSpecificData: Object.keys(platformSpecificData).length
+        ? platformSpecificData
+        : undefined,
     });
   },
 });
