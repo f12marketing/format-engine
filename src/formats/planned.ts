@@ -647,7 +647,7 @@ export const lego = defineFormat({
   icon: "🟦",
   group: "generated",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 7,
   config: clayLikeConfig,
   pipeline: clayLikePipeline("LEGO_STYLE"),
@@ -676,7 +676,7 @@ export const felt = defineFormat({
   icon: "🧶",
   group: "generated",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 7,
   config: bluntStyleConfig,
   pipeline: clayLikePipeline("FELT_STYLE"),
@@ -689,7 +689,7 @@ export const talkingObjects = defineFormat({
   icon: "🗿",
   group: "generated",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 7,
   config: bluntStyleConfig,
   pipeline: clayLikePipeline("TALKING_OBJECT_STYLE"),
@@ -707,7 +707,30 @@ const broadcastConfig = {
   language: field.language(),
   captionOverlay: field.captionOverlay(),
   captionStyle: field.captionStyle(),
+  // FLAG: same gap as clayLikeConfig's `narration` -- a P1-generated script
+  // field needs a topic to generate it FROM. Fixed the same way here.
+  prompt: field.prompt(),
 };
+
+/**
+ * Unlike `spokenScenePipeline` (whose "copy" step is unconditional, because
+ * On a Walk and Netflix Documentary have no way to write their own narration),
+ * Street Interview and AI News Anchor's own script field IS optional -- so
+ * the write-it-for-me step needs the same skip-when-filled-in condition
+ * `clayLikePipeline` already uses.
+ */
+const broadcastScenePipeline = (sceneLabel: string, textField: string) => [
+  { id: "copy", primitive: "P1" as const, label: "Write the script", when: { field: textField, is: "empty" } as const },
+  { id: "speech", primitive: "P4" as const, label: "Record the audio" },
+  { id: "scene", primitive: "P2" as const, label: sceneLabel },
+  { id: "clip", primitive: "P3" as const, label: "Animate the scene" },
+  {
+    id: "captions",
+    primitive: "P8" as const,
+    label: "Burn in captions",
+    when: { field: "captionOverlay", is: "present" } as const,
+  },
+];
 
 export const streetInterview = defineFormat({
   id: "street-interview",
@@ -716,7 +739,7 @@ export const streetInterview = defineFormat({
   icon: "🎤",
   group: "generated",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 7,
   config: {
     ...broadcastConfig,
@@ -737,7 +760,7 @@ export const streetInterview = defineFormat({
       help: "36-49 words. Left empty, it gets written for you.",
     }),
   },
-  pipeline: spokenScenePipeline("Generate the street scene"),
+  pipeline: broadcastScenePipeline("Generate the street scene", "dialogue"),
 });
 
 export const aiNewsAnchor = defineFormat({
@@ -747,7 +770,7 @@ export const aiNewsAnchor = defineFormat({
   icon: "📺",
   group: "generated",
   preview: "video",
-  status: "planned",
+  status: "ready",
   phase: 7,
   config: {
     ...broadcastConfig,
@@ -763,5 +786,5 @@ export const aiNewsAnchor = defineFormat({
       help: "32-42 words. Left empty, it gets written for you.",
     }),
   },
-  pipeline: spokenScenePipeline("Generate the news studio"),
+  pipeline: broadcastScenePipeline("Generate the news studio", "newsItem"),
 });

@@ -45,6 +45,11 @@ export const STARTERS: Record<string, Starter> = {
   claymation: internal.claymation.start,
   skeleton: internal.skeleton.start,
   "character-swap": internal.characterSwap.start,
+  lego: internal.lego.start,
+  felt: internal.felt.start,
+  "talking-objects": internal.talkingObjects.start,
+  "street-interview": internal.streetInterview.start,
+  "ai-news-anchor": internal.aiNewsAnchor.start,
 };
 
 export type RunnableFormatId =
@@ -65,4 +70,9 @@ export type RunnableFormatId =
   | "netflix-documentary"
   | "claymation"
   | "skeleton"
-  | "character-swap";
+  | "character-swap"
+  | "lego"
+  | "felt"
+  | "talking-objects"
+  | "street-interview"
+  | "ai-news-anchor";

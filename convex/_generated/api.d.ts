@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as aiNewsAnchor from "../aiNewsAnchor.js";
 import type * as analytics from "../analytics.js";
 import type * as assets from "../assets.js";
 import type * as audio from "../audio.js";
@@ -21,12 +22,14 @@ import type * as crons from "../crons.js";
 import type * as custom from "../custom.js";
 import type * as cuttingFruit from "../cuttingFruit.js";
 import type * as dev from "../dev.js";
+import type * as felt from "../felt.js";
 import type * as greenScreenMeme from "../greenScreenMeme.js";
 import type * as greenScreenMobile from "../greenScreenMobile.js";
 import type * as http from "../http.js";
 import type * as influencers from "../influencers.js";
 import type * as jobs from "../jobs.js";
 import type * as ledger from "../ledger.js";
+import type * as lego from "../lego.js";
 import type * as lib_animateScenePrimitive from "../lib/animateScenePrimitive.js";
 import type * as lib_audioRef from "../lib/audioRef.js";
 import type * as lib_avatarPrimitive from "../lib/avatarPrimitive.js";
@@ -53,8 +56,10 @@ import type * as social from "../social.js";
 import type * as socialPosts from "../socialPosts.js";
 import type * as speakingHookDemo from "../speakingHookDemo.js";
 import type * as starters from "../starters.js";
+import type * as streetInterview from "../streetInterview.js";
 import type * as talkingHeadGreenScreen from "../talkingHeadGreenScreen.js";
 import type * as talkingHeadUgc from "../talkingHeadUgc.js";
+import type * as talkingObjects from "../talkingObjects.js";
 import type * as uploads from "../uploads.js";
 import type * as videoAnimation from "../videoAnimation.js";
 import type * as videoHookDemo from "../videoHookDemo.js";
@@ -67,6 +72,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  aiNewsAnchor: typeof aiNewsAnchor;
   analytics: typeof analytics;
   assets: typeof assets;
   audio: typeof audio;
@@ -80,12 +86,14 @@ declare const fullApi: ApiFromModules<{
   custom: typeof custom;
   cuttingFruit: typeof cuttingFruit;
   dev: typeof dev;
+  felt: typeof felt;
   greenScreenMeme: typeof greenScreenMeme;
   greenScreenMobile: typeof greenScreenMobile;
   http: typeof http;
   influencers: typeof influencers;
   jobs: typeof jobs;
   ledger: typeof ledger;
+  lego: typeof lego;
   "lib/animateScenePrimitive": typeof lib_animateScenePrimitive;
   "lib/audioRef": typeof lib_audioRef;
   "lib/avatarPrimitive": typeof lib_avatarPrimitive;
@@ -112,8 +120,10 @@ declare const fullApi: ApiFromModules<{
   socialPosts: typeof socialPosts;
   speakingHookDemo: typeof speakingHookDemo;
   starters: typeof starters;
+  streetInterview: typeof streetInterview;
   talkingHeadGreenScreen: typeof talkingHeadGreenScreen;
   talkingHeadUgc: typeof talkingHeadUgc;
+  talkingObjects: typeof talkingObjects;
   uploads: typeof uploads;
   videoAnimation: typeof videoAnimation;
   videoHookDemo: typeof videoHookDemo;
