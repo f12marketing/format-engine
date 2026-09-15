@@ -15,13 +15,14 @@ import type {
  * declaration; get them wrong and it's fourteen screens.
  */
 
-/** Classic | Outline | Yellow Pop | Comic | Headline -- five formats use it. */
+/** Classic | Outline | Yellow Pop | Comic | Headline | Banner. */
 export const CAPTION_STYLES = [
   "Classic",
   "Outline",
   "Yellow Pop",
   "Comic",
   "Headline",
+  "Banner",
 ] as const;
 
 /** English in the UI; the TTS layer underneath is already multilingual. */
@@ -61,6 +62,18 @@ export const field = {
     ...o,
   }),
 
+  /**
+   * Whether captions are burned in at all. Separate from Caption style, which
+   * only says what they look like -- the P8 step is skipped entirely when this
+   * is off, so it is a pipeline condition rather than a cosmetic choice.
+   */
+  captionOverlay: (o?: Partial<Omit<SimpleField, "kind">>): SimpleField => ({
+    kind: "toggle",
+    label: "Caption overlay",
+    default: true,
+    ...o,
+  }),
+
   /** P10. "Who's cutting", "Avatar" and "Presenter" are all this field. */
   avatar: (o?: Partial<Omit<SimpleField, "kind">>): SimpleField => ({
     kind: "avatar",
@@ -72,6 +85,17 @@ export const field = {
   trendingClip: (o?: Partial<Omit<SimpleField, "kind">>): SimpleField => ({
     kind: "trendingClip",
     label: "Trending video",
+    ...o,
+  }),
+
+  /**
+   * Pick an existing audio clip or upload a new one -- the spec's "select
+   * audio clip templates or upload a new audio clip", one control rather than
+   * a dropdown next to an upload button.
+   */
+  audioClip: (o?: Partial<Omit<SimpleField, "kind">>): SimpleField => ({
+    kind: "audioClip",
+    label: "Audio",
     ...o,
   }),
 

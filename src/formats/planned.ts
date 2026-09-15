@@ -33,7 +33,14 @@ export const slideshow = defineFormat({
     images: field.count({ label: "Images", min: 3, max: 20, default: 10 }),
     style: field.choice({
       label: "Style",
-      options: ["Pixar 3D", "Anime", "Watercolor", "Photorealistic", "Claymation"],
+      options: [
+        "Pixar 3D",
+        "Anime",
+        "Watercolor",
+        "Photorealistic",
+        "Hyper-realistic",
+        "Claymation",
+      ],
       default: "Photorealistic",
     }),
     prompt: field.prompt(),
@@ -169,7 +176,14 @@ export const videoAnimation = defineFormat({
     }),
     style: field.choice({
       label: "Image style",
-      options: ["Pixar 3D", "Anime", "Watercolor", "Photorealistic", "Claymation"],
+      options: [
+        "Pixar 3D",
+        "Anime",
+        "Watercolor",
+        "Photorealistic",
+        "Hyper-realistic",
+        "Claymation",
+      ],
       default: "Pixar 3D",
     }),
     aspectRatio: field.choice({
@@ -274,6 +288,7 @@ export const talkingHeadUgc = defineFormat({
     avatar: field.avatar({ label: "AI influencer" }),
     duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
     language: field.language(),
+    captionOverlay: field.captionOverlay(),
     captionStyle: field.captionStyle(),
     prompt: field.prompt(),
     script: field.longText({ label: "Script", optional: true, generatedBy: "P1" }),
@@ -282,7 +297,12 @@ export const talkingHeadUgc = defineFormat({
     { id: "copy", primitive: "P1", label: "Write the script", when: { field: "script", is: "empty" } },
     { id: "speech", primitive: "P4", label: "Generate the voice" },
     { id: "avatar", primitive: "P5", label: "Render the avatar" },
-    { id: "captions", primitive: "P8", label: "Burn in captions" },
+    {
+      id: "captions",
+      primitive: "P8",
+      label: "Burn in captions",
+      when: { field: "captionOverlay", is: "present" },
+    },
   ],
 });
 
@@ -371,6 +391,7 @@ export const productSpokesperson = defineFormat({
     // Step 2 -- generate the video
     duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
     language: field.language(),
+    captionOverlay: field.captionOverlay(),
     captionStyle: field.captionStyle(),
     prompt: field.prompt(),
     script: field.longText({ label: "Script", optional: true, generatedBy: "P1" }),
@@ -423,14 +444,9 @@ export const cuttingFruit = defineFormat({
   config: {
     mentionBusiness: field.mentionBusiness(),
     whosCutting: field.avatar({ label: "Who's cutting" }),
-    // FLAG: "Audio" has three plausible readings. Planned as a music bed plus
-    // a sound toggle -- the only reading that doesn't duplicate narration
-    // controls this format doesn't have.
-    audio: field.choice({
-      label: "Audio",
-      options: ["Music bed", "Kitchen sound", "Silent"],
-      default: "Music bed",
-    }),
+    // The earlier FLAG here guessed at "Audio" as a three-way music/sound/
+    // silent choice. The updated spec settles it: pick a clip or upload one.
+    audio: field.audioClip(),
     duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
     style: field.choice({
       label: "Style",
@@ -463,6 +479,7 @@ const clayLikeConfig = {
     options: ["Educational", "Problem > Solution", "Storytime", "UGC Hook"],
     default: "Educational",
   }),
+  captionOverlay: field.captionOverlay(),
   captionStyle: field.captionStyle(),
   narration: field.longText({ label: "Narration", optional: true, generatedBy: "P1" }),
   // FLAG: the spec gives this format a P1-generated narration field but no
@@ -476,7 +493,12 @@ const clayLikePipeline = (artDirection: string) => [
   { id: "speech", primitive: "P4" as const, label: "Record the narration" },
   { id: "scene", primitive: "P2" as const, label: "Generate the scene", options: { artDirection } },
   { id: "clip", primitive: "P3" as const, label: "Animate the scene" },
-  { id: "captions", primitive: "P8" as const, label: "Burn in captions" },
+  {
+    id: "captions",
+    primitive: "P8" as const,
+    label: "Burn in captions",
+    when: { field: "captionOverlay", is: "present" } as const,
+  },
 ];
 
 export const claymation = defineFormat({
@@ -546,4 +568,200 @@ export const characterSwap = defineFormat({
     // charge. That needs a reversal entry in the ledger, not a manual credit.
     { id: "verify", primitive: "P7", label: "Verify the swap took" },
   ],
+});
+
+// ---------------------------------------------------------------- Phase 7
+//
+// The seven formats added by the updated spec. Every one is `planned` rather
+// than `ready`: "ready" means the step runners for its pipeline exist, and
+// none of these have a starter in convex/starters.ts yet. They show in the
+// picker from day one -- a visible roadmap beats a hidden one -- but can't be
+// entered until their runners land.
+
+/**
+ * On a Walk, Netflix Documentary and Cutting Fruit are the same format with
+ * three art directions: a generated scene of someone talking, with the user's
+ * text over it. Written out rather than folded into a shared config so the
+ * existing Cutting Fruit declaration stays untouched.
+ */
+const spokenSceneStyle = () =>
+  field.choice({
+    label: "Style",
+    options: ["Ranting", "Quick Thought", "Storytime", "Advice", "Not sure"],
+    default: "Not sure",
+  });
+
+const spokenScenePipeline = (sceneLabel: string) => [
+  { id: "copy", primitive: "P1" as const, label: "Write the narration" },
+  { id: "speech", primitive: "P4" as const, label: "Record the narration" },
+  { id: "scene", primitive: "P2" as const, label: sceneLabel },
+  { id: "clip", primitive: "P3" as const, label: "Animate the scene" },
+  { id: "captions", primitive: "P8" as const, label: "Burn in captions" },
+];
+
+export const onAWalk = defineFormat({
+  id: "on-a-walk",
+  name: "On a Walk",
+  blurb: "Your text over a generated walking selfie",
+  icon: "🚶",
+  group: "generated",
+  preview: "video",
+  status: "planned",
+  phase: 7,
+  config: {
+    mentionBusiness: field.mentionBusiness(),
+    whosWalking: field.avatar({ label: "Who's walking" }),
+    audio: field.audioClip(),
+    duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
+    style: spokenSceneStyle(),
+    prompt: field.prompt(),
+  },
+  pipeline: spokenScenePipeline("Generate the walking selfie"),
+});
+
+export const netflixDocumentary = defineFormat({
+  id: "netflix-documentary",
+  name: "Netflix Documentary",
+  blurb: "Your text over a generated interview clip",
+  icon: "🎬",
+  group: "generated",
+  preview: "video",
+  status: "planned",
+  phase: 7,
+  config: {
+    mentionBusiness: field.mentionBusiness(),
+    whosOnCamera: field.avatar({ label: "Who's on camera" }),
+    audio: field.audioClip(),
+    duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
+    style: spokenSceneStyle(),
+    prompt: field.prompt(),
+  },
+  pipeline: spokenScenePipeline("Generate the interview scene"),
+});
+
+/** Lego is Claymation with different bricks -- same config list, same steps. */
+export const lego = defineFormat({
+  id: "lego",
+  name: "Lego",
+  blurb: "Stop-motion Lego brick ad with narration and captions",
+  icon: "🟦",
+  group: "generated",
+  preview: "video",
+  status: "planned",
+  phase: 7,
+  config: clayLikeConfig,
+  pipeline: clayLikePipeline("LEGO_STYLE"),
+});
+
+/**
+ * Felt and Talking Objects share the spec's second style vocabulary -- the
+ * blunt one -- where Claymation, Lego and Skeleton share the explainer one.
+ * Otherwise identical to the clay-like config.
+ */
+const bluntStyleConfig = {
+  ...clayLikeConfig,
+  style: field.choice({
+    label: "Style",
+    // "Tough-love", not the spec's "touch-love" -- reading that as a typo
+    // rather than inventing a fifth tone.
+    options: ["Aggressive rant", "Tough-love callout", "Blunt warning", "No-nonsense explainer"],
+    default: "No-nonsense explainer",
+  }),
+};
+
+export const felt = defineFormat({
+  id: "felt",
+  name: "Felt",
+  blurb: "Stop-motion felt ad with narration and captions",
+  icon: "🧶",
+  group: "generated",
+  preview: "video",
+  status: "planned",
+  phase: 7,
+  config: bluntStyleConfig,
+  pipeline: clayLikePipeline("FELT_STYLE"),
+});
+
+export const talkingObjects = defineFormat({
+  id: "talking-objects",
+  name: "Talking Objects",
+  blurb: "A niche object talks straight at the viewer to drive the point home",
+  icon: "🗿",
+  group: "generated",
+  preview: "video",
+  status: "planned",
+  phase: 7,
+  config: bluntStyleConfig,
+  pipeline: clayLikePipeline("TALKING_OBJECT_STYLE"),
+});
+
+/**
+ * Street Interview and AI News Anchor are the first two formats to name a
+ * brand directly rather than through the "Mention your business?" toggle --
+ * the brand name is the subject of the piece, not a mention bolted onto it.
+ */
+const broadcastConfig = {
+  productImage: field.image({ label: "Product image" }),
+  brandName: field.shortText({ label: "Brand name" }),
+  duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
+  language: field.language(),
+  captionOverlay: field.captionOverlay(),
+  captionStyle: field.captionStyle(),
+};
+
+export const streetInterview = defineFormat({
+  id: "street-interview",
+  name: "Street Interview",
+  blurb: "Impromptu street vox-pop that looks like unedited iPhone footage",
+  icon: "🎤",
+  group: "generated",
+  preview: "video",
+  status: "planned",
+  phase: 7,
+  config: {
+    ...broadcastConfig,
+    style: field.choice({
+      label: "Style",
+      options: [
+        "Solo, mic only",
+        "Multiple, mic only",
+        "Solo, both in frame",
+        "Multiple, both in frame",
+      ],
+      default: "Solo, mic only",
+    }),
+    dialogue: field.longText({
+      label: "Dialogue",
+      optional: true,
+      generatedBy: "P1",
+      help: "36-49 words. Left empty, it gets written for you.",
+    }),
+  },
+  pipeline: spokenScenePipeline("Generate the street scene"),
+});
+
+export const aiNewsAnchor = defineFormat({
+  id: "ai-news-anchor",
+  name: "AI News Anchor",
+  blurb: "A news anchor breaks your customer's problem as tonight's top story",
+  icon: "📺",
+  group: "generated",
+  preview: "video",
+  status: "planned",
+  phase: 7,
+  config: {
+    ...broadcastConfig,
+    style: field.choice({
+      label: "Style",
+      options: ["News desk close", "News desk wide", "Late bulletin, dark studio"],
+      default: "News desk close",
+    }),
+    newsItem: field.longText({
+      label: "News item",
+      optional: true,
+      generatedBy: "P1",
+      help: "32-42 words. Left empty, it gets written for you.",
+    }),
+  },
+  pipeline: spokenScenePipeline("Generate the news studio"),
 });

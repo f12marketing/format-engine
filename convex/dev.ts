@@ -181,6 +181,37 @@ export const seedAsset = internalAction({
 });
 
 /**
+ * Adds a clip to the shared house audio library from a public URL.
+ *
+ * Curation entry point until there's an admin surface, exactly as the clip
+ * library started -- run it per track:
+ *   npx convex run dev:addAudioTemplate '{"name":"Upbeat bed","url":"https://…/a.mp3"}'
+ */
+export const addAudioTemplate = internalAction({
+  args: {
+    name: v.string(),
+    url: v.string(),
+    tags: v.optional(v.array(v.string())),
+    durationSec: v.optional(v.number()),
+  },
+  handler: async (ctx, { name, url, tags, durationSec }): Promise<Id<"audioTemplates">> => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Could not fetch ${url} (${res.status})`);
+    const mimeType = res.headers.get("content-type")?.split(";")[0] ?? "audio/mpeg";
+    const blob = await res.blob();
+    const storageId = await ctx.storage.store(blob);
+    return ctx.runMutation(internal.audio.recordTemplate, {
+      name,
+      storageId,
+      mimeType,
+      bytes: blob.size,
+      durationSec,
+      tags,
+    });
+  },
+});
+
+/**
  * Seeds a clip straight into the shared library from base64, bypassing
  * ScrapeCreators -- for exercising Video Hook & Demo / Green Screen Meme
  * before a SCRAPECREATORS_API_KEY exists. Dev-only, like everything else here.

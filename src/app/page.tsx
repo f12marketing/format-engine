@@ -1,109 +1,78 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import { FormatPicker } from "@/components/FormatPicker";
-import { JobList } from "@/components/JobList";
-import { InfluencerRoster } from "@/components/InfluencerRoster";
-import { NewInfluencerModal } from "@/components/NewInfluencerModal";
-import { AuthStatus } from "@/components/AuthStatus";
-import { AuthorisedBoundary } from "@/components/AuthorisedBoundary";
-import {
-  authConfigured,
-  backendConfigured,
-  convexConfigured,
-} from "./ConvexClientProvider";
 import { FORMATS } from "@/formats";
+import type { FormatDefinition } from "@/formats/types";
 
-export default function Dashboard() {
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [influencerModalOpen, setInfluencerModalOpen] = useState(false);
-  const ready = FORMATS.filter((f) => f.status === "ready").length;
+/**
+ * The format picker, as the app's landing page rather than a modal over a
+ * dashboard. Flat grid, no group headings: the reference layout puts every
+ * format on one wall and lets the thumbnails do the sorting.
+ *
+ * Planned formats stay visible but unclickable -- the registry lists itself,
+ * and a visible roadmap beats a hidden one.
+ */
+export default function ContentPage() {
+  return (
+    <main className="mx-auto w-full max-w-6xl px-6 py-10">
+      <h1 className="text-xl font-semibold tracking-tight">Create new content</h1>
+      <p className="mt-1 text-sm text-muted">
+        Pick a format to get started. You can switch anytime.
+      </p>
+
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {FORMATS.map((format) => (
+          <FormatCard key={format.id} format={format} />
+        ))}
+      </div>
+    </main>
+  );
+}
+
+function FormatCard({ format }: { format: FormatDefinition }) {
+  const ready = format.status === "ready";
+
+  const body = (
+    <>
+      <div className="grid aspect-[4/3] place-items-center bg-surface-sub text-5xl">
+        {format.icon}
+      </div>
+      <div className="p-3">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-semibold">{format.name}</span>
+          {format.shipsToday && (
+            <span className="shrink-0 rounded border border-accent bg-accent-soft px-1.5 py-px font-mono text-[0.6rem] uppercase tracking-wide text-accent">
+              today
+            </span>
+          )}
+        </div>
+        <p className="mt-0.5 line-clamp-2 text-xs leading-snug text-muted">{format.blurb}</p>
+        {!ready && (
+          <p className="mt-1 font-mono text-[0.6rem] uppercase tracking-wide text-muted">
+            Phase {format.phase}
+          </p>
+        )}
+      </div>
+    </>
+  );
+
+  if (!ready) {
+    return (
+      <div
+        title={`Arrives in Phase ${format.phase}`}
+        className="cursor-not-allowed overflow-hidden rounded-xl border border-line bg-surface opacity-55"
+      >
+        {body}
+      </div>
+    );
+  }
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-12">
-      <header className="flex items-baseline justify-between gap-4">
-        <h1 className="text-xl font-semibold tracking-tight">Format Engine</h1>
-        <div className="flex items-center gap-4">
-          <span className="font-mono text-xs text-muted">
-            {ready} of {FORMATS.length} formats live
-          </span>
-          {authConfigured && <AuthStatus />}
-        </div>
-      </header>
-
-      <div className="mt-6 flex flex-wrap gap-3">
-        <button
-          onClick={() => setPickerOpen(true)}
-          className="rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
-        >
-          + Create new content
-        </button>
-        {backendConfigured && (
-          <button
-            onClick={() => setInfluencerModalOpen(true)}
-            className="rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
-          >
-            + New influencer
-          </button>
-        )}
-      </div>
-
-      <div className="mt-10 flex items-baseline justify-between">
-        <h2 className="font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">
-          Recent jobs
-        </h2>
-        {backendConfigured && (
-          <Link
-            href="/history"
-            className="font-mono text-[0.65rem] uppercase tracking-wide text-muted hover:text-accent"
-          >
-            View all →
-          </Link>
-        )}
-      </div>
-      {backendConfigured ? (
-        <AuthorisedBoundary>
-          <JobList />
-        </AuthorisedBoundary>
-      ) : (
-        <div className="mt-2 rounded-xl border border-dashed border-line p-6 text-sm text-muted">
-          <p className="font-medium text-foreground">
-            {convexConfigured && !authConfigured
-              ? "Convex is connected. Supabase Auth is not."
-              : "Backend not connected yet"}
-          </p>
-          <p className="mt-1">
-            {convexConfigured ? null : (
-              <>
-                Run <code className="font-mono text-xs">npx convex dev</code>.{" "}
-              </>
-            )}
-            {authConfigured ? null : (
-              <>
-                Add your Supabase keys to{" "}
-                <code className="font-mono text-xs">.env.local</code> — jobs are
-                scoped to a signed-in client, so the list needs an identity
-                before it can show anything.
-              </>
-            )}
-          </p>
-        </div>
-      )}
-
-      {backendConfigured && (
-        <AuthorisedBoundary>
-          <InfluencerRoster />
-        </AuthorisedBoundary>
-      )}
-
-      {pickerOpen && <FormatPicker onClose={() => setPickerOpen(false)} />}
-      {influencerModalOpen && (
-        <NewInfluencerModal
-          onClose={() => setInfluencerModalOpen(false)}
-          onCreated={() => {}}
-        />
-      )}
-    </main>
+    <Link
+      href={`/new/${format.id}`}
+      className="overflow-hidden rounded-xl border border-line bg-surface transition hover:border-accent"
+    >
+      {body}
+    </Link>
   );
 }

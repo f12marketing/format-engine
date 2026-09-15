@@ -8,7 +8,9 @@
  * @module
  */
 
+import type * as analytics from "../analytics.js";
 import type * as assets from "../assets.js";
+import type * as audio from "../audio.js";
 import type * as avatars from "../avatars.js";
 import type * as carousel from "../carousel.js";
 import type * as characterSwap from "../characterSwap.js";
@@ -26,6 +28,7 @@ import type * as influencers from "../influencers.js";
 import type * as jobs from "../jobs.js";
 import type * as ledger from "../ledger.js";
 import type * as lib_animateScenePrimitive from "../lib/animateScenePrimitive.js";
+import type * as lib_audioRef from "../lib/audioRef.js";
 import type * as lib_avatarPrimitive from "../lib/avatarPrimitive.js";
 import type * as lib_carouselPrompt from "../lib/carouselPrompt.js";
 import type * as lib_clayScenePrimitive from "../lib/clayScenePrimitive.js";
@@ -38,11 +41,14 @@ import type * as lib_nodeStorage from "../lib/nodeStorage.js";
 import type * as lib_roster from "../lib/roster.js";
 import type * as lib_scriptPrimitive from "../lib/scriptPrimitive.js";
 import type * as lib_speechPrimitive from "../lib/speechPrimitive.js";
+import type * as lib_zernio from "../lib/zernio.js";
 import type * as productSpokesperson from "../productSpokesperson.js";
 import type * as remix from "../remix.js";
 import type * as run from "../run.js";
 import type * as skeleton from "../skeleton.js";
 import type * as slideshow from "../slideshow.js";
+import type * as social from "../social.js";
+import type * as socialPosts from "../socialPosts.js";
 import type * as speakingHookDemo from "../speakingHookDemo.js";
 import type * as starters from "../starters.js";
 import type * as talkingHeadGreenScreen from "../talkingHeadGreenScreen.js";
@@ -59,7 +65,9 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  analytics: typeof analytics;
   assets: typeof assets;
+  audio: typeof audio;
   avatars: typeof avatars;
   carousel: typeof carousel;
   characterSwap: typeof characterSwap;
@@ -77,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   jobs: typeof jobs;
   ledger: typeof ledger;
   "lib/animateScenePrimitive": typeof lib_animateScenePrimitive;
+  "lib/audioRef": typeof lib_audioRef;
   "lib/avatarPrimitive": typeof lib_avatarPrimitive;
   "lib/carouselPrompt": typeof lib_carouselPrompt;
   "lib/clayScenePrimitive": typeof lib_clayScenePrimitive;
@@ -89,11 +98,14 @@ declare const fullApi: ApiFromModules<{
   "lib/roster": typeof lib_roster;
   "lib/scriptPrimitive": typeof lib_scriptPrimitive;
   "lib/speechPrimitive": typeof lib_speechPrimitive;
+  "lib/zernio": typeof lib_zernio;
   productSpokesperson: typeof productSpokesperson;
   remix: typeof remix;
   run: typeof run;
   skeleton: typeof skeleton;
   slideshow: typeof slideshow;
+  social: typeof social;
+  socialPosts: typeof socialPosts;
   speakingHookDemo: typeof speakingHookDemo;
   starters: typeof starters;
   talkingHeadGreenScreen: typeof talkingHeadGreenScreen;

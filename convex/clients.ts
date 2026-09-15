@@ -57,6 +57,21 @@ export const getByAuthUserId = internalQuery({
 });
 
 /**
+ * Every client with a Zernio profile -- the cron's worklist. A client with no
+ * profile has never connected a social account, so there is nothing for the
+ * analytics sync to fetch.
+ */
+export const listWithZernioProfile = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const clients = await ctx.db.query("clients").collect();
+    return clients
+      .filter((c) => !c.archived && c.zernioProfileId)
+      .map((c) => ({ _id: c._id, zernioProfileId: c.zernioProfileId! }));
+  },
+});
+
+/**
  * Whether the invite-only gate has admitted anyone yet -- lets the frontend
  * skip even attempting `bootstrapFirstClient` once that's settled, instead of
  * calling a mutation that can only fail from then on. Convex's client logs a
