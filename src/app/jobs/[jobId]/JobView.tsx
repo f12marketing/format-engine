@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
@@ -7,6 +8,7 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 import { getFormat } from "@/formats";
 import { ApprovalGate } from "@/components/ApprovalGate";
 import { RemixActions } from "@/components/RemixActions";
+import { PostComposer } from "@/components/PostComposer";
 
 /**
  * The run, watched live.
@@ -20,6 +22,7 @@ export function JobView({ jobId }: { jobId: string }) {
   const job = useQuery(api.jobs.get, { jobId: jobId as Id<"jobs"> });
   const assets = useQuery(api.assets.forJob, { jobId: jobId as Id<"jobs"> });
   const remixes = useQuery(api.jobs.remixesOf, { jobId: jobId as Id<"jobs"> });
+  const [composing, setComposing] = useState(false);
 
   if (job === undefined) {
     return <Shell><p className="text-sm text-muted">Loading…</p></Shell>;
@@ -35,6 +38,12 @@ export function JobView({ jobId }: { jobId: string }) {
   const files = (job.steps.find((s) => s.id === "render")?.output as
     | { files?: { name: string }[] }
     | undefined)?.files;
+
+  // Video first: a job that produced both a still and a clip posts the clip.
+  const postable =
+    assets?.find((a) => a.url && a.kind === "video") ??
+    assets?.find((a) => a.url && a.kind === "image") ??
+    null;
 
   return (
     <Shell>
@@ -77,6 +86,35 @@ export function JobView({ jobId }: { jobId: string }) {
 
       {job.status === "done" && (
         <RemixActions jobId={job._id} formatId={job.formatId} steps={job.steps} />
+      )}
+
+      {/* Only once there's something to post: the composer's whole job is to
+          attach a finished file to an account. */}
+      {job.status === "done" && postable && (
+        <button
+          onClick={() => setComposing(true)}
+          className="mt-4 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+        >
+          Schedule post
+        </button>
+      )}
+
+      {composing && postable && (
+        <PostComposer
+          jobId={job._id}
+          media={{
+            id: postable.id,
+            url: postable.url,
+            facts: {
+              kind: postable.kind,
+              bytes: postable.bytes,
+              width: postable.width,
+              height: postable.height,
+              durationSec: postable.durationSec,
+            },
+          }}
+          onClose={() => setComposing(false)}
+        />
       )}
 
       <h2 className="mt-8 font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">

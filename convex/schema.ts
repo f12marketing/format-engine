@@ -18,6 +18,15 @@ export default defineSchema({
     displayName: v.string(),
     monthlySpendCapUsd: v.number(),
     archived: v.optional(v.boolean()),
+    /**
+     * This client's Zernio profile. Zernio's tenancy is Team -> Profile ->
+     * Account, and its docs describe a profile as "one per customer when you
+     * build for other people" -- so one profile per client keeps one
+     * customer's connected accounts from ever being visible to another.
+     * Created lazily on first use rather than at admission, so existing
+     * clients don't need backfilling.
+     */
+    zernioProfileId: v.optional(v.string()),
   }).index("by_auth_user", ["authUserId"]),
 
   /**
@@ -66,6 +75,12 @@ export default defineSchema({
     durationSec: v.optional(v.number()),
     /** Set when this asset was produced by a job rather than uploaded. */
     producedByJobId: v.optional(v.id("jobs")),
+    /**
+     * A still extracted from a video, for grids that would otherwise have to
+     * load whole MP4s to show a tile. Videos only; the render service already
+     * runs ffmpeg, so it produces this rather than a CDN doing it on the fly.
+     */
+    posterStorageId: v.optional(v.id("_storage")),
   })
     .index("by_client", ["clientId"])
     .index("by_job", ["producedByJobId"]),
@@ -189,6 +204,172 @@ export default defineSchema({
    * clip it used, and it may be gone upstream. Store the file, never the
    * expiring CDN link.
    */
+  /**
+   * A social account the client connected through Zernio's OAuth flow.
+   *
+   * A mirror, not the source of truth -- Zernio owns the tokens and we never
+   * see them. `zernioAccountId` is the `_id` from GET /v1/accounts, and is
+   * what every publish and analytics call is addressed to. Disconnects are
+   * kept as rows (`disconnectedAt`) rather than deleted, so a post that went
+   * out through an account still has something to point at afterwards.
+   */
+  socialAccounts: defineTable({
+    clientId: v.id("clients"),
+    zernioAccountId: v.string(),
+    platform: v.union(
+      v.literal("tiktok"),
+      v.literal("instagram"),
+      v.literal("youtube"),
+      v.literal("linkedin"),
+    ),
+    username: v.string(),
+    displayName: v.optional(v.string()),
+    avatarUrl: v.optional(v.string()),
+    isActive: v.boolean(),
+    connectedAt: v.number(),
+    lastCheckedAt: v.optional(v.number()),
+    disconnectedAt: v.optional(v.number()),
+  })
+    .index("by_client", ["clientId"])
+    .index("by_zernio_account", ["zernioAccountId"]),
+
+  /**
+   * One row per composed post, across however many platforms it targets.
+   *
+   * Zernio is the scheduler -- it holds `scheduledFor`, does the publishing
+   * and owns the retries. This table exists so the Library and Calendar can
+   * render from one reactive query instead of N API calls, and is reconciled
+   * from Zernio's webhooks with a cron backstop (the same arrangement
+   * `influencers.reconcileStuckTrainings` already uses for fal).
+   *
+   * `targets` is per-platform because one post genuinely can half-succeed:
+   * Zernio reports `partial` when, say, LinkedIn published and TikTok was
+   * rejected, and "which one failed and why" has to survive that.
+   */
+  socialPosts: defineTable({
+    clientId: v.id("clients"),
+    /** Absent until the post leaves draft and Zernio assigns its own id. */
+    zernioPostId: v.optional(v.string()),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("scheduled"),
+      v.literal("publishing"),
+      v.literal("published"),
+      v.literal("partial"),
+      v.literal("failed"),
+      v.literal("cancelled"),
+    ),
+    caption: v.string(),
+    mediaAssetIds: v.array(v.id("assets")),
+    /** Provenance: which generation produced this. Drives Analytics' by-format breakdown. */
+    jobId: v.optional(v.id("jobs")),
+    scheduledFor: v.optional(v.number()),
+    /** IANA zone, sent to Zernio alongside `scheduledFor`, which it interprets in this zone. */
+    timezone: v.optional(v.string()),
+    targets: v.array(
+      v.object({
+        platform: v.string(),
+        zernioAccountId: v.string(),
+        socialAccountId: v.id("socialAccounts"),
+        status: v.string(),
+        platformPostUrl: v.optional(v.string()),
+        error: v.optional(v.string()),
+        /** Per-platform fields (tiktokSettings, YouTube title/visibility, ...). */
+        platformSpecificData: v.optional(v.any()),
+        /**
+         * This target's own performance, synced from Zernio's per-post
+         * analytics. Living here rather than in a separate table is what lets
+         * Analytics attribute by account and by format -- this target already
+         * carries `socialAccountId`, and the post already carries `jobId` --
+         * without a join that could double-count against `postAnalytics`'s
+         * daily rollups.
+         */
+        analytics: v.optional(
+          v.object({
+            views: v.number(),
+            likes: v.number(),
+            comments: v.number(),
+            shares: v.number(),
+            syncedAt: v.number(),
+          }),
+        ),
+      }),
+    ),
+    publishedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+  })
+    .index("by_client", ["clientId"])
+    .index("by_client_and_status", ["clientId", "status"])
+    .index("by_client_and_scheduled", ["clientId", "scheduledFor"])
+    .index("by_zernio_post", ["zernioPostId"]),
+
+  /**
+   * Daily per-platform rollup, cached from GET /v1/analytics/daily-metrics
+   * (one call per connected platform, via its `platform` filter -- the
+   * endpoint's own per-day figures are already summed across every post, and
+   * it has no way to break a single day down by platform in one call).
+   *
+   * Cached rather than proxied on every page load for two reasons: Zernio's
+   * own numbers only refresh on its own schedule, so live calls on every
+   * render buy nothing; and keeping rows here means the charts keep working --
+   * and keep their history -- regardless of what range Zernio will still
+   * serve later. Per-post attribution (by account, by format) deliberately
+   * does NOT live here -- see `socialPosts.targets[].analytics` -- so summing
+   * this table's rows for a KPI tile can never double-count a post that also
+   * has its own per-target numbers.
+   */
+  postAnalytics: defineTable({
+    clientId: v.id("clients"),
+    /** "YYYY-MM-DD", as Zernio's own `dailyData[].date` reports it. */
+    date: v.string(),
+    platform: v.string(),
+    /** Distinct posts published this platform this day, per Zernio's own count. */
+    postCount: v.number(),
+    views: v.number(),
+    likes: v.number(),
+    comments: v.number(),
+    shares: v.number(),
+    impressions: v.number(),
+    reach: v.number(),
+    syncedAt: v.number(),
+  })
+    .index("by_client_and_date", ["clientId", "date"])
+    .index("by_client_platform_date", ["clientId", "platform", "date"]),
+
+  /**
+   * Webhook dedupe. Zernio delivers at least once and retries up to seven
+   * times, so the same `X-Zernio-Event-Id` can and will arrive twice; the
+   * handler records the id before acting and ignores anything it has seen.
+   */
+  zernioWebhookEvents: defineTable({
+    eventId: v.string(),
+    event: v.string(),
+    receivedAt: v.number(),
+  }).index("by_event_id", ["eventId"]),
+
+  /**
+   * The house audio library, shared across every client.
+   *
+   * Its own table rather than `assets` rows with an optional `clientId`:
+   * every read of `assets` is guarded by `asset.clientId !== client._id`, and
+   * making that field optional would mean loosening that check everywhere an
+   * asset is read -- a security-critical edit in a dozen places to support one
+   * picker. `clips` already set this precedent for the same reason: a shared
+   * library is not anyone's private asset, so it doesn't live in the private
+   * table.
+   */
+  audioTemplates: defineTable({
+    name: v.string(),
+    storageId: v.id("_storage"),
+    mimeType: v.string(),
+    bytes: v.number(),
+    durationSec: v.optional(v.number()),
+    tags: v.array(v.string()),
+    /** Retired templates stay readable, so a job that used one still resolves. */
+    archived: v.optional(v.boolean()),
+    addedAt: v.number(),
+  }).index("by_added_at", ["addedAt"]),
+
   clips: defineTable({
     source: v.string(), // "tiktok" | "instagram" | ...
     sourceUrl: v.string(),

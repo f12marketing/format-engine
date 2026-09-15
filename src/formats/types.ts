@@ -44,6 +44,7 @@ export type FieldKind =
   | "captionStyle"
   | "avatar"
   | "trendingClip"
+  | "audioClip"
   | "mode";
 
 export interface FieldBase {

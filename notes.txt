@@ -1,0 +1,261 @@
+
+Slideshow
+Multi-image carousel with captions
+
+configurations :
+MOde: Create new, remix
+Mention your business? - Yes, no
+Trending slideshow templates - Users can choose one from popup
+Prompt
+
+
+Wall of Text
+Bold text on a plain background
+
+configurations :
+Mode: Create new/remix
+Mention your business? - Yes, no
+Trending video templates
+Prompt
+
+
+Cutting Fruit
+Your text over a generated kitchen clip
+
+configurations :
+mention your business? - Yes, no
+Who's cutting - influencer popup
+audio - select audio clip templates or upload a new audio clip
+Duration - 8 seconds, 10 seconds, 15 seconds, 30 seconds
+Style (dropdown) - ranting, quick thought, storytime, advice, not sure
+prompt
+
+On a Walk
+Your text over a generated walking selfie
+
+configurations :
+Mention your business? - yes, no
+who's walking - influencer popup
+Audio - select audio clip template or upload a new audio clip
+duration - 8 seconds, 10 seconds, 15 seconds, 30 seconds
+style (dropdown) - ranting, quick though, storytime, advice, not sure
+prompt
+
+
+Netflix Documentary
+Your text over a generated interview clip
+
+configurations :
+mention your business? - Yes, no
+Who's on camera - influencer popup
+audio - select audio clip templates or upload a new audio clip
+Duration - 8 seconds, 10 seconds, 15 seconds, 30 seconds
+Style (dropdown) - ranting, quick thought, storytime, advice, not sure
+prompt
+
+
+Video Hook & Demo
+Hook clip + app demo stitched together
+
+configurations :
+Mention your business? - Yes, no
+Trending video - choose template
+Demo video - upload video 
+Prompt
+
+
+Speaking Hook & Demo
+Someone says the hook out loud, then your demo
+
+configurations :
+Hook - influencer popup
+demo video - upload video
+Language dropdown - as supported by the AI model
+
+
+configurations : 
+Hook - choose influencer
+Demo video - upload video
+Language dropdown - as supported by the AI model
+What they say - with a generate button (12 words limit)
+How they say it - auto, shocked, outraged, realizing, relieved, deadpan
+Mention your business - Yes, no
+
+
+Talking Head UGC
+AI avatar speaks a script to camera
+
+configurations :
+Duration from 4 seconds to 60 seconds
+Language dropdown - as supported by the AI model
+Mode: speaker, scene
+Caption overlay - checkbox
+Caption style - caption presets
+Script (20 - 30 words max)
+
+
+Green Screen Meme
+Trending video with your background image
+
+configurations:
+Mode: create new, remix
+Mention your business - yes,no
+trending video - choose template
+prompt
+
+
+Talking Head Green Screen
+AI avatar composited into the corner of a demo video
+
+configurations :
+Demo video - upload video
+Avatar - select influencer
+Duration - 4 seconds to 60 seconds
+Script (20 - 30 words max)
+
+
+Product Spokesperson
+A character holds your product and talks about it
+
+Step 1
+Create spokesperson image:
+
+1) Generate - avatar - influencer popup, product
+2) From library - upload image
+
+Step 2:
+Generate video:
+
+Duration from 4 seconds to 60 seconds
+Language dropdown - as supported by the AI model
+Caption overlay - checkbox
+Caption style - caption presets
+Script (16- 24 words max)
+
+
+Green Screen Mobile with App
+A presenter holding a phone with your app on screen
+
+configurations :
+app screenshot - upload image
+Presenter - influencer popup
+Script
+
+
+Claymation
+Stop-motion clay ad with narration and captions
+
+configurations :
+product image - upload image
+Duration - 4 seconds to 60 seconds
+Language dropdown - as supported by the AI model
+Caption overlay - checkbox
+Style - Educational, problem > Solution, storytime, UGC Hook
+Caption Style - Classic, Outline, Yellow Pop, Comic, Headline, banner
+Narration (30 - 45 words)
+
+Lego
+Stop-motion Lego brick ad with narration and captions
+
+configurations :
+Product Image - Select product image
+Duration - 4 seconds to 60 seconds
+Language dropdown - as supported by the AI model
+Caption overlay - checkbox
+Style - Educational, problem > Solution, storytime, UGC Hook
+Caption Style - Classic, Outline, Yellow Pop, Comic, Headline, banner
+Narration (30 - 45 words)
+
+
+Talking Objects
+A niche object talks straight at the viewer to drive the point home
+
+configurations : 
+Product Image - Select product image
+Duration - 4 seconds to 60 seconds
+Language dropdown - as supported by the AI model
+Caption overlay - checkbox
+Style - Aggressive rant, touch-love callout, blunt warning, no- nonsense explainer
+Caption Style - Classic, Outline, Yellow Pop, Comic, Headline, banner
+Narration (30 - 45 words)
+
+
+Felt
+Stop-motion felt ad with narration and captions
+
+configurations :
+Product Image - Select product image
+Duration - 4 seconds to 60 seconds
+Language dropdown - as supported by the AI model
+Caption overlay - checkbox
+Style - Aggressive rant, touch-love callout, blunt warning, no- nonsense explainer
+Caption Style - Classic, Outline, Yellow Pop, Comic, Headline, banner
+Narration (30 - 45 words)
+
+Skeleton
+Educational skeleton video with narration and captions
+
+configurations :
+Product Image - Select product image
+Duration - 4 seconds to 60 seconds
+Language dropdown - as supported by the AI model
+Caption overlay - checkbox
+Style - Educational, Problem > Solution, Storytime, UGC Hook
+Caption Style - Classic, Outline, Yellow Pop, Comic, Headline, banner
+Narration (30 - 45 words)
+
+Street Interview
+Impromptu street vox-pop that looks like unedited iPhone footage
+
+configurations :
+Product Image - Select product image
+Brand Name - Input box
+Duration - 4 seconds to 60 seconds
+Language dropdown - as supported by the AI model
+Caption overlay - checkbox
+Caption Style - Classic, Outline, Yellow Pop, Comic, Headline, banner
+Style - Solo mic only, multiple mic only, solo both in frame, multiple both in frame
+Dialogue (36 - 49 words)
+
+
+AI News Anchor
+A news anchor breaks your customer's problem as tonight's top story
+
+configurations :
+Product Image - Select product image
+Brand Name - Input box
+Duration - 4 seconds to 60 seconds
+Language dropdown - as supported by the AI model
+Caption overlay - checkbox
+Caption Style - Classic, Outline, Yellow Pop, Comic, Headline, banner
+Style - News desk close, news desk wide, late bulletin dark studio
+News item (32 - 42 words)
+
+
+Character Swap
+Swap the character in a video using AI
+
+configurations:
+Inputs - source video, character image
+scene control - video - 3 - 15 seconds, image - 3 to 30 seconds, recreate - 3 to 30 seconds
+source video - 3 to 30 seconds
+Audio - choose audio template
+
+Custom
+Upload your own video or image
+
+configurations:
+Step  1: Choose option: 
+Upload Video - Upload your own video with optional text overlay
+Build Slideshow - Upload images, reorder, and add text
+
+Step 2: 
+Upload video file
+
+Step 3: Edit video file:
+mute/unmute audio, add text, add overlay
+
+Build slideshow:
+Aspect ration - 1:1, 4:5, 3:4, 9:16
+
+Images - upload image files

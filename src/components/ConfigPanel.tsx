@@ -3,6 +3,7 @@
 import { UploadField } from "./UploadField";
 import { TrendingClipField } from "./TrendingClipField";
 import { AvatarField } from "./AvatarField";
+import { AudioClipField } from "./AudioClipField";
 import { AuthorisedBoundary } from "./AuthorisedBoundary";
 import { convexConfigured } from "@/app/ConvexClientProvider";
 import type { Field, FormatDefinition } from "@/formats/types";
@@ -223,6 +224,15 @@ function Control({
       return convexConfigured ? (
         <AuthorisedBoundary>
           <AvatarField value={value} onChange={onChange} />
+        </AuthorisedBoundary>
+      ) : (
+        <Placeholder kind={field.kind} />
+      );
+
+    case "audioClip":
+      return convexConfigured ? (
+        <AuthorisedBoundary>
+          <AudioClipField value={value} onChange={onChange} />
         </AuthorisedBoundary>
       ) : (
         <Placeholder kind={field.kind} />

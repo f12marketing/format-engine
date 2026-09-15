@@ -2,72 +2,77 @@
 
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
-
-const STATUS_CLASS: Record<string, string> = {
-  ready: "text-ok border-ok",
-  failed: "text-accent border-accent",
-  training: "text-warn border-warn",
-  draft: "text-muted border-line",
-};
-
-function StatusPill({ status }: { status: string }) {
-  return (
-    <span
-      className={`shrink-0 rounded-full border px-2 py-0.5 font-mono text-[0.6rem] uppercase tracking-wide ${
-        STATUS_CLASS[status] ?? "text-muted border-line"
-      }`}
-    >
-      {status}
-    </span>
-  );
-}
+import { StatusPill } from "@/components/StatusPill";
 
 /**
- * The influencer roster: trained personas alongside the format engine's
- * regular jobs. Same section shape as "Recent jobs" on the dashboard --
- * heading, then a list -- rather than a new page, since sixteen new nav
- * destinations is exactly the wall FormatPicker's own comment warns against
- * for formats. The create button lives up top next to "+ Create new
- * content" instead of here; this component is reactive either way, so a
- * training that finishes shows up here on its own.
+ * The trained-persona roster. Reactive, so a training that finishes appears
+ * here on its own without the page knowing to refetch.
  */
-export function InfluencerRoster() {
+export function InfluencerRoster({ onCreate }: { onCreate: () => void }) {
   const influencers = useQuery(api.influencers.list);
 
-  return (
-    <div className="mt-10">
-      <h2 className="font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">
-        Influencers
-      </h2>
+  if (influencers === undefined) {
+    return (
+      <div className="rounded-xl border border-line bg-surface p-6 text-sm text-muted">
+        Loading…
+      </div>
+    );
+  }
 
-      {influencers === undefined ? (
-        <div className="mt-2 rounded-xl border border-line p-6 text-sm text-muted">Loading…</div>
-      ) : influencers.length === 0 ? (
-        <div className="mt-2 rounded-xl border border-dashed border-line p-6 text-center text-sm text-muted">
-          No influencers yet. Create one to train a reusable persona.
-        </div>
-      ) : (
-        <ul className="mt-2 space-y-2">
-          {influencers.map((inf) => (
-            <li
-              key={inf._id}
-              className="flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3"
-            >
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium">{inf.name}</span>
-                <span className="block font-mono text-xs text-muted">
-                  {inf.trainingImageAssetIds.length} training photos
-                  {inf.costUsd !== undefined ? ` · $${inf.costUsd.toFixed(2)}` : ""}
-                </span>
-                {inf.status === "failed" && inf.error && (
-                  <span className="mt-0.5 block text-xs text-accent">{inf.error}</span>
-                )}
-              </span>
-              <StatusPill status={inf.status} />
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+  if (influencers.length === 0) {
+    return (
+      <div className="rounded-xl border border-line bg-surface px-6 py-16 text-center">
+        <span className="mx-auto grid size-12 place-items-center rounded-full bg-accent-soft text-accent">
+          <svg
+            className="size-6"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.6}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <rect x="3" y="3" width="18" height="18" rx="4" />
+            <circle cx="12" cy="10" r="2.6" />
+            <path d="M7 18a5 5 0 0 1 10 0" />
+          </svg>
+        </span>
+        <h2 className="mt-4 text-base font-semibold">Create your first AI influencer</h2>
+        <p className="mx-auto mt-1 max-w-md text-sm text-muted">
+          Pick traits, generate a base character, and our agents will train a persistent character
+          you can reuse across every piece of content.
+        </p>
+        <button
+          onClick={onCreate}
+          className="mt-5 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+        >
+          + New influencer
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <ul className="space-y-2">
+      {influencers.map((inf) => (
+        <li
+          key={inf._id}
+          className="flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium">{inf.name}</span>
+            <span className="block font-mono text-xs text-muted">
+              {inf.trainingImageAssetIds.length} training photos
+              {inf.costUsd !== undefined ? ` · $${inf.costUsd.toFixed(2)}` : ""}
+            </span>
+            {inf.status === "failed" && inf.error && (
+              <span className="mt-0.5 block text-xs text-accent">{inf.error}</span>
+            )}
+          </span>
+          <StatusPill status={inf.status} />
+        </li>
+      ))}
+    </ul>
   );
 }

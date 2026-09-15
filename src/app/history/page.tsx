@@ -5,6 +5,7 @@ import { usePaginatedQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { getFormat } from "@/formats";
 import { AuthorisedBoundary } from "@/components/AuthorisedBoundary";
+import { StatusPill } from "@/components/StatusPill";
 
 /**
  * Every job, not just the dashboard's most-recent-25 strip. Paginated rather
@@ -13,11 +14,8 @@ import { AuthorisedBoundary } from "@/components/AuthorisedBoundary";
  */
 export default function HistoryPage() {
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-12">
-      <Link href="/" className="font-mono text-xs text-muted hover:text-accent">
-        ← Dashboard
-      </Link>
-      <h1 className="mt-3 text-xl font-semibold tracking-tight">Job history</h1>
+    <main className="mx-auto w-full max-w-3xl px-6 py-10">
+      <h1 className="text-xl font-semibold tracking-tight">Job history</h1>
 
       <AuthorisedBoundary>
         <HistoryList />
@@ -97,21 +95,3 @@ function HistoryList() {
   );
 }
 
-const STATUS_CLASS: Record<string, string> = {
-  done: "text-ok border-ok",
-  failed: "text-accent border-accent",
-  running: "text-warn border-warn",
-  awaiting_approval: "text-warn border-warn",
-};
-
-function StatusPill({ status }: { status: string }) {
-  return (
-    <span
-      className={`shrink-0 rounded-full border px-2 py-0.5 font-mono text-[0.6rem] uppercase tracking-wide ${
-        STATUS_CLASS[status] ?? "text-muted border-line"
-      }`}
-    >
-      {status.replace("_", " ")}
-    </span>
-  );
-}

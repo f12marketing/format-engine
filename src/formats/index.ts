@@ -21,8 +21,15 @@ export const FORMATS: FormatDefinition[] = [
   planned.productSpokesperson,
   planned.greenScreenMobile,
   planned.cuttingFruit,
+  planned.onAWalk,
+  planned.netflixDocumentary,
   planned.claymation,
+  planned.lego,
+  planned.felt,
+  planned.talkingObjects,
   planned.skeleton,
+  planned.streetInterview,
+  planned.aiNewsAnchor,
   planned.characterSwap,
 ];
 
