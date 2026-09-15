@@ -105,6 +105,12 @@ export const storageUrl = internalQuery({
   handler: async (ctx, { storageId }): Promise<string | null> => ctx.storage.getUrl(storageId),
 });
 
+/** Auth-free equivalent of uploads.generateUploadUrl, for exercising a render-service upload from the CLI. */
+export const generateUploadUrl = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<string> => ctx.storage.generateUploadUrl(),
+});
+
 export const inspect = internalQuery({
   args: { jobId: v.id("jobs") },
   handler: async (ctx, { jobId }) => {
