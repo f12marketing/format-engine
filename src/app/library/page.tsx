@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useAction, usePaginatedQuery } from "convex/react";
+import { useAction, usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { AuthorisedBoundary } from "@/components/AuthorisedBoundary";
@@ -93,8 +93,9 @@ const POST_FILTERS: { value: PostFilter; label: string }[] = [
 function PostsTab() {
   const [filter, setFilter] = useState<PostFilter>("all");
 
-  // "Needs attention" spans two statuses, so it is filtered client-side over
-  // the unfiltered page rather than pushed into the index.
+  // "Needs attention" spans several conditions rather than one status, so
+  // it is filtered client-side over the unfiltered page rather than pushed
+  // into the index.
   const serverStatus =
     filter === "all" || filter === "attention" ? undefined : filter;
 
@@ -104,9 +105,30 @@ function PostsTab() {
     { initialNumItems: 25 },
   );
 
+  // Only active accounts come back here, so anything a post still targets
+  // that isn't in this set has been disconnected since the post was made.
+  const activeAccounts = useQuery(api.social.listAccounts);
+  const activeAccountIds = useMemo(
+    () => new Set((activeAccounts ?? []).map((a) => a._id)),
+    [activeAccounts],
+  );
+
+  // Only worth flagging while a post still has somewhere to go -- a
+  // published or cancelled post targeting a now-dead account is a closed
+  // matter, not something to act on. `activeAccounts === undefined` (still
+  // loading) never flags anything, so an empty set can't look like every
+  // target got disconnected.
+  function hasDisconnectedTarget(post: (typeof results)[number]) {
+    if (post.status !== "draft" && post.status !== "scheduled") return false;
+    if (activeAccounts === undefined) return false;
+    return post.targets.some((t) => !activeAccountIds.has(t.socialAccountId));
+  }
+
   const posts =
     filter === "attention"
-      ? results.filter((p) => p.status === "failed" || p.status === "partial")
+      ? results.filter(
+          (p) => p.status === "failed" || p.status === "partial" || hasDisconnectedTarget(p),
+        )
       : results;
 
   return (
@@ -142,6 +164,11 @@ function PostsTab() {
                 </span>
                 {post.lastError && (
                   <span className="mt-0.5 block text-xs text-accent">{post.lastError}</span>
+                )}
+                {!post.lastError && hasDisconnectedTarget(post) && (
+                  <span className="mt-0.5 block text-xs text-accent">
+                    One of this post&rsquo;s accounts has been disconnected.
+                  </span>
                 )}
               </span>
               <PostActions postId={post._id} status={post.status} />
