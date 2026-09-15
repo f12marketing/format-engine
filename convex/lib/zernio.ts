@@ -194,6 +194,30 @@ export async function cancelPost(postId: string): Promise<void> {
   await zernioFetch(`/posts/${postId}`, { method: "DELETE" });
 }
 
+// ------------------------------------------------------------- pre-flight
+//
+// Not `/v1/validate` -- that path doesn't exist. Confirmed against Zernio's
+// raw OpenAPI reference (docs.zernio.com/llms-full.txt) after the analytics
+// endpoints turned out wrong the same way earlier: this app's own plan had
+// written down a summary rather than the real path. The real one dry-runs
+// the exact publish pipeline `POST /v1/posts` uses -- same body, no
+// publishing, no media processing, no rate-limit spend -- and catches things
+// the local checks in src/lib/socialPlatforms.ts can't: hashtag limits,
+// thread formats, Facebook Reel requirements, and the rest of what only
+// Zernio's own pipeline actually enforces.
+
+export type ValidatePostResult =
+  | { valid: true; message?: string; warnings?: { platform: string; warning: string }[] }
+  | {
+      valid: false;
+      errors: { platform: string; error: string }[];
+      warnings?: { platform: string; warning: string }[];
+    };
+
+export async function validatePost(input: CreatePostInput): Promise<ValidatePostResult> {
+  return zernioFetch("/tools/validate/post", { method: "POST", body: input });
+}
+
 // ----------------------------------------------------------------- analytics
 //
 // Two different endpoints for two different jobs -- confirmed against

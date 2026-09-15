@@ -198,24 +198,43 @@ export const schedule = action({
       if (t.platformSpecificData) platformSpecificData[t.platform] = t.platformSpecificData;
     }
 
+    const platforms = post.targets.map((t) => ({
+      platform: t.platform,
+      accountId: t.zernioAccountId,
+    }));
+    const mediaItems = media.map((m) => ({
+      url: m.url as string,
+      type: m.kind === "video" ? ("video" as const) : ("image" as const),
+    }));
+    const resolvedPlatformSpecificData = Object.keys(platformSpecificData).length
+      ? platformSpecificData
+      : undefined;
+
     try {
+      // Dry-run Zernio's own publish pipeline before spending a real create
+      // call on it -- catches platform rules this app doesn't hardcode
+      // (hashtag limits, thread formats, Reel requirements) with the same
+      // authority publish itself would enforce, instead of only finding out
+      // from a failed post.
+      const validation = await zernio.validatePost({
+        content: post.caption,
+        platforms,
+        mediaItems,
+        platformSpecificData: resolvedPlatformSpecificData,
+      });
+      if (!validation.valid) {
+        throw new Error(validation.errors.map((e) => `${e.platform}: ${e.error}`).join("; "));
+      }
+
       const created = await zernio.createPost({
         content: post.caption,
-        platforms: post.targets.map((t) => ({
-          platform: t.platform,
-          accountId: t.zernioAccountId,
-        })),
-        mediaItems: media.map((m) => ({
-          url: m.url as string,
-          type: m.kind === "video" ? ("video" as const) : ("image" as const),
-        })),
+        platforms,
+        mediaItems,
         scheduledFor: post.scheduledFor
           ? new Date(post.scheduledFor).toISOString()
           : undefined,
         timezone: post.timezone,
-        platformSpecificData: Object.keys(platformSpecificData).length
-          ? platformSpecificData
-          : undefined,
+        platformSpecificData: resolvedPlatformSpecificData,
       });
 
       await ctx.runMutation(internal.socialPosts.markScheduled, {
