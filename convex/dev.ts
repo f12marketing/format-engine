@@ -6,6 +6,8 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { STARTERS, type RunnableFormatId } from "./starters";
 import * as zernio from "./lib/zernio";
+import { submitWithContentPolicyFallback } from "./lib/fal";
+import { referencePortraitPrompt, REFERENCE_PORTRAIT_FALLBACK } from "./lib/facePrompt";
 
 /**
  * Dev-only helpers, callable from the CLI with `npx convex run`.
@@ -214,6 +216,65 @@ export const addAudioTemplate = internalAction({
       bytes: blob.size,
       durationSec,
       tags,
+    });
+  },
+});
+
+/**
+ * Adds a face to the curated influencer gallery from a public URL.
+ *
+ * Curation entry point until there's an admin surface, exactly how the audio
+ * and clip libraries started -- run it per photo:
+ *   npx convex run dev:addGalleryFace '{"url":"https://…/face.jpg"}'
+ */
+export const addGalleryFace = internalAction({
+  args: { url: v.string() },
+  handler: async (ctx, { url }): Promise<Id<"galleryFaces">> => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Could not fetch ${url} (${res.status})`);
+    const mimeType = res.headers.get("content-type")?.split(";")[0] ?? "image/jpeg";
+    const blob = await res.blob();
+    const storageId = await ctx.storage.store(blob);
+    return ctx.runMutation(internal.galleryFaces.recordFace, {
+      storageId,
+      mimeType,
+      bytes: blob.size,
+    });
+  },
+});
+
+/**
+ * Generates one synthetic base face straight into the curated gallery --
+ * a *generated* likeness, not a real person's photo, same reasoning as
+ * `influencers.generateFaceImageForClient`: this app's influencers are
+ * synthetic personas, and a real stranger's face has no place training one.
+ * Not billed to any client's ledger -- there's no client here to bill, only
+ * the deployment's own fal spend. Run it per photo, describing who to
+ * generate:
+ *   npx convex run dev:generateGalleryFace '{"personaNotes":"a woman in her 30s with short curly hair"}'
+ */
+export const generateGalleryFace = internalAction({
+  args: { personaNotes: v.string() },
+  handler: async (ctx, { personaNotes }): Promise<Id<"galleryFaces">> => {
+    const buildInput = (prompt: string) => ({ prompt, aspect_ratio: "3:4", num_images: 1 });
+    const result = (await submitWithContentPolicyFallback(
+      "fal-ai/nano-banana-2",
+      buildInput,
+      referencePortraitPrompt(personaNotes),
+      () => REFERENCE_PORTRAIT_FALLBACK,
+    )) as { images?: { url?: string }[] };
+    const url = result.images?.[0]?.url;
+    if (!url) throw new Error("no face image returned");
+
+    const imgRes = await fetch(url);
+    if (!imgRes.ok) throw new Error(`failed to fetch generated face: ${imgRes.status}`);
+    const bytes = new Uint8Array(await imgRes.arrayBuffer());
+    const storageId = await ctx.storage.store(new Blob([bytes], { type: "image/png" }));
+
+    return ctx.runMutation(internal.galleryFaces.recordFace, {
+      storageId,
+      mimeType: "image/png",
+      bytes: bytes.byteLength,
     });
   },
 });

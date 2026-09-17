@@ -108,7 +108,7 @@ export const composeStreetScene = internalAction({
       `framing, ${framing}. @image1 is the product being discussed -- ` +
       `${action}. ${topic ? `Context: ${topic}. ` : ""}${
         config.brandName ? `Brand: ${config.brandName}. ` : ""
-      }High quality, no text, no UI elements.`;
+      }Anatomically correct hands if any are visible. High quality, no text, no watermark, no UI elements.`;
 
     const buildInput = (prompt: string) => ({
       prompt,

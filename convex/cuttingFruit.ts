@@ -68,11 +68,17 @@ export const composeKitchenScene = internalAction({
     });
 
     const topic = (config.prompt ?? "").trim();
+    // Hands doing a close-up cutting motion are exactly where image models
+    // most often go wrong (extra or fused fingers, a knife that clips through
+    // the hand) -- naming the failure explicitly works better than leaving it
+    // to a generic "high quality" tag.
     const wrap = (action: string) =>
       `@image1 is a person (${description}). Photorealistic kitchen counter ` +
       `scene, overhead or three-quarter angle on their hands, ${action}, cutting board, a sharp ` +
-      `kitchen knife, natural light. ${topic ? `Context: ${topic}. ` : ""}` +
-      `${config.style ? `Tone: ${config.style}. ` : ""}High quality, no text, no UI elements.`;
+      `kitchen knife, natural light matching the person's skin tone and the scene. ` +
+      `${topic ? `Context: ${topic}. ` : ""}${config.style ? `Tone: ${config.style}. ` : ""}` +
+      "Anatomically correct hands with five fingers each, knife held naturally with a proper " +
+      "grip. High quality, no text, no watermark, no UI elements.";
 
     const buildInput = (prompt: string) => ({
       prompt,

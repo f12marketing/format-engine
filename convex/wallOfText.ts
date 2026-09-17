@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
 import { workflow } from "./carousel";
 import { callTool, LLM_MODEL } from "./lib/fal";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 
 /**
  * Wall of Text: bold type on a plain ground.
@@ -47,7 +48,7 @@ under two seconds on a phone screen, at large type, with nothing else on screen.
 - At most 140 characters. Shorter is almost always better.
 - A bold claim, a specific number, or a sharp question. Never a title.
 - No markdown, no emoji, no hashtags, no quotation marks around the whole line.
-- Active voice, concrete nouns, short words.`;
+- Active voice, concrete nouns, short words. No "game-changer", no "here's the thing".`;
 
 const WALL_TOOL = {
   name: "save_wall_text",
@@ -134,8 +135,7 @@ export const render = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
 
-    const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-    if (!base) throw new Error("RENDER_SERVICE_URL is not set on the deployment.");
+    const base = renderServiceBase();
 
     const config = job.config as {
       text?: string;
@@ -153,7 +153,7 @@ export const render = internalAction({
 
     const res = await fetch(`${base}/render/wall-of-text`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({
         text,
         dimensions: config.dimensions ?? "9:16",

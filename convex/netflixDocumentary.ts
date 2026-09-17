@@ -74,10 +74,11 @@ export const composeInterviewScene = internalAction({
     const topic = (config.prompt ?? "").trim();
     const wrap = (action: string) =>
       `@image1 is a person (${description}). Cinematic documentary-style interview shot, seated, ` +
-      `three-quarter angle to camera, soft moody key lighting, shallow depth of field with a ` +
-      `blurred neutral background, muted true-crime-documentary color grade, ${action}. ` +
-      `${topic ? `Context: ${topic}. ` : ""}${config.style ? `Tone: ${config.style}. ` : ""}` +
-      `High quality, no text, no UI elements, no visible microphone or lav clip.`;
+      `three-quarter angle to camera, soft moody key lighting matching the person's skin tone, ` +
+      `shallow depth of field with a blurred neutral background, muted true-crime-documentary ` +
+      `color grade, ${action}. ${topic ? `Context: ${topic}. ` : ""}` +
+      `${config.style ? `Tone: ${config.style}. ` : ""}Keep the person's face and features ` +
+      "consistent with @image1. High quality, no text, no watermark, no UI elements, no visible microphone or lav clip.";
 
     const buildInput = (prompt: string) => ({
       prompt,

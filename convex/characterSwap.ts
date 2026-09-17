@@ -5,6 +5,7 @@ import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import { workflow } from "./carousel";
 import { submitAndPoll, submitWithContentPolicyFallback, callVisionTool } from "./lib/fal";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 
 /**
  * Character Swap: swap the on-screen character in an uploaded video for a
@@ -75,12 +76,6 @@ const VOICE_CHANGE_PRICE_PER_SEC = 0.005;
 // first-frame composite that mode alone needs.
 const COMPOSITE_PRICE_PER_UNIT = 0.04;
 
-function renderServiceBase(): string {
-  const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-  if (!base) throw new Error("RENDER_SERVICE_URL is not set on the deployment.");
-  return base;
-}
-
 async function resolveAssetUrl(ctx: ActionCtx, assetId: Id<"assets">): Promise<string> {
   const asset = await ctx.runQuery(internal.assets.getInternal, { assetId });
   if (!asset) throw new Error("Referenced upload could not be found.");
@@ -116,7 +111,7 @@ export const swap = internalAction({
     const base = renderServiceBase();
     const inspectRes = await fetch(`${base}/inspect/video`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({ videoUrl: sourceVideoUrl }),
     });
     if (!inspectRes.ok) throw new Error(`could not inspect the source video: ${inspectRes.status}`);
@@ -152,7 +147,7 @@ export const swap = internalAction({
     if (sceneControl === "Recreate") {
       const frameRes = await fetch(`${base}/frame/first`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: renderServiceHeaders(),
         body: JSON.stringify({ videoUrl: sourceVideoUrl }),
       });
       if (!frameRes.ok) throw new Error(`could not extract the first frame: ${frameRes.status}`);
@@ -164,9 +159,14 @@ export const swap = internalAction({
       const frameUrl = await ctx.storage.getUrl(frameStorageId);
       if (!frameUrl) throw new Error("could not read back the extracted frame");
 
+      // Identity fidelity to @image2 matters more here than in most composites --
+      // VERIFY_SYSTEM below checks whether the swap visibly took by comparing
+      // the two faces, so a composite that drifts from the reference doesn't
+      // just look worse, it fails its own verification step.
       const wrap = (body: string) =>
         `@image1 is the clip's own first frame. @image2 is the character to place into it. ${body} ` +
-        "Keep @image1's background, lighting and composition exactly as it is. High quality, no text.";
+        "Match the character's facial features closely to @image2. Keep @image1's background, " +
+        "lighting and composition exactly as it is. High quality, no text, no watermark.";
 
       const buildInput = (prompt: string) => ({
         prompt,
@@ -280,7 +280,7 @@ export const convertVoice = internalAction({
     const base = renderServiceBase();
     const audioRes = await fetch(`${base}/extract/audio`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({ videoUrl: sourceVideoUrl }),
     });
     if (!audioRes.ok) throw new Error(`could not extract the source audio: ${audioRes.status}`);
@@ -333,7 +333,14 @@ whoever was originally in the video.
 
 Judge only whether the person/character visible in the first image is
 recognisably the same person/character shown in the second image -- not
-image quality, not whether the scene looks good, just identity.`;
+image quality, not whether the scene looks good, just identity.
+
+The output frame may show a side profile, partial occlusion, or motion blur --
+judge on whatever's visible (face shape, hair, skin tone, build, clothing if
+the reference shows it) rather than requiring a clean frontal match. When
+identity is genuinely ambiguous rather than just imperfectly rendered, call it
+not swapped: a client should not be charged for a result that isn't clearly
+the person they asked for.`;
 
 const VERIFY_TOOL = {
   name: "report_swap_verification",
@@ -389,7 +396,7 @@ export const verify = internalAction({
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const renderRes = await fetch(`${base}/render/video-animation`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({
         shots: [
           {
@@ -432,7 +439,7 @@ export const verify = internalAction({
     // never looked at again, so persisting it as an asset would be pure waste.
     const frameRes = await fetch(`${base}/frame/first`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({ videoUrl: swapOut.videoUrl }),
     });
     if (!frameRes.ok) throw new Error(`could not extract a verification frame: ${frameRes.status}`);

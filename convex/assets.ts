@@ -4,6 +4,7 @@ import { internalAction, internalMutation, internalQuery, query } from "./_gener
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireClient } from "./clients";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 
 /**
  * Uploads and outputs, in one table.
@@ -64,12 +65,6 @@ export const record = internalMutation({
   },
 });
 
-function renderServiceBase(): string {
-  const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-  if (!base) throw new Error("RENDER_SERVICE_URL is not set on the deployment.");
-  return base;
-}
-
 export const setPoster = internalMutation({
   args: { assetId: v.id("assets"), posterStorageId: v.id("_storage") },
   handler: async (ctx, { assetId, posterStorageId }) => {
@@ -99,7 +94,7 @@ export const generatePoster = internalAction({
 
     const res = await fetch(`${renderServiceBase()}/frame/first`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({ videoUrl }),
     });
     if (!res.ok) {

@@ -4,6 +4,7 @@ import { internalAction, internalMutation, internalQuery } from "./_generated/se
 import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import { callTool, LLM_MODEL } from "./lib/fal";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 
 /**
  * Green Screen Meme: a trending green-screen clip, chroma-keyed over the
@@ -88,6 +89,8 @@ video: a trending green-screen clip composited over a background image.
 
 - One punchy line that plays off the joke or the format, not a description of it.
 - No markdown, no emoji, no hashtags, no quotation marks.
+- Specific beats generic: reference the actual scenario given, not a
+  one-size-fits-all meme caption that could sit under any clip.
 - If told to mention a business, weave its name in naturally -- don't append it.`;
 
 const CAPTION_TOOL = {
@@ -162,8 +165,7 @@ export const key = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
 
-    const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-    if (!base) throw new Error("RENDER_SERVICE_URL is not set on the deployment.");
+    const base = renderServiceBase();
 
     const config = job.config as {
       background?: Id<"assets">;
@@ -188,7 +190,7 @@ export const key = internalAction({
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const res = await fetch(`${base}/render/green-screen-meme`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({
         clipUrl,
         backgroundUrl,

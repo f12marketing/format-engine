@@ -370,6 +370,27 @@ export default defineSchema({
     addedAt: v.number(),
   }).index("by_added_at", ["addedAt"]),
 
+  /**
+   * The curated influencer gallery -- ready-made base faces the New
+   * Influencer popup's "Pick from gallery" tab picks from, instead of
+   * generating or uploading one. Same reasoning as `audioTemplates`: a stock
+   * reference photo isn't anyone's private asset, so it doesn't live in the
+   * private `assets` table. Picking one copies it into the client's own
+   * `assets` (see `galleryFaces.useFace`) so it becomes usable anywhere an
+   * owned asset is required, the same way a job never re-uploads a shared
+   * clip or audio template either.
+   */
+  galleryFaces: defineTable({
+    storageId: v.id("_storage"),
+    mimeType: v.string(),
+    bytes: v.number(),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    /** Retired faces stay readable, so an influencer that used one still resolves. */
+    archived: v.optional(v.boolean()),
+    addedAt: v.number(),
+  }).index("by_added_at", ["addedAt"]),
+
   clips: defineTable({
     source: v.string(), // "tiktok" | "instagram" | ...
     sourceUrl: v.string(),

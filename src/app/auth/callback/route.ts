@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { safeNextPath } from "@/lib/safeRedirect";
 
 /**
  * Where the magic link lands.
@@ -16,7 +17,7 @@ import { createServerClient } from "@supabase/ssr";
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
-  const next = url.searchParams.get("next") ?? "/";
+  const next = safeNextPath(url.searchParams.get("next"));
 
   if (code) {
     const cookieStore = await cookies();

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import { renderServiceBase, renderServiceHeaders } from "./renderService";
 
 /**
  * P8, shared by Cutting Fruit, Claymation and Skeleton -- muxes the narration
@@ -33,8 +34,7 @@ export const renderNarratedClip = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
 
-    const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-    if (!base) throw new Error("RENDER_SERVICE_URL is not set on the deployment.");
+    const base = renderServiceBase();
 
     const clip = job.steps.find((s) => s.id === "clip")?.output as
       | { videoUrl?: string; durationSec?: number }
@@ -56,7 +56,7 @@ export const renderNarratedClip = internalAction({
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const res = await fetch(`${base}/render/video-animation`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({
         shots: [
           {

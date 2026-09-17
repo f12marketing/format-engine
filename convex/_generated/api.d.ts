@@ -23,6 +23,7 @@ import type * as custom from "../custom.js";
 import type * as cuttingFruit from "../cuttingFruit.js";
 import type * as dev from "../dev.js";
 import type * as felt from "../felt.js";
+import type * as galleryFaces from "../galleryFaces.js";
 import type * as greenScreenMeme from "../greenScreenMeme.js";
 import type * as greenScreenMobile from "../greenScreenMobile.js";
 import type * as http from "../http.js";
@@ -36,11 +37,14 @@ import type * as lib_avatarPrimitive from "../lib/avatarPrimitive.js";
 import type * as lib_carouselPrompt from "../lib/carouselPrompt.js";
 import type * as lib_clayScenePrimitive from "../lib/clayScenePrimitive.js";
 import type * as lib_clipIngest from "../lib/clipIngest.js";
+import type * as lib_facePrompt from "../lib/facePrompt.js";
 import type * as lib_fal from "../lib/fal.js";
 import type * as lib_falWebhook from "../lib/falWebhook.js";
 import type * as lib_narratedClipPrimitive from "../lib/narratedClipPrimitive.js";
 import type * as lib_narrationPrimitive from "../lib/narrationPrimitive.js";
 import type * as lib_nodeStorage from "../lib/nodeStorage.js";
+import type * as lib_rateLimit from "../lib/rateLimit.js";
+import type * as lib_renderService from "../lib/renderService.js";
 import type * as lib_roster from "../lib/roster.js";
 import type * as lib_scriptPrimitive from "../lib/scriptPrimitive.js";
 import type * as lib_speechPrimitive from "../lib/speechPrimitive.js";
@@ -87,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   cuttingFruit: typeof cuttingFruit;
   dev: typeof dev;
   felt: typeof felt;
+  galleryFaces: typeof galleryFaces;
   greenScreenMeme: typeof greenScreenMeme;
   greenScreenMobile: typeof greenScreenMobile;
   http: typeof http;
@@ -100,11 +105,14 @@ declare const fullApi: ApiFromModules<{
   "lib/carouselPrompt": typeof lib_carouselPrompt;
   "lib/clayScenePrimitive": typeof lib_clayScenePrimitive;
   "lib/clipIngest": typeof lib_clipIngest;
+  "lib/facePrompt": typeof lib_facePrompt;
   "lib/fal": typeof lib_fal;
   "lib/falWebhook": typeof lib_falWebhook;
   "lib/narratedClipPrimitive": typeof lib_narratedClipPrimitive;
   "lib/narrationPrimitive": typeof lib_narrationPrimitive;
   "lib/nodeStorage": typeof lib_nodeStorage;
+  "lib/rateLimit": typeof lib_rateLimit;
+  "lib/renderService": typeof lib_renderService;
   "lib/roster": typeof lib_roster;
   "lib/scriptPrimitive": typeof lib_scriptPrimitive;
   "lib/speechPrimitive": typeof lib_speechPrimitive;
@@ -158,4 +166,5 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   workflow: import("@convex-dev/workflow/_generated/component.js").ComponentApi<"workflow">;
+  rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
 };

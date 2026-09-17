@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 
 /**
  * Custom: an upload, framed to a target ratio, with optional text and overlay.
@@ -52,8 +53,7 @@ export const compose = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
 
-    const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-    if (!base) throw new Error("RENDER_SERVICE_URL is not set on the deployment.");
+    const base = renderServiceBase();
 
     const config = job.config as {
       sourceAssetId?: Id<"assets">;
@@ -83,7 +83,7 @@ export const compose = internalAction({
 
     const res = await fetch(`${base}/render/custom`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({
         source,
         overlay,

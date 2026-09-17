@@ -28,7 +28,8 @@ import { resolveRosterPersona } from "./roster";
 const AVATAR_MODEL = "fal-ai/bytedance/omnihuman/v1.5";
 const AVATAR_PRICE_PER_SEC = 0.16;
 const DEFAULT_PROMPT =
-  "Natural, confident on-camera delivery, subtle head movement, direct eye contact with the camera.";
+  "Natural, confident on-camera delivery, accurate lip sync matched precisely to the audio, " +
+  "natural eye blinking, subtle head movement, direct eye contact with the camera.";
 
 export const renderAvatarClip = internalAction({
   args: {

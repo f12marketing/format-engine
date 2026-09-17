@@ -98,7 +98,8 @@ export const composeNewsroomScene = internalAction({
       `report, ${framing}. @image1 is the product being reported on -- ` +
       `${action}. ${topic ? `Story: ${topic}. ` : ""}${
         config.brandName ? `Brand: ${config.brandName}. ` : ""
-      }High quality broadcast look, no text, no UI elements.`;
+      }Studio lighting consistent across the anchor and the product. High quality broadcast ` +
+      "look, no text, no watermark, no UI elements, no real news network logos or tickers.";
 
     const buildInput = (prompt: string) => ({
       prompt,

@@ -12,6 +12,9 @@ import type { ActionCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireClient } from "./clients";
 import { submitWithWebhook, submitWithContentPolicyFallback } from "./lib/fal";
+import { referencePortraitPrompt, REFERENCE_PORTRAIT_FALLBACK } from "./lib/facePrompt";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
+import { enforceRateLimit } from "./lib/rateLimit";
 
 /**
  * Trained personas -- see schema.ts's own comment on the `influencers` table
@@ -125,10 +128,6 @@ export const config = query({
   }),
 });
 
-const FACE_SYSTEM_FALLBACK =
-  "Photorealistic portrait, neutral studio background, soft even front lighting, " +
-  "direct eye contact with the camera, shoulders-up framing, calm neutral expression, no text.";
-
 /**
  * One training-set photo, generated rather than sourced -- the same
  * cold-start problem `avatars.generate` solves for P10, reused here so
@@ -145,6 +144,7 @@ export const generateFaceImage = action({
       authUserId: identity.subject,
     });
     if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    await enforceRateLimit(ctx, "generateFaceImage", client._id);
     return ctx.runAction(internal.influencers.generateFaceImageForClient, {
       clientId: client._id,
       personaNotes,
@@ -164,10 +164,8 @@ export const generateFaceImageForClient = internalAction({
     const result = (await submitWithContentPolicyFallback(
       "fal-ai/nano-banana-2",
       buildInput,
-      `Reference photo for training a virtual influencer's likeness. ${personaNotes}. ` +
-        "Shoulders-up framing, facing the camera directly, neutral studio " +
-        "background, soft even lighting, calm expression, photorealistic, no text.",
-      () => FACE_SYSTEM_FALLBACK,
+      referencePortraitPrompt(personaNotes),
+      () => REFERENCE_PORTRAIT_FALLBACK,
     )) as { images?: { url?: string }[] };
     const url = result.images?.[0]?.url;
     if (!url) throw new Error("no face image returned");
@@ -261,12 +259,11 @@ export const startTrainingForClient = internalAction({
       influencer.trainingImageAssetIds.map((id) => resolveAssetUrl(ctx, id)),
     );
 
-    const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-    if (!base) throw new Error("RENDER_SERVICE_URL is not set on the deployment.");
+    const base = renderServiceBase();
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const packRes = await fetch(`${base}/pack/images`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({ imageUrls, uploadUrl }),
     });
     if (!packRes.ok) {

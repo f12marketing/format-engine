@@ -70,12 +70,16 @@ export const composeWalkingScene = internalAction({
     });
 
     const topic = (config.prompt ?? "").trim();
+    // A selfie framing puts the face front and center, so identity fidelity
+    // to @image1 matters more here than in a wider shot -- called out
+    // explicitly rather than assumed.
     const wrap = (action: string) =>
       `@image1 is a person (${description}). Vertical selfie-style photo shot at arm's length, ` +
       `walking outdoors on a sidewalk or street, casual candid content-creator angle, natural ` +
-      `daylight, slight motion blur in the background suggesting movement, ${action}. ` +
+      `daylight lighting the person's face and skin tone consistently with the outdoor scene, ` +
+      `slight motion blur in the background suggesting movement, ${action}. ` +
       `${topic ? `Context: ${topic}. ` : ""}${config.style ? `Tone: ${config.style}. ` : ""}` +
-      `High quality, no text, no UI elements.`;
+      "Keep the person's face and features consistent with @image1. High quality, no text, no watermark, no UI elements.";
 
     const buildInput = (prompt: string) => ({
       prompt,

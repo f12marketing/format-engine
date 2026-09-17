@@ -4,6 +4,7 @@ import { internalAction, internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import { callTool, LLM_MODEL } from "./lib/fal";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 
 /**
  * Speaking Hook & Demo: an avatar says the hook out loud, then cuts to the
@@ -50,6 +51,9 @@ someone says directly to camera before a product demo plays.
 - No markdown, no emoji, no hashtags, no stage directions.
 - Match the requested delivery style in wording, not just tone -- "Shocked"
   reads differently on the page than "Deadpan" even before anyone says it.
+- Skip generic hook openers like "wait for it", "you need to see this", or
+  "stop scrolling" -- they've been said in a million other hooks and read as
+  filler rather than the actual claim.
 - If told to mention a business, weave its name in naturally -- don't append it.`;
 
 const HOOK_TOOL = {
@@ -142,8 +146,7 @@ export const stitch = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
 
-    const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-    if (!base) throw new Error("RENDER_SERVICE_URL is not set on the deployment.");
+    const base = renderServiceBase();
 
     const config = job.config as { demoVideo?: Id<"assets">; captionStyle?: string };
     if (!config.demoVideo) throw new Error("A demo video upload is required.");
@@ -167,7 +170,7 @@ export const stitch = internalAction({
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const res = await fetch(`${base}/render/video-hook-demo`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({
         hookUrl,
         demoUrl,
