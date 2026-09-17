@@ -3,6 +3,7 @@ import { mutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireClient } from "./clients";
 import { STARTERS, type RunnableFormatId } from "./starters";
+import { enforceRateLimit } from "./lib/rateLimit";
 
 /**
  * The Generate button's single entry point, for every format.
@@ -23,6 +24,7 @@ export const generate = mutation({
   },
   handler: async (ctx, args): Promise<Id<"jobs">> => {
     const client = await requireClient(ctx);
+    await enforceRateLimit(ctx, "generateJob", client._id);
 
     const starter = STARTERS[args.formatId as RunnableFormatId];
     if (!starter) {

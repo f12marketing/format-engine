@@ -5,6 +5,7 @@ import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import { submitWithContentPolicyFallback } from "./lib/fal";
 import { resolveRosterPersona } from "./lib/roster";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 
 /**
  * Green Screen Mobile with App: a presenter holding a phone with the app on
@@ -77,8 +78,9 @@ export const composite = internalAction({
     const wrap = (action: string) =>
       `@image1 is the presenter (${description}). @image2 is an app screenshot. ` +
       `Composite a single photorealistic image of the presenter ${action}, holding a smartphone ` +
-      "at chest height angled toward the camera, @image2 shown accurately and fully readable on " +
-      "the phone's screen, consistent lighting and shadows, plain neutral background.";
+      "with anatomically correct hands at chest height angled toward the camera, @image2 shown " +
+      "accurately, undistorted and fully readable on the phone's screen, consistent lighting and " +
+      "shadows, plain neutral background. No extra text overlays beyond the screenshot itself, no watermark.";
 
     const buildInput = (prompt: string) => ({
       prompt,
@@ -152,8 +154,7 @@ export const caption = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
 
-    const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-    if (!base) throw new Error("RENDER_SERVICE_URL is not set on the deployment.");
+    const base = renderServiceBase();
 
     const config = job.config as { script?: string };
     const avatarOut = job.steps.find((s) => s.id === "avatar")?.output as
@@ -168,7 +169,7 @@ export const caption = internalAction({
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const res = await fetch(`${base}/render/custom`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({
         sourceUrl: avatarOut.videoUrl,
         sourceIsVideo: true,

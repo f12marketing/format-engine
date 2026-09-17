@@ -14,6 +14,12 @@ import {
   type Platform,
 } from "@/lib/socialPlatforms";
 
+export interface ComposerMedia {
+  id: Id<"assets">;
+  facts: MediaFacts;
+  url: string | null;
+}
+
 /**
  * Compose a post and hand it to Zernio.
  *
@@ -26,6 +32,14 @@ import {
  * makes is AI-generated, so YouTube's `containsSyntheticMedia` and
  * Instagram's `isAiGenerated` default ON; turning them off is a deliberate
  * act, not the path of least resistance.
+ *
+ * `media` is an array rather than a single item so a carousel (several
+ * images posted together) is representable at all -- `mediaAssetIds` was
+ * already an array everywhere from `socialPosts.createDraft` down to
+ * Zernio's own `mediaItems`, but this component used to hardcode a single
+ * element into it. Callers decide what belongs together (the Library's
+ * asset grid lets you pick several images; a job page hands over the one
+ * video it produced) -- this component just reviews and submits the set.
  */
 export function PostComposer({
   jobId,
@@ -33,7 +47,7 @@ export function PostComposer({
   onClose,
 }: {
   jobId?: Id<"jobs">;
-  media: { id: Id<"assets">; facts: MediaFacts; url: string | null } | null;
+  media: ComposerMedia[];
   onClose: () => void;
 }) {
   const accounts = useQuery(api.social.listAccounts);
@@ -80,21 +94,95 @@ export function PostComposer({
     [chosen],
   );
 
+  // Real allowed values for the selected TikTok account(s), not the static
+  // four-value list -- Zernio grants each creator its own subset, and
+  // posting outside it is rejected at publish time. Keyed as a plain string
+  // (not the array itself) so the effect below doesn't refetch on every
+  // render just because `chosen` is a fresh array each time.
+  const tiktokIdsKey = chosen
+    .filter((a) => a.platform === "tiktok")
+    .map((a) => a._id)
+    .join(",");
+  const mediaKind = media.length === 0 ? undefined : media[0].facts.kind === "video" ? "video" : "photo";
+
+  const fetchTiktokCreatorInfo = useAction(api.social.tiktokCreatorInfo);
+  const [tiktokPrivacyLevels, setTiktokPrivacyLevels] = useState<
+    { value: string; label: string }[] | null
+  >(null);
+
+  useEffect(() => {
+    // No synchronous setState in the effect body itself -- even the "nothing
+    // selected" case resolves through the same async continuation below, so
+    // every update happens from a callback rather than the effect's own run.
+    let cancelled = false;
+    const ids = tiktokIdsKey ? tiktokIdsKey.split(",") : [];
+    Promise.all(
+      ids.map((id) =>
+        fetchTiktokCreatorInfo({
+          socialAccountId: id as Id<"socialAccounts">,
+          mediaType: mediaKind,
+        }).catch(() => null),
+      ),
+    ).then((results) => {
+      if (cancelled) return;
+      const lists = results.filter((r) => r !== null).map((r) => r.privacyLevels);
+      if (lists.length === 0) {
+        // Nothing selected, or every lookup failed -- fall back to the
+        // static list rather than block posting over a Zernio hiccup.
+        setTiktokPrivacyLevels(null);
+        return;
+      }
+      // A level must be valid for every selected TikTok account, not just
+      // one of them, so intersect rather than union.
+      const [first, ...rest] = lists;
+      setTiktokPrivacyLevels(
+        first.filter((level) => rest.every((list) => list.some((l) => l.value === level.value))),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tiktokIdsKey, mediaKind, fetchTiktokCreatorInfo]);
+
+  // Derived, not stored: if the creator's real options don't include
+  // whatever's currently selected (their first load, or a stricter set for
+  // a newly-added second account), fall back to the first real option
+  // instead of sending a value TikTok will reject.
+  const tiktokPrivacyOptions = tiktokPrivacyLevels ?? TIKTOK_PRIVACY_LEVELS;
+  const effectiveTiktokPrivacyLevel = tiktokPrivacyOptions.some(
+    (l) => l.value === tiktok.privacy_level,
+  )
+    ? tiktok.privacy_level
+    : (tiktokPrivacyOptions[0]?.value ?? tiktok.privacy_level);
+
   const issues = useMemo(() => {
-    const out: string[] = [];
+    // A Set, not an array: preflight() re-checks the caption against the
+    // same limit for every asset, and that message is identical every time --
+    // collecting into a Set is what keeps a 3-image carousel from showing the
+    // same "caption too long" line three times over.
+    const out = new Set<string>();
     for (const platform of platforms) {
-      for (const issue of preflight(platform, caption, media?.facts ?? null)) {
-        out.push(issue);
+      if (media.length === 0) {
+        for (const issue of preflight(platform, caption, null)) out.add(issue);
+        continue;
+      }
+      for (const item of media) {
+        for (const issue of preflight(platform, caption, item.facts)) out.add(issue);
       }
     }
     if (platforms.includes("tiktok") && !tiktok.consent) {
-      out.push("TikTok requires confirming the preview and consent before posting.");
+      out.add("TikTok requires confirming the preview and consent before posting.");
+    }
+    if (platforms.includes("tiktok") && tiktokPrivacyLevels?.length === 0) {
+      out.add(
+        "These TikTok accounts have no privacy level in common -- post to them separately.",
+      );
     }
     if (platforms.includes("youtube") && youtube.title.length > YOUTUBE_TITLE_LIMIT) {
-      out.push(`YouTube title is over ${YOUTUBE_TITLE_LIMIT} characters.`);
+      out.add(`YouTube title is over ${YOUTUBE_TITLE_LIMIT} characters.`);
     }
-    return out;
-  }, [platforms, caption, media, tiktok.consent, youtube.title]);
+    return [...out];
+  }, [platforms, caption, media, tiktok.consent, tiktokPrivacyLevels, youtube.title]);
 
   function buildTargets() {
     return chosen.map((account) => {
@@ -102,7 +190,7 @@ export function PostComposer({
       let platformSpecificData: Record<string, unknown> | undefined;
       if (platform === "tiktok") {
         platformSpecificData = {
-          privacy_level: tiktok.privacy_level,
+          privacy_level: effectiveTiktokPrivacyLevel,
           allow_comment: tiktok.allow_comment,
           allow_duet: tiktok.allow_duet,
           allow_stitch: tiktok.allow_stitch,
@@ -135,13 +223,13 @@ export function PostComposer({
   }
 
   async function submit(mode: "draft" | "schedule") {
-    if (!media) return;
+    if (media.length === 0) return;
     setBusy(mode);
     setError(null);
     try {
       const postId = await createDraft({
         caption,
-        mediaAssetIds: [media.id],
+        mediaAssetIds: media.map((m) => m.id),
         jobId,
         targets: buildTargets(),
         scheduledFor: when ? new Date(when).getTime() : undefined,
@@ -155,7 +243,7 @@ export function PostComposer({
     }
   }
 
-  const canSubmit = chosen.length > 0 && Boolean(media) && issues.length === 0;
+  const canSubmit = chosen.length > 0 && media.length > 0 && issues.length === 0;
 
   return (
     <div
@@ -183,15 +271,34 @@ export function PostComposer({
           </button>
         </div>
 
-        {/* TikTok's consent is an attestation about *this* video, so the video
-            has to be on screen next to it. */}
-        {media?.url && media.facts.kind === "video" && (
-          <video
-            src={media.url}
-            controls
-            playsInline
-            className="mt-4 max-h-64 w-full rounded-xl border border-line bg-black object-contain"
-          />
+        {/* TikTok's consent is an attestation about *this* media, so it has
+            to be on screen next to it -- every selected item, not just one,
+            since a carousel's consent covers the whole set. */}
+        {media.length > 0 && (
+          <div className="mt-4 flex gap-2 overflow-x-auto">
+            {media.map((item) =>
+              !item.url ? null : item.facts.kind === "video" ? (
+                <video
+                  key={item.id}
+                  src={item.url}
+                  controls
+                  playsInline
+                  className="h-48 w-auto shrink-0 rounded-xl border border-line bg-black object-contain"
+                />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={item.id}
+                  src={item.url}
+                  alt=""
+                  className="h-48 w-auto shrink-0 rounded-xl border border-line object-contain"
+                />
+              ),
+            )}
+          </div>
+        )}
+        {media.length > 1 && (
+          <p className="mt-1.5 text-xs text-muted">{media.length} items, posted as a carousel.</p>
         )}
 
         <Label>Post to</Label>
@@ -268,17 +375,23 @@ export function PostComposer({
             <Row>
               <span className="flex-1">Who can see this</span>
               <select
-                value={tiktok.privacy_level}
+                value={effectiveTiktokPrivacyLevel}
                 onChange={(e) => setTiktok({ ...tiktok, privacy_level: e.target.value })}
                 className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm"
               >
-                {TIKTOK_PRIVACY_LEVELS.map((p) => (
+                {tiktokPrivacyOptions.map((p) => (
                   <option key={p.value} value={p.value}>
                     {p.label}
                   </option>
                 ))}
               </select>
             </Row>
+            {tiktokPrivacyLevels !== null && (
+              <p className="text-xs text-muted">
+                Only what {tiktokIdsKey.includes(",") ? "these accounts allow" : "this account allows"}
+                {" "}is shown -- TikTok grants each creator its own subset.
+              </p>
+            )}
             <Toggle
               label="Allow comments"
               checked={tiktok.allow_comment}
@@ -377,7 +490,7 @@ export function PostComposer({
         <div className="mt-5 flex gap-2">
           <button
             onClick={() => submit("draft")}
-            disabled={busy !== null || !media || chosen.length === 0}
+            disabled={busy !== null || media.length === 0 || chosen.length === 0}
             className="rounded-lg border border-line px-3 py-2 text-sm text-muted hover:text-foreground disabled:opacity-60"
           >
             {busy === "draft" ? "Saving…" : "Save draft"}

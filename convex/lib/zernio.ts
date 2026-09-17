@@ -96,17 +96,24 @@ export async function createProfile(name: string): Promise<string> {
 // ------------------------------------------------------------------ accounts
 
 /**
- * The OAuth handoff. Returns the URL to send the user's browser to; Zernio
- * bounces them back to the redirect configured on the Zernio dashboard with
- * `?connected=&profileId=&accountId=&username=` appended.
+ * The OAuth handoff. Returns the URL to send the user's browser to.
+ *
+ * `redirect_url` is a per-request query param, not a fixed dashboard
+ * setting -- confirmed against Zernio's raw OpenAPI reference after this
+ * file's first version, written against a summary, assumed the latter and
+ * never sent it. Without it Zernio has nowhere to bounce the browser back
+ * to once the platform finishes: the account still connects on Zernio's
+ * side, but the user is left stranded on whatever Zernio shows instead of
+ * returning to this app. On success Zernio appends
+ * `?connected=&profileId=&accountId=&username=`; on failure `?error=&platform=`.
  */
 export async function connectUrl(
   platform: ZernioPlatform,
   profileId: string,
+  redirectUrl: string,
 ): Promise<string> {
-  const out = await zernioFetch<{ authUrl: string }>(
-    `/connect/${platform}?profileId=${encodeURIComponent(profileId)}`,
-  );
+  const qs = new URLSearchParams({ profileId, redirect_url: redirectUrl });
+  const out = await zernioFetch<{ authUrl: string }>(`/connect/${platform}?${qs.toString()}`);
   return out.authUrl;
 }
 
@@ -128,6 +135,50 @@ export async function listAccounts(profileId?: string): Promise<ZernioAccount[]>
 
 export async function disconnectAccount(accountId: string): Promise<void> {
   await zernioFetch(`/accounts/${accountId}`, { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------- tiktok info
+//
+// `privacy_level` is not a fixed four-value enum in practice: TikTok grants
+// each creator its own subset, and posting with one outside it is rejected
+// with "Selected privacy level 'X' is not available for this creator." --
+// confirmed against Zernio's raw OpenAPI reference, per
+// GET /v1/accounts/{accountId}/tiktok/creator-info.
+
+export interface TikTokPrivacyLevel {
+  value: string;
+  label: string;
+}
+
+export interface TikTokInteractionDescriptor {
+  enabled: boolean;
+  required: boolean;
+  default: boolean;
+  label: string;
+}
+
+export interface TikTokCreatorInfo {
+  creator: { nickname: string; avatarUrl: string; isVerified: boolean; canPostMore: boolean };
+  privacyLevels: TikTokPrivacyLevel[];
+  postingLimits: {
+    maxVideoDurationSec: number;
+    interactionSettings: {
+      allow_comment: TikTokInteractionDescriptor;
+      // Null when mediaType is "photo" -- TikTok doesn't apply duet or
+      // stitch to photo posts.
+      allow_duet: TikTokInteractionDescriptor | null;
+      allow_stitch: TikTokInteractionDescriptor | null;
+    };
+  };
+  commercialContentTypes: { value: string; label: string; requires: string[] }[];
+}
+
+export async function getTikTokCreatorInfo(
+  accountId: string,
+  mediaType?: "video" | "photo",
+): Promise<TikTokCreatorInfo> {
+  const qs = mediaType ? `?mediaType=${mediaType}` : "";
+  return zernioFetch(`/accounts/${accountId}/tiktok/creator-info${qs}`);
 }
 
 // --------------------------------------------------------------------- posts
@@ -192,6 +243,30 @@ export async function updatePost(
 
 export async function cancelPost(postId: string): Promise<void> {
   await zernioFetch(`/posts/${postId}`, { method: "DELETE" });
+}
+
+// ------------------------------------------------------------- pre-flight
+//
+// Not `/v1/validate` -- that path doesn't exist. Confirmed against Zernio's
+// raw OpenAPI reference (docs.zernio.com/llms-full.txt) after the analytics
+// endpoints turned out wrong the same way earlier: this app's own plan had
+// written down a summary rather than the real path. The real one dry-runs
+// the exact publish pipeline `POST /v1/posts` uses -- same body, no
+// publishing, no media processing, no rate-limit spend -- and catches things
+// the local checks in src/lib/socialPlatforms.ts can't: hashtag limits,
+// thread formats, Facebook Reel requirements, and the rest of what only
+// Zernio's own pipeline actually enforces.
+
+export type ValidatePostResult =
+  | { valid: true; message?: string; warnings?: { platform: string; warning: string }[] }
+  | {
+      valid: false;
+      errors: { platform: string; error: string }[];
+      warnings?: { platform: string; warning: string }[];
+    };
+
+export async function validatePost(input: CreatePostInput): Promise<ValidatePostResult> {
+  return zernioFetch("/tools/validate/post", { method: "POST", body: input });
 }
 
 // ----------------------------------------------------------------- analytics

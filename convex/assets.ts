@@ -1,8 +1,10 @@
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
-import { internalMutation, internalQuery, query } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import { requireClient } from "./clients";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 
 /**
  * Uploads and outputs, in one table.
@@ -48,8 +50,65 @@ export const record = internalMutation({
     height: v.optional(v.number()),
     durationSec: v.optional(v.number()),
   },
-  handler: async (ctx, args): Promise<Id<"assets">> =>
-    ctx.db.insert("assets", { ...args, kind: kindForMime(args.mimeType) }),
+  handler: async (ctx, args): Promise<Id<"assets">> => {
+    const kind = kindForMime(args.mimeType);
+    const assetId = await ctx.db.insert("assets", { ...args, kind });
+    // Every video-producing format already funnels through this one
+    // mutation, so this is the one place a poster needs scheduling from --
+    // not a call added to each format's own render step. Backgrounded
+    // rather than awaited: a render-service round trip is not something
+    // whatever just finished (a job, an upload) should block on.
+    if (kind === "video") {
+      await ctx.scheduler.runAfter(0, internal.assets.generatePoster, { assetId });
+    }
+    return assetId;
+  },
+});
+
+export const setPoster = internalMutation({
+  args: { assetId: v.id("assets"), posterStorageId: v.id("_storage") },
+  handler: async (ctx, { assetId, posterStorageId }) => {
+    await ctx.db.patch(assetId, { posterStorageId });
+  },
+});
+
+/**
+ * A still for the Library grid, so a video tile doesn't have to buffer the
+ * clip itself just to show what it is. Calls render-service's `/frame/first` --
+ * already built for Character Swap's "Recreate" mode (characterSwap.ts) to
+ * grab a video's first frame; this is the same endpoint, same call shape,
+ * for a different reason.
+ *
+ * Fails quietly: render-service being briefly unreachable, or a codec it
+ * can't read a frame from, means a missing thumbnail, not a broken asset --
+ * worth logging, not worth surfacing as a job failure or retrying.
+ */
+export const generatePoster = internalAction({
+  args: { assetId: v.id("assets") },
+  handler: async (ctx, { assetId }): Promise<void> => {
+    const asset = await ctx.runQuery(internal.assets.getInternal, { assetId });
+    if (!asset) return;
+
+    const videoUrl = await ctx.storage.getUrl(asset.storageId);
+    if (!videoUrl) return;
+
+    const res = await fetch(`${renderServiceBase()}/frame/first`, {
+      method: "POST",
+      headers: renderServiceHeaders(),
+      body: JSON.stringify({ videoUrl }),
+    });
+    if (!res.ok) {
+      console.error(`poster extraction failed for asset ${assetId}: ${res.status}`);
+      return;
+    }
+
+    const { base64 } = (await res.json()) as { base64: string };
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const posterStorageId = await ctx.storage.store(
+      new Blob([bytes as unknown as BlobPart], { type: "image/png" }),
+    );
+    await ctx.runMutation(internal.assets.setPoster, { assetId, posterStorageId });
+  },
 });
 
 /** Reads an asset row from inside a workflow step, where auth context isn't available. */

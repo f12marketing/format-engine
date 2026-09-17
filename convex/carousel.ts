@@ -4,6 +4,7 @@ import { components, internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { callTool, LLM_MODEL } from "./lib/fal";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 import {
   CAROUSEL_LIMITS,
   CAROUSEL_SYSTEM,
@@ -168,13 +169,7 @@ export const renderDeck = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
 
-    const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-    if (!base) {
-      throw new Error(
-        "RENDER_SERVICE_URL is not set. Start ../render-service and run: " +
-          "npx convex env set RENDER_SERVICE_URL http://localhost:4000",
-      );
-    }
+    const base = renderServiceBase();
 
     const config = job.config as {
       template?: string;
@@ -190,7 +185,7 @@ export const renderDeck = internalAction({
 
     const res = await fetch(`${base}/render/carousel`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({
         jobId,
         slides: carouselSlides(deck),

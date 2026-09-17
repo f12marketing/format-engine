@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 
 /**
  * Talking Head UGC: an avatar speaks a script to camera. The simplest of the
@@ -73,8 +74,7 @@ export const caption = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
 
-    const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-    if (!base) throw new Error("RENDER_SERVICE_URL is not set on the deployment.");
+    const base = renderServiceBase();
 
     const config = job.config as { script?: string; captionStyle?: string };
     const avatarOut = job.steps.find((s) => s.id === "avatar")?.output as
@@ -89,7 +89,7 @@ export const caption = internalAction({
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const res = await fetch(`${base}/render/custom`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({
         sourceUrl: avatarOut.videoUrl,
         sourceIsVideo: true,

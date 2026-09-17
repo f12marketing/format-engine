@@ -259,3 +259,35 @@ Build slideshow:
 Aspect ration - 1:1, 4:5, 3:4, 9:16
 
 Images - upload image files
+
+
+========================
+
+
+Changes:
+
+Can you add another content option called 'Drama' and that would help users create short drama videos. You can make sure of the below rep. Modify the code to use the same AI models from fal.ai. Let me know if you require any other platform API or access for this content option. 
+
+Please create 20 different influencer images from different ethnicities and populate the gallery 
+
+Identify where the prompts are used in the app and improve those prompts with prompt tuning.
+
+Scan the app and a do a thorough security check and suggest me recommendations for a secure app.
+
+Let me know if the app is able to output the desired output, when the user chooses and option and fills up the configurations. 
+
+In the step 2 of the new influencer popup, make sure to add a generate all button (with pricing, similar to other buttons) to generate the minimum number of images required to go to the next step
+
+I have topped up the fal ai account, please verify all the prompts
+
+
+
+Add drama video in the content homepage
+Test each of the format output - is the output video as desired?
+Create 20 different influencers from various ethnicities
+Identify where prompts are used and do Prompt tuning
+
+
+Viral content finder - scrapecreators
+Automations
+Choose Fal.ai's best AI models and workflows - fal's own Model Search API

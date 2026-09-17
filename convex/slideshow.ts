@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
 import { workflow } from "./carousel";
 import { callTool, LLM_MODEL, submitAndPoll } from "./lib/fal";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 
 /**
  * Slideshow: the format that finally exercises P2.
@@ -43,10 +44,14 @@ each on screen for a few seconds with one short line of text.
 For each slide, write:
 - imagePrompt: what the image shows. Concrete, visual, no text or lettering in
   the image itself -- the caption is drawn separately. One clear subject per
-  slide; do not describe a whole scene of unrelated things.
+  slide; do not describe a whole scene of unrelated things. End it with a
+  short technical tail covering quality and composition, e.g. "photorealistic,
+  high detail, no text, no watermark, no UI elements" (adjust the style words
+  to match whatever visual style was requested).
 - caption: at most 90 characters, plain language, no markdown, no emoji, no
-  hashtags. It should make sense read on its own, in three seconds, without
-  the slides before or after it.
+  hashtags, no stock phrases like "game-changer" or "here's the thing". It
+  should make sense read on its own, in three seconds, without the slides
+  before or after it.
 
 The slides together should read as one short narrative arc: an opening that
 earns attention, a middle that develops the idea, and a close that lands it --
@@ -236,8 +241,7 @@ export const render = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
 
-    const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-    if (!base) throw new Error("RENDER_SERVICE_URL is not set on the deployment.");
+    const base = renderServiceBase();
 
     const plan = (job.steps.find((s) => s.id === "copy")?.output as
       | { slides?: SlidePlan[] }
@@ -253,7 +257,7 @@ export const render = internalAction({
     // hurt most (N images, not one).
     const res = await fetch(`${base}/render/slideshow`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({
         images: urls.map((url) => ({ url })),
         captions: plan.map((s) => s.caption),

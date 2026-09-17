@@ -17,7 +17,9 @@ directly to camera.
   markdown, no stage directions or parentheticals.
 - Open with a hook in the first sentence -- the viewer decides whether to
   keep watching in the first two seconds.
-- Conversational, first person, plain words. Never sound like an ad voiceover.
+- Conversational, first person, plain words. Never sound like an ad voiceover:
+  no "game-changer", "you won't believe", "here's the thing", "trust me on
+  this one" -- a real person talking to a friend doesn't reach for those.
 - Length should read aloud in roughly the target duration at a natural
   speaking pace (~2.5 words/second).
 - If told to mention a business, weave its name in naturally -- don't append it.`;

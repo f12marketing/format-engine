@@ -4,6 +4,7 @@ import { internalAction, internalMutation, internalQuery } from "./_generated/se
 import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import { callTool, LLM_MODEL } from "./lib/fal";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 
 /**
  * Video Hook & Demo: a trending clip as the hook, then the user's own demo
@@ -89,6 +90,8 @@ viewer into a trending clip before it cuts to a product demo.
 
 - One punchy line. A question, a bold claim, or a relatable callout.
 - No markdown, no emoji, no hashtags, no quotation marks.
+- Skip generic hook openers like "wait for it" or "you won't believe" --
+  spend the character budget on the actual claim, not the setup for one.
 - If told to mention a business, weave its name in naturally -- don't append it.`;
 
 const CAPTION_TOOL = {
@@ -163,8 +166,7 @@ export const stitch = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
 
-    const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-    if (!base) throw new Error("RENDER_SERVICE_URL is not set on the deployment.");
+    const base = renderServiceBase();
 
     const config = job.config as {
       demoVideo?: Id<"assets">;
@@ -191,7 +193,7 @@ export const stitch = internalAction({
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const res = await fetch(`${base}/render/video-hook-demo`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({
         hookUrl,
         demoUrl,

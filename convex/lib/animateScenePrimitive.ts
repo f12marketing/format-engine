@@ -47,10 +47,11 @@ export const animateScene = internalAction({
       buildInput,
       `Gentle, natural continuous motion within the scene. ${
         config.style ? `Mood: ${config.style}.` : ""
-      } Keep the composition and subject exactly as in the source image.`,
+      } Keep the composition and subject exactly as in the source image, with no warping, ` +
+        "morphing or distortion of faces or hands as they move.",
       () =>
         "Subtle cinematic camera movement and gentle ambient motion. " +
-        "Keep the composition exactly as in the source image.",
+        "Keep the composition exactly as in the source image, with no warping or distortion.",
       { timeoutMs: 8 * 60_000 },
     )) as { video?: { url?: string } };
     const videoUrl = result.video?.url;

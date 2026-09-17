@@ -5,6 +5,7 @@ import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import { submitWithContentPolicyFallback } from "./lib/fal";
 import { resolveRosterPersona } from "./lib/roster";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 
 /**
  * Product Spokesperson: the avatar holds the product and talks about it.
@@ -83,11 +84,16 @@ export const composite = internalAction({
       aboutToSpendUsd: COMPOSITE_PRICE_PER_UNIT * 1.2,
     });
 
+    // The only composite in this codebase with no negative-instruction list at
+    // all -- every sibling composite names "no text, no UI elements" or
+    // similar, so a stray watermark or UI-style overlay was always as likely
+    // here as anywhere else, just never told not to happen.
     const wrap = (action: string) =>
       `@image1 is the spokesperson (${description}). @image2 is the product. ` +
       `Composite a single photorealistic image of the spokesperson ${action}, holding the product ` +
-      "naturally at chest height, facing the camera, product label clearly visible, consistent " +
-      "lighting and shadows between subject and product, plain neutral background.";
+      "naturally at chest height with anatomically correct hands, facing the camera, product " +
+      "label clearly visible and undistorted, consistent lighting and shadows between subject " +
+      "and product, plain neutral background. No text, no watermark, no UI elements.";
 
     const buildInput = (prompt: string) => ({
       prompt,
@@ -163,8 +169,7 @@ export const caption = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
 
-    const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-    if (!base) throw new Error("RENDER_SERVICE_URL is not set on the deployment.");
+    const base = renderServiceBase();
 
     const config = job.config as { script?: string; captionStyle?: string };
     const avatarOut = job.steps.find((s) => s.id === "avatar")?.output as
@@ -179,7 +184,7 @@ export const caption = internalAction({
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const res = await fetch(`${base}/render/custom`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({
         sourceUrl: avatarOut.videoUrl,
         sourceIsVideo: true,

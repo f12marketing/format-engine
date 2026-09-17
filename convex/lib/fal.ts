@@ -342,7 +342,8 @@ export async function rewritePromptNeutrally(originalPrompt: string): Promise<st
 Rules:
 - Keep every @imageN reference tag exactly as written, in the same order.
 - Keep the art style, framing, lighting and camera notes unchanged.
-- Replace depictions of injury, blood, wounds, violence, death or physical suffering with restrained visual equivalents (posture, expression, symbolism, colour, shadow).
+- Replace depictions of injury, blood, wounds, violence, death, weapons or physical suffering with restrained visual equivalents (posture, expression, symbolism, colour, shadow).
+- The checker sometimes flags phrasing rather than content -- if nothing in the prompt is actually graphic, just simplify the wording (shorter sentences, plainer verbs, fewer intensifiers) rather than inventing something to tone down.
 - Do not add new characters, objects or narrative.
 - Never try to disguise or smuggle prohibited content; if a scene cannot be shown acceptably, describe it symbolically instead.
 Reply with ONLY the rewritten prompt text, no preamble or quotes.`;

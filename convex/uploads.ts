@@ -3,6 +3,7 @@ import { mutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireClient } from "./clients";
 import { kindForMime } from "./assets";
+import { enforceRateLimit } from "./lib/rateLimit";
 
 /**
  * Browser uploads go straight to Convex storage, not through a mutation.
@@ -15,7 +16,8 @@ import { kindForMime } from "./assets";
 export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
-    await requireClient(ctx); // uploading is not anonymous
+    const client = await requireClient(ctx); // uploading is not anonymous
+    await enforceRateLimit(ctx, "generateUploadUrl", client._id);
     return ctx.storage.generateUploadUrl();
   },
 });

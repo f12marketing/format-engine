@@ -1,13 +1,13 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useAction, usePaginatedQuery } from "convex/react";
+import { useAction, usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { AuthorisedBoundary } from "@/components/AuthorisedBoundary";
 import { FilterChips, StatusPill } from "@/components/StatusPill";
-import { PostComposer } from "@/components/PostComposer";
+import { PostComposer, type ComposerMedia } from "@/components/PostComposer";
 
 /**
  * Everything the client has, in one place: posts on their way out, content
@@ -93,8 +93,9 @@ const POST_FILTERS: { value: PostFilter; label: string }[] = [
 function PostsTab() {
   const [filter, setFilter] = useState<PostFilter>("all");
 
-  // "Needs attention" spans two statuses, so it is filtered client-side over
-  // the unfiltered page rather than pushed into the index.
+  // "Needs attention" spans several conditions rather than one status, so
+  // it is filtered client-side over the unfiltered page rather than pushed
+  // into the index.
   const serverStatus =
     filter === "all" || filter === "attention" ? undefined : filter;
 
@@ -104,9 +105,30 @@ function PostsTab() {
     { initialNumItems: 25 },
   );
 
+  // Only active accounts come back here, so anything a post still targets
+  // that isn't in this set has been disconnected since the post was made.
+  const activeAccounts = useQuery(api.social.listAccounts);
+  const activeAccountIds = useMemo(
+    () => new Set((activeAccounts ?? []).map((a) => a._id)),
+    [activeAccounts],
+  );
+
+  // Only worth flagging while a post still has somewhere to go -- a
+  // published or cancelled post targeting a now-dead account is a closed
+  // matter, not something to act on. `activeAccounts === undefined` (still
+  // loading) never flags anything, so an empty set can't look like every
+  // target got disconnected.
+  function hasDisconnectedTarget(post: (typeof results)[number]) {
+    if (post.status !== "draft" && post.status !== "scheduled") return false;
+    if (activeAccounts === undefined) return false;
+    return post.targets.some((t) => !activeAccountIds.has(t.socialAccountId));
+  }
+
   const posts =
     filter === "attention"
-      ? results.filter((p) => p.status === "failed" || p.status === "partial")
+      ? results.filter(
+          (p) => p.status === "failed" || p.status === "partial" || hasDisconnectedTarget(p),
+        )
       : results;
 
   return (
@@ -142,6 +164,11 @@ function PostsTab() {
                 </span>
                 {post.lastError && (
                   <span className="mt-0.5 block text-xs text-accent">{post.lastError}</span>
+                )}
+                {!post.lastError && hasDisconnectedTarget(post) && (
+                  <span className="mt-0.5 block text-xs text-accent">
+                    One of this post&rsquo;s accounts has been disconnected.
+                  </span>
                 )}
               </span>
               <PostActions postId={post._id} status={post.status} />
@@ -200,13 +227,46 @@ function PostActions({ postId, status }: { postId: Id<"socialPosts">; status: st
   );
 }
 
+function toComposerMedia(asset: {
+  id: Id<"assets">;
+  url: string | null;
+  kind: string;
+  bytes: number;
+  width?: number;
+  height?: number;
+  durationSec?: number;
+}): ComposerMedia {
+  return {
+    id: asset.id,
+    url: asset.url,
+    facts: {
+      kind: asset.kind,
+      bytes: asset.bytes,
+      width: asset.width,
+      height: asset.height,
+      durationSec: asset.durationSec,
+    },
+  };
+}
+
 function AssetsTab({ source }: { source: "generated" | "uploaded" }) {
   const { results, status, loadMore } = usePaginatedQuery(
     api.assets.library,
     { source },
     { initialNumItems: 24 },
   );
-  const [scheduling, setScheduling] = useState<(typeof results)[number] | null>(null);
+  const [scheduling, setScheduling] = useState<ComposerMedia[] | null>(null);
+  const [schedulingJobId, setSchedulingJobId] = useState<Id<"jobs"> | undefined>(undefined);
+  // Multi-select is images only -- none of the four platforms accept more
+  // than one video in a single post, so a video keeps its own lone
+  // "Schedule" button below instead of joining this set.
+  const [selected, setSelected] = useState<Set<Id<"assets">>>(new Set());
+
+  function closeComposer() {
+    setScheduling(null);
+    setSchedulingJobId(undefined);
+    setSelected(new Set());
+  }
 
   if (status === "LoadingFirstPage") {
     return (
@@ -224,15 +284,62 @@ function AssetsTab({ source }: { source: "generated" | "uploaded" }) {
     );
   }
 
+  const selectedAssets = results.filter((a) => selected.has(a.id));
+
+  function schedule(assets: (typeof results)[number][]) {
+    setScheduling(assets.map(toComposerMedia));
+    // Only worth attributing the post to a job when every asset in it agrees
+    // on which one -- a mixed-provenance carousel has no single job to point
+    // back to, and a wrong guess is worse than leaving it unset.
+    const jobIds = new Set(assets.map((a) => a.producedByJobId));
+    setSchedulingJobId(jobIds.size === 1 ? assets[0].producedByJobId : undefined);
+  }
+
   return (
     <>
+      {selectedAssets.length > 0 && (
+        <div className="mt-5 flex items-center gap-3 rounded-xl border border-accent bg-accent-soft px-4 py-2.5 text-sm">
+          <span className="flex-1">
+            {selectedAssets.length} image{selectedAssets.length > 1 ? "s" : ""} selected
+          </span>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="text-xs text-muted hover:text-foreground"
+          >
+            Clear
+          </button>
+          <button
+            onClick={() => schedule(selectedAssets)}
+            className="rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+          >
+            Schedule together
+          </button>
+        </div>
+      )}
+
       <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {results.map((asset) => (
           <div
             key={asset.id}
             className="overflow-hidden rounded-xl border border-line bg-surface"
           >
-            <div className="grid aspect-square place-items-center bg-surface-sub">
+            <div className="relative grid aspect-square place-items-center bg-surface-sub">
+              {/* A carousel is all images, so only images join the multi-select --
+                  a video keeps its own lone "Schedule" button below instead. */}
+              {asset.kind === "image" && (
+                <input
+                  type="checkbox"
+                  checked={selected.has(asset.id)}
+                  onChange={(e) => {
+                    const next = new Set(selected);
+                    if (e.target.checked) next.add(asset.id);
+                    else next.delete(asset.id);
+                    setSelected(next);
+                  }}
+                  className="absolute left-2 top-2 z-10 size-4"
+                  aria-label="Select for a carousel post"
+                />
+              )}
               {asset.kind === "video" && asset.url ? (
                 <video
                   src={asset.url}
@@ -260,7 +367,7 @@ function AssetsTab({ source }: { source: "generated" | "uploaded" }) {
               </p>
               {(asset.kind === "video" || asset.kind === "image") && (
                 <button
-                  onClick={() => setScheduling(asset)}
+                  onClick={() => schedule([asset])}
                   className="mt-2 w-full rounded-md border border-line py-1.5 text-xs text-muted hover:border-accent hover:text-foreground"
                 >
                   Schedule
@@ -272,21 +379,7 @@ function AssetsTab({ source }: { source: "generated" | "uploaded" }) {
       </div>
 
       {scheduling && (
-        <PostComposer
-          jobId={scheduling.producedByJobId ?? undefined}
-          media={{
-            id: scheduling.id,
-            url: scheduling.url,
-            facts: {
-              kind: scheduling.kind,
-              bytes: scheduling.bytes,
-              width: scheduling.width,
-              height: scheduling.height,
-              durationSec: scheduling.durationSec,
-            },
-          }}
-          onClose={() => setScheduling(null)}
-        />
+        <PostComposer jobId={schedulingJobId} media={scheduling} onClose={closeComposer} />
       )}
 
       {status === "CanLoadMore" && (

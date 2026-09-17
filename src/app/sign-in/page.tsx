@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getSupabaseClient, supabaseConfigured } from "@/lib/supabaseClient";
+import { safeNextPath } from "@/lib/safeRedirect";
 
 /**
  * Email + password, self-serve.
@@ -29,7 +30,7 @@ type Mode = "sign-in" | "sign-up" | "reset";
 
 function SignInForm() {
   const params = useSearchParams();
-  const next = params.get("next") ?? "/";
+  const next = safeNextPath(params.get("next"));
   const [mode, setModeState] = useState<Mode>("sign-in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

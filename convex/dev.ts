@@ -5,6 +5,9 @@ import { internalAction, internalMutation, internalQuery } from "./_generated/se
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { STARTERS, type RunnableFormatId } from "./starters";
+import * as zernio from "./lib/zernio";
+import { submitWithContentPolicyFallback } from "./lib/fal";
+import { referencePortraitPrompt, REFERENCE_PORTRAIT_FALLBACK } from "./lib/facePrompt";
 
 /**
  * Dev-only helpers, callable from the CLI with `npx convex run`.
@@ -102,6 +105,12 @@ export const startCarousel = internalMutation({
 export const storageUrl = internalQuery({
   args: { storageId: v.id("_storage") },
   handler: async (ctx, { storageId }): Promise<string | null> => ctx.storage.getUrl(storageId),
+});
+
+/** Auth-free equivalent of uploads.generateUploadUrl, for exercising a render-service upload from the CLI. */
+export const generateUploadUrl = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<string> => ctx.storage.generateUploadUrl(),
 });
 
 export const inspect = internalQuery({
@@ -207,6 +216,65 @@ export const addAudioTemplate = internalAction({
       bytes: blob.size,
       durationSec,
       tags,
+    });
+  },
+});
+
+/**
+ * Adds a face to the curated influencer gallery from a public URL.
+ *
+ * Curation entry point until there's an admin surface, exactly how the audio
+ * and clip libraries started -- run it per photo:
+ *   npx convex run dev:addGalleryFace '{"url":"https://…/face.jpg"}'
+ */
+export const addGalleryFace = internalAction({
+  args: { url: v.string() },
+  handler: async (ctx, { url }): Promise<Id<"galleryFaces">> => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Could not fetch ${url} (${res.status})`);
+    const mimeType = res.headers.get("content-type")?.split(";")[0] ?? "image/jpeg";
+    const blob = await res.blob();
+    const storageId = await ctx.storage.store(blob);
+    return ctx.runMutation(internal.galleryFaces.recordFace, {
+      storageId,
+      mimeType,
+      bytes: blob.size,
+    });
+  },
+});
+
+/**
+ * Generates one synthetic base face straight into the curated gallery --
+ * a *generated* likeness, not a real person's photo, same reasoning as
+ * `influencers.generateFaceImageForClient`: this app's influencers are
+ * synthetic personas, and a real stranger's face has no place training one.
+ * Not billed to any client's ledger -- there's no client here to bill, only
+ * the deployment's own fal spend. Run it per photo, describing who to
+ * generate:
+ *   npx convex run dev:generateGalleryFace '{"personaNotes":"a woman in her 30s with short curly hair"}'
+ */
+export const generateGalleryFace = internalAction({
+  args: { personaNotes: v.string() },
+  handler: async (ctx, { personaNotes }): Promise<Id<"galleryFaces">> => {
+    const buildInput = (prompt: string) => ({ prompt, aspect_ratio: "3:4", num_images: 1 });
+    const result = (await submitWithContentPolicyFallback(
+      "fal-ai/nano-banana-2",
+      buildInput,
+      referencePortraitPrompt(personaNotes),
+      () => REFERENCE_PORTRAIT_FALLBACK,
+    )) as { images?: { url?: string }[] };
+    const url = result.images?.[0]?.url;
+    if (!url) throw new Error("no face image returned");
+
+    const imgRes = await fetch(url);
+    if (!imgRes.ok) throw new Error(`failed to fetch generated face: ${imgRes.status}`);
+    const bytes = new Uint8Array(await imgRes.arrayBuffer());
+    const storageId = await ctx.storage.store(new Blob([bytes], { type: "image/png" }));
+
+    return ctx.runMutation(internal.galleryFaces.recordFace, {
+      storageId,
+      mimeType: "image/png",
+      bytes: bytes.byteLength,
     });
   },
 });
@@ -360,6 +428,79 @@ export const seedInfluencerDraft = internalMutation({
       triggerPhrase: `${slug || "influencer"}${Date.now().toString(36)}`,
       status: "draft",
       trainingImageAssetIds,
+    });
+  },
+});
+
+/** Auth-free equivalent of socialPosts.createDraft, for exercising the composer's path from the CLI. */
+export const createSocialDraft = internalMutation({
+  args: {
+    clientId: v.id("clients"),
+    caption: v.string(),
+    mediaAssetIds: v.array(v.id("assets")),
+    targets: v.array(
+      v.object({
+        platform: v.string(),
+        zernioAccountId: v.string(),
+        socialAccountId: v.id("socialAccounts"),
+      }),
+    ),
+  },
+  handler: async (ctx, { clientId, caption, mediaAssetIds, targets }): Promise<Id<"socialPosts">> => {
+    for (const assetId of mediaAssetIds) {
+      const asset = await ctx.db.get(assetId);
+      if (!asset || asset.clientId !== clientId) throw new Error("Unknown asset.");
+    }
+    for (const target of targets) {
+      const account = await ctx.db.get(target.socialAccountId);
+      if (!account || account.clientId !== clientId) throw new Error("Unknown account.");
+    }
+    return ctx.db.insert("socialPosts", {
+      clientId,
+      status: "draft",
+      caption,
+      mediaAssetIds,
+      targets: targets.map((t) => ({ ...t, status: "pending" as const })),
+    });
+  },
+});
+
+/**
+ * Auth-free equivalent of socialPosts.schedule's dry-run half -- calls
+ * Zernio's real pre-flight validate endpoint (no publish, no media
+ * processing, no rate-limit spend per its own docs) without the second half
+ * that would actually call createPost. For confirming a real multi-item
+ * mediaItems body is accepted by the real API before wiring the write path
+ * through a CLI-only auth bypass too.
+ */
+export const validateSocialDraft = internalAction({
+  args: { postId: v.id("socialPosts") },
+  handler: async (ctx, { postId }): Promise<zernio.ValidatePostResult> => {
+    const loaded: {
+      post: {
+        caption: string;
+        targets: { platform: string; zernioAccountId: string; platformSpecificData?: unknown }[];
+      };
+      media: { kind: string; url: string | null }[];
+    } | null = await ctx.runQuery(internal.socialPosts.getForSchedule, { postId });
+    if (!loaded) throw new Error("post not found");
+    const { post, media } = loaded;
+    if (!media.length) throw new Error("A post needs at least one video or image.");
+
+    const platformSpecificData: Record<string, unknown> = {};
+    for (const t of post.targets) {
+      if (t.platformSpecificData) platformSpecificData[t.platform] = t.platformSpecificData;
+    }
+    return zernio.validatePost({
+      content: post.caption,
+      platforms: post.targets.map((t) => ({ platform: t.platform, accountId: t.zernioAccountId })),
+      mediaItems: media.map((m) => ({
+        url: m.url as string,
+        type: m.kind === "video" ? ("video" as const) : ("image" as const),
+      })),
+      platformSpecificData: Object.keys(platformSpecificData).length
+        ? platformSpecificData
+        : undefined,
     });
   },
 });

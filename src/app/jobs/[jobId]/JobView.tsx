@@ -8,7 +8,7 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 import { getFormat } from "@/formats";
 import { ApprovalGate } from "@/components/ApprovalGate";
 import { RemixActions } from "@/components/RemixActions";
-import { PostComposer } from "@/components/PostComposer";
+import { PostComposer, type ComposerMedia } from "@/components/PostComposer";
 
 /**
  * The run, watched live.
@@ -39,11 +39,15 @@ export function JobView({ jobId }: { jobId: string }) {
     | { files?: { name: string }[] }
     | undefined)?.files;
 
-  // Video first: a job that produced both a still and a clip posts the clip.
-  const postable =
-    assets?.find((a) => a.url && a.kind === "video") ??
-    assets?.find((a) => a.url && a.kind === "image") ??
-    null;
+  // Video first: a job that produced both a still and a clip posts the clip
+  // alone, since none of these platforms accept several videos in one post.
+  // Otherwise every rendered image goes together -- Slideshow, Carousel and
+  // Custom can all produce more than one, and that's exactly what a carousel
+  // post is for.
+  const postableVideo = assets?.find((a) => a.url && a.kind === "video");
+  const postableAssets = postableVideo
+    ? [postableVideo]
+    : (assets ?? []).filter((a) => a.url && a.kind === "image");
 
   return (
     <Shell>
@@ -89,30 +93,32 @@ export function JobView({ jobId }: { jobId: string }) {
       )}
 
       {/* Only once there's something to post: the composer's whole job is to
-          attach a finished file to an account. */}
-      {job.status === "done" && postable && (
+          attach finished files to an account. */}
+      {job.status === "done" && postableAssets.length > 0 && (
         <button
           onClick={() => setComposing(true)}
           className="mt-4 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
         >
-          Schedule post
+          {postableAssets.length > 1 ? `Schedule post (${postableAssets.length} images)` : "Schedule post"}
         </button>
       )}
 
-      {composing && postable && (
+      {composing && postableAssets.length > 0 && (
         <PostComposer
           jobId={job._id}
-          media={{
-            id: postable.id,
-            url: postable.url,
-            facts: {
-              kind: postable.kind,
-              bytes: postable.bytes,
-              width: postable.width,
-              height: postable.height,
-              durationSec: postable.durationSec,
-            },
-          }}
+          media={postableAssets.map(
+            (a): ComposerMedia => ({
+              id: a.id,
+              url: a.url,
+              facts: {
+                kind: a.kind,
+                bytes: a.bytes,
+                width: a.width,
+                height: a.height,
+                durationSec: a.durationSec,
+              },
+            }),
+          )}
           onClose={() => setComposing(false)}
         />
       )}

@@ -4,7 +4,6 @@ import { sendEvent } from "@convex-dev/workflow";
 import type { WorkflowId } from "@convex-dev/workflow";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { components } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
 import { requireClient } from "./clients";
 
 /**
@@ -12,24 +11,6 @@ import { requireClient } from "./clients";
  * than polling: the preview panel moves from empty to per-step progress to
  * result because the workflow writes its progress here as it goes.
  */
-
-const stepValidator = v.object({
-  id: v.string(),
-  primitive: v.string(),
-  label: v.string(),
-  state: v.union(
-    v.literal("pending"),
-    v.literal("running"),
-    v.literal("awaiting_approval"),
-    v.literal("done"),
-    v.literal("failed"),
-    v.literal("skipped"),
-  ),
-  startedAt: v.optional(v.number()),
-  endedAt: v.optional(v.number()),
-  error: v.optional(v.string()),
-  output: v.optional(v.any()),
-});
 
 export const list = query({
   args: { limit: v.optional(v.number()) },
@@ -82,32 +63,6 @@ export const get = query({
     // Scoped by client, not just by id -- an id is not an authorisation.
     if (!job || job.clientId !== client._id) return null;
     return job;
-  },
-});
-
-/**
- * Creates the job row and seeds its step list from the format's declared
- * pipeline. The config is a frozen copy: re-running this job in six weeks must
- * not pick up an edited brand or a changed default.
- */
-export const create = mutation({
-  args: {
-    formatId: v.string(),
-    config: v.any(),
-    steps: v.array(stepValidator),
-    remixedFromJobId: v.optional(v.id("jobs")),
-  },
-  handler: async (ctx, args): Promise<Id<"jobs">> => {
-    const client = await requireClient(ctx);
-    return ctx.db.insert("jobs", {
-      clientId: client._id,
-      formatId: args.formatId,
-      config: args.config,
-      status: "running",
-      steps: args.steps,
-      costUsd: 0,
-      remixedFromJobId: args.remixedFromJobId,
-    });
   },
 });
 

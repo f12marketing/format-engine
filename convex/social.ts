@@ -75,8 +75,8 @@ export const setProfileId = internalMutation({
  * isn't social.
  */
 export const startConnect = action({
-  args: { platform: PLATFORM },
-  handler: async (ctx, { platform }): Promise<{ authUrl: string }> => {
+  args: { platform: PLATFORM, redirectUrl: v.string() },
+  handler: async (ctx, { platform, redirectUrl }): Promise<{ authUrl: string }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
@@ -93,7 +93,7 @@ export const startConnect = action({
       });
     }
 
-    return { authUrl: await zernio.connectUrl(platform, profileId) };
+    return { authUrl: await zernio.connectUrl(platform, profileId, redirectUrl) };
   },
 });
 
@@ -215,6 +215,32 @@ export const disconnect = action({
 
     await zernio.disconnectAccount(account.zernioAccountId);
     await ctx.runMutation(internal.social.markDisconnected, { socialAccountId });
+  },
+});
+
+/**
+ * The composer's real allowed privacy levels for a TikTok account, instead
+ * of guessing from a static four-value list -- Zernio grants each creator
+ * its own subset, and posting outside it is rejected at publish time.
+ */
+export const tiktokCreatorInfo = action({
+  args: {
+    socialAccountId: v.id("socialAccounts"),
+    mediaType: v.optional(v.union(v.literal("video"), v.literal("photo"))),
+  },
+  handler: async (ctx, { socialAccountId, mediaType }): Promise<zernio.TikTokCreatorInfo> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
+      authUserId: identity.subject,
+    });
+    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+
+    const account = await ctx.runQuery(internal.social.getAccount, { socialAccountId });
+    if (!account || account.clientId !== client._id) throw new Error("Not found.");
+    if (account.platform !== "tiktok") throw new Error("Not a TikTok account.");
+
+    return zernio.getTikTokCreatorInfo(account.zernioAccountId, mediaType);
   },
 });
 

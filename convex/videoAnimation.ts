@@ -9,6 +9,7 @@ import {
   LLM_MODEL,
   submitWithContentPolicyFallback,
 } from "./lib/fal";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 
 /**
  * Video Animation: story -> characters -> shots -> composites -> clips ->
@@ -143,6 +144,10 @@ Instructions:
    - Tone/Pacing: emotional beat
 4. Write for 3D animation: visually descriptive and action-oriented.
 5. Keep character count manageable (3-6 main characters).
+6. Dialogue should sound like something a specific person would actually say
+   in this specific moment -- avoid generic movie-trailer lines ("This changes
+   everything", "We have to go, now!") that could drop into any story
+   unchanged.
 
 Output as markdown with this structure:
 
@@ -238,7 +243,12 @@ Characters:
    (age, build, skin tone, hair, eyes), clothing/accessories, expression and
    pose (neutral, full body, for reference sheet), and an art style suffix
    consistent with the requested style, ending in something like:
-   "full body, character reference sheet, white background, high detail, soft lighting".
+   "full body, character reference sheet, symmetrical standing pose, anatomically
+   correct proportions and hands, plain white background, high detail, soft
+   even lighting, no text, no watermark". Be specific and consistent about
+   distinguishing features (exact hair color/style, exact clothing colors) --
+   every later shot that includes this character reuses this same image
+   as its reference, so vague description here becomes visible drift later.
 3. Assign IDs sequentially: char_001, char_002, ...
 4. Record which scene numbers each character appears in.
 
@@ -248,7 +258,7 @@ Backgrounds:
 3. For each, generate a detailed image prompt covering environment type
    (interior/exterior), architectural or natural details, lighting and time
    of day, mood/atmosphere, and an art style suffix ending in something like:
-   "cinematic wide shot, no characters, high detail".
+   "cinematic wide shot, no characters, high detail, no text, no watermark".
 4. Assign IDs sequentially: bg_001, bg_002, ...
 5. Record which scene numbers each background is used in.`;
 
@@ -363,7 +373,7 @@ export const designCharacters = internalAction({
             c.prompt,
             () =>
               "Pixar-style 3D animation character reference sheet, neutral pose, " +
-              "plain background, soft even lighting, no text.",
+              "plain background, soft even lighting, no text, no watermark.",
           )) as { images?: { url?: string }[] };
           const url = result.images?.[0]?.url;
           if (!url) throw new Error(`no image returned for character ${c.character_id}`);
@@ -385,7 +395,7 @@ export const designCharacters = internalAction({
             b.prompt,
             () =>
               "Pixar-style 3D animation background plate, empty establishing shot, " +
-              "no characters, soft natural lighting, no text.",
+              "no characters, soft natural lighting, no text, no watermark.",
           )) as { images?: { url?: string }[] };
           const url = result.images?.[0]?.url;
           if (!url) throw new Error(`no image returned for background ${b.bg_id}`);
@@ -435,10 +445,15 @@ For each shot:
   "close-up on face", "tracking shot"
 - dialogue: spoken line if any, or "" if none.
 - mood: emotional tone
-- veo_prompt: a self-contained video generation prompt. Do NOT use asset IDs
-  in it -- describe the shot as if standalone, pattern:
-  "[Art style], [shot type + camera movement], [character description +
-  action], [setting description], [lighting and mood], [duration hint]"`;
+- veo_prompt: a self-contained video generation prompt for an image-to-video
+  model that receives this shot's already-composited image alongside it --
+  its job is to describe MOTION within that fixed image, not to re-describe
+  what the image already shows. Do NOT use asset IDs in it. Pattern:
+  "[shot type + camera movement], [what moves and how -- gesture, expression
+  change, camera drift], keep composition, characters and setting exactly as
+  in the source image, [duration hint]". Naming the art style or re-describing
+  a character's appearance here risks the model redrawing the frame instead
+  of animating it, which is what causes warping between frames.`;
 
 const SHOTS_TOOL = {
   name: "save_shot_list",
@@ -616,8 +631,9 @@ export const compositeScenes = internalAction({
           `${imageStyle} composite scene using ${refTags}. ` +
           `Place ${charNames ? charNames + " " : ""}in the background setting. ` +
           `${body} ` +
-          `${framing}, high quality render, no text, no UI elements, ` +
-          `warm natural lighting consistent with the scene.`;
+          `${framing}, high quality render, no text, no watermark, no UI elements, ` +
+          `warm natural lighting consistent with the scene. Keep each character's appearance ` +
+          "consistent with their own reference image, even with several characters in frame.";
 
         // Content-checker rejections are real and not rare -- the first
         // draft of this pipeline hit one on its very first real run, on
@@ -716,7 +732,8 @@ export const generateClips = internalAction({
           shot.veo_prompt || shot.action,
           () =>
             "Subtle cinematic camera movement and gentle ambient motion. " +
-            "Keep the composition and characters exactly as in the source image.",
+            "Keep the composition and characters exactly as in the source image, " +
+            "with no warping or distortion of faces or hands.",
           clipOpts,
         )) as { video?: { url?: string } };
         const url = result.video?.url;
@@ -827,8 +844,7 @@ export const stitch = internalAction({
       ?.shots ?? []) as Shot[];
     if (!shots.length) throw new Error("no voiced shots to stitch");
 
-    const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-    if (!base) throw new Error("RENDER_SERVICE_URL is not set on the deployment.");
+    const base = renderServiceBase();
 
     // A stitched video routinely lands well past Convex's 16MB
     // function-argument ceiling -- the first real run here hit 17.5MB as
@@ -842,7 +858,7 @@ export const stitch = internalAction({
 
     const res = await fetch(`${base}/render/video-animation`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({
         shots: shots.map((s) => ({
           videoUrl: s.clip_url,

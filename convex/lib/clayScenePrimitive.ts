@@ -38,9 +38,15 @@ export const composeClayScene = internalAction({
     });
 
     const topic = (config.prompt ?? "").trim();
+    // Match lighting/shadow/perspective explicitly -- an image-edit composite's
+    // most common tell is a pasted-in subject whose shadow falls the wrong way
+    // for the scene it landed in. Product Spokesperson and Green Screen
+    // Mobile's own composites already carry this instruction; this primitive
+    // never did, despite doing the same @image1-into-a-scene job.
     const wrap = (body: string) =>
       `${artDirection} @image1 is the product. ${body}${topic ? ` Context: ${topic}.` : ""} ` +
-      `${config.style ? `Style: ${config.style}.` : ""} High quality render, no text, no UI elements.`;
+      `${config.style ? `Style: ${config.style}.` : ""} Match the product's lighting, shadow ` +
+      "direction and scale to the surrounding scene. High quality render, no text, no watermark, no UI elements.";
 
     const buildInput = (prompt: string) => ({
       prompt,

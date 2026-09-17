@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import { renderServiceBase, renderServiceHeaders } from "./renderService";
 
 /**
  * P8, shared by Cutting Fruit, Claymation and Skeleton -- muxes the narration
@@ -20,15 +21,20 @@ import type { Id } from "../_generated/dataModel";
  * guessed at now.
  */
 export const renderNarratedClip = internalAction({
-  args: { jobId: v.id("jobs"), clientId: v.id("clients"), dimensions: v.optional(v.string()) },
-  handler: async (ctx, { jobId, clientId, dimensions }): Promise<null> => {
+  args: {
+    jobId: v.id("jobs"),
+    clientId: v.id("clients"),
+    dimensions: v.optional(v.string()),
+    /** Which config field holds the text when the copy step didn't run. */
+    textConfigField: v.optional(v.string()),
+  },
+  handler: async (ctx, { jobId, clientId, dimensions, textConfigField }): Promise<null> => {
     await ctx.runMutation(internal.jobs.patchStep, { jobId, stepId: "captions", state: "running" });
 
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
 
-    const base = (process.env.RENDER_SERVICE_URL ?? "").trim();
-    if (!base) throw new Error("RENDER_SERVICE_URL is not set on the deployment.");
+    const base = renderServiceBase();
 
     const clip = job.steps.find((s) => s.id === "clip")?.output as
       | { videoUrl?: string; durationSec?: number }
@@ -38,17 +44,19 @@ export const renderNarratedClip = internalAction({
       | { audioUrl?: string }
       | undefined;
 
-    const config = job.config as { narration?: string };
+    const config = job.config as Record<string, unknown>;
     // Either P1 wrote it (copy step's generic "text" key), or the user typed
-    // it into "narration" directly and P1 never ran.
+    // it directly into whichever field holds this format's own text and P1
+    // never ran.
     const written = (job.steps.find((s) => s.id === "copy")?.output as { text?: string } | undefined)
       ?.text;
-    const caption = (written ?? config.narration ?? "").trim();
+    const typed = config[textConfigField ?? "narration"] as string | undefined;
+    const caption = (written ?? typed ?? "").trim();
 
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const res = await fetch(`${base}/render/video-animation`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: renderServiceHeaders(),
       body: JSON.stringify({
         shots: [
           {

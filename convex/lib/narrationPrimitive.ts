@@ -22,7 +22,11 @@ generated separately -- the viewer sees a scene, not a person talking to camera.
   keep watching in the first two seconds.
 - Plain, concrete words. Length should read aloud in roughly the target
   duration at a natural narration pace (~2.3 words/second, slightly slower
-  than conversational speech).`;
+  than conversational speech).
+- Avoid stock ad-voiceover filler: "in today's world", "imagine a world
+  where", "picture this", "let's dive in", "game-changer", "at the end of
+  the day". If a line could open any video about anything, it's not
+  specific enough to this one.`;
 
 const NARRATION_TOOL = {
   name: "save_narration",

@@ -5,6 +5,8 @@ import type { QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireClient } from "./clients";
 import { submitWithContentPolicyFallback } from "./lib/fal";
+import { referencePortraitPrompt, REFERENCE_PORTRAIT_FALLBACK } from "./lib/facePrompt";
+import { enforceRateLimit } from "./lib/rateLimit";
 
 /**
  * P10, the avatar roster.
@@ -89,10 +91,6 @@ export const insertRow = internalMutation({
   handler: async (ctx, args): Promise<Id<"avatars">> => ctx.db.insert("avatars", args),
 });
 
-const PORTRAIT_SYSTEM_FALLBACK =
-  "Photorealistic portrait, neutral studio background, soft even front lighting, " +
-  "direct eye contact with the camera, shoulders-up framing, calm neutral expression, no text.";
-
 /**
  * Generates a fresh synthetic persona from a description rather than a real
  * photo -- an "AI influencer" is meant to be synthetic, and using someone's
@@ -113,6 +111,7 @@ export const generate = action({
       authUserId: identity.subject,
     });
     if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    await enforceRateLimit(ctx, "generateFaceImage", client._id);
 
     return ctx.runAction(internal.avatars.generateForClient, {
       clientId: client._id,
@@ -143,10 +142,8 @@ export const generateForClient = internalAction({
     const result = (await submitWithContentPolicyFallback(
       "fal-ai/nano-banana-2",
       buildInput,
-      `Portrait reference image for a talking-head avatar. ${lookNotes}. ` +
-        "Shoulders-up framing, facing the camera directly, neutral studio " +
-        "background, soft even lighting, calm expression, photorealistic, no text.",
-      () => PORTRAIT_SYSTEM_FALLBACK,
+      referencePortraitPrompt(lookNotes),
+      () => REFERENCE_PORTRAIT_FALLBACK,
     )) as { images?: { url?: string }[] };
     const url = result.images?.[0]?.url;
     if (!url) throw new Error("no portrait image returned");
