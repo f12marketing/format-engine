@@ -108,6 +108,10 @@ export type Field = ChoiceField | SecondsField | CountField | TextField | Simple
  * Declarative conditions also mean the Convex workflow can evaluate a
  * pipeline without importing the registry, and a job's frozen config snapshot
  * stays explainable six weeks later.
+ *
+ * "empty" means unset, blank, or a toggle switched off -- so a step declared
+ * `{ field: "captionOverlay", is: "present" }` runs only while that toggle is
+ * on. Zero is a value, not an absence.
  */
 export type StepCondition =
   | { field: string; is: "empty" | "present" }
@@ -159,6 +163,6 @@ export function stepApplies(step: Step, config: Record<string, unknown>): boolea
   const value = config[c.field];
   if ("equals" in c) return value === c.equals;
   if ("notEquals" in c) return value !== c.notEquals;
-  const empty = value === undefined || value === null || value === "";
+  const empty = value === undefined || value === null || value === "" || value === false;
   return c.is === "empty" ? empty : !empty;
 }
