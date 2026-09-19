@@ -14,6 +14,11 @@ import { renderServiceBase, renderServiceHeaders } from "./renderService";
  * as Speaking Hook & Demo reusing `/render/video-hook-demo` for its own
  * "stitch" step, or the avatar formats reusing `/render/custom` for "caption".
  *
+ * Runs even when the job has no "captions" step (Caption overlay switched
+ * off, so `stepApplies` left it out of the plan): this is still the call that
+ * lays the narration over the clip and writes the finished asset. It just
+ * burns no caption, and records nothing against a step the job doesn't have.
+ *
  * FLAG: Cutting Fruit's own "Audio" field (music bed / kitchen sound /
  * silent) isn't mixed in here -- this only carries the narration track. That
  * ambiguity was already flagged as unresolved in the format's own config;
@@ -51,7 +56,8 @@ export const renderNarratedClip = internalAction({
     const written = (job.steps.find((s) => s.id === "copy")?.output as { text?: string } | undefined)
       ?.text;
     const typed = config[textConfigField ?? "narration"] as string | undefined;
-    const caption = (written ?? typed ?? "").trim();
+    const captioned = job.steps.some((s) => s.id === "captions");
+    const caption = captioned ? (written ?? typed ?? "").trim() : "";
 
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const res = await fetch(`${base}/render/video-animation`, {
@@ -91,22 +97,24 @@ export const renderNarratedClip = internalAction({
       height: out.height,
     });
 
-    await ctx.runMutation(internal.ledger.record, {
-      clientId,
-      jobId,
-      stepId: "captions",
-      primitive: "P8",
-      model: "ffmpeg",
-      units: 1,
-      unitLabel: "renders",
-      costUsd: 0,
-    });
-    await ctx.runMutation(internal.jobs.patchStep, {
-      jobId,
-      stepId: "captions",
-      state: "done",
-      output: { files: [{ name: "output.mp4" }] },
-    });
+    if (captioned) {
+      await ctx.runMutation(internal.ledger.record, {
+        clientId,
+        jobId,
+        stepId: "captions",
+        primitive: "P8",
+        model: "ffmpeg",
+        units: 1,
+        unitLabel: "renders",
+        costUsd: 0,
+      });
+      await ctx.runMutation(internal.jobs.patchStep, {
+        jobId,
+        stepId: "captions",
+        state: "done",
+        output: { files: [{ name: "output.mp4" }] },
+      });
+    }
     await ctx.runMutation(internal.jobs.setOutputs, { jobId, assetIds: [assetId] });
     return null;
   },

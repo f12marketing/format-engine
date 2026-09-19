@@ -61,7 +61,13 @@ export const animateAvatar = internalAction({
   },
 });
 
-/** P8. Custom's own renderer, pointed at the avatar clip instead of an upload. */
+/**
+ * P8. Custom's own renderer, pointed at the avatar clip instead of an upload.
+ *
+ * Runs even when Caption overlay is off and the job has no "captions" step:
+ * the avatar clip is still a fal URL at that point, and this is what frames
+ * it to 9:16 and stores it as the job's output. It just burns no text.
+ */
 export const caption = internalAction({
   args: { jobId: v.id("jobs"), clientId: v.id("clients") },
   handler: async (ctx, { jobId, clientId }): Promise<null> => {
@@ -84,7 +90,8 @@ export const caption = internalAction({
 
     const written = (job.steps.find((s) => s.id === "copy")?.output as { text?: string } | undefined)
       ?.text;
-    const text = (written ?? config.script ?? "").trim();
+    const captioned = job.steps.some((s) => s.id === "captions");
+    const text = captioned ? (written ?? config.script ?? "").trim() : "";
 
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const res = await fetch(`${base}/render/custom`, {
@@ -122,22 +129,24 @@ export const caption = internalAction({
       height: out.height,
     });
 
-    await ctx.runMutation(internal.ledger.record, {
-      clientId,
-      jobId,
-      stepId: "captions",
-      primitive: "P8",
-      model: "ffmpeg",
-      units: 1,
-      unitLabel: "renders",
-      costUsd: 0,
-    });
-    await ctx.runMutation(internal.jobs.patchStep, {
-      jobId,
-      stepId: "captions",
-      state: "done",
-      output: { files: [{ name: "output.mp4" }] },
-    });
+    if (captioned) {
+      await ctx.runMutation(internal.ledger.record, {
+        clientId,
+        jobId,
+        stepId: "captions",
+        primitive: "P8",
+        model: "ffmpeg",
+        units: 1,
+        unitLabel: "renders",
+        costUsd: 0,
+      });
+      await ctx.runMutation(internal.jobs.patchStep, {
+        jobId,
+        stepId: "captions",
+        state: "done",
+        output: { files: [{ name: "output.mp4" }] },
+      });
+    }
     await ctx.runMutation(internal.jobs.setOutputs, { jobId, assetIds: [assetId] });
     return null;
   },
