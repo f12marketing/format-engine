@@ -391,6 +391,19 @@ export default defineSchema({
     addedAt: v.number(),
   }).index("by_added_at", ["addedAt"]),
 
+  /**
+   * App-wide reference images generated once and reused by every client --
+   * Skeleton's default character, so far. Keyed rather than listed: a new
+   * version of an image gets a new key, and old jobs' outputs are unaffected
+   * because they stored their own copies.
+   */
+  houseImages: defineTable({
+    key: v.string(),
+    storageId: v.id("_storage"),
+    mimeType: v.string(),
+    addedAt: v.number(),
+  }).index("by_key", ["key"]),
+
   clips: defineTable({
     source: v.string(), // "tiktok" | "instagram" | ...
     sourceUrl: v.string(),

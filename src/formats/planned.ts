@@ -470,10 +470,11 @@ export const cuttingFruit = defineFormat({
 });
 
 /**
- * Claymation and Skeleton have byte-identical config lists in the spec --
- * same six fields, same four style options, same five caption styles. They
- * differ by one art-direction constant, which is exactly the bet the registry
- * was built on. Keep them that way.
+ * Claymation and Skeleton had byte-identical config lists in the spec --
+ * same six fields, same four style options, same five caption styles -- and
+ * shared this config until Skeleton was rebuilt around the client's own
+ * reference clips (see `skeleton` below). Claymation, Lego, Felt and Talking
+ * Objects still differ by one art-direction constant.
  */
 const clayLikeConfig = {
   productImage: { ...field.image({ label: "Product image" }) },
@@ -519,17 +520,54 @@ export const claymation = defineFormat({
   pipeline: clayLikePipeline("CLAY_STYLE"),
 });
 
+/**
+ * A photoreal skeleton is the main character and acts the topic out, one
+ * short cinematic shot per line of narration -- rebuilt on 19 Sept 2026 to
+ * match the client's reference clips (see convex/skeleton.ts). The product
+ * became an optional prop rather than the focal point, and the character is
+ * pickable: left empty, it's a default skeleton with no branding.
+ */
 export const skeleton = defineFormat({
   id: "skeleton",
   name: "Skeleton",
-  blurb: "Educational skeleton video with narration and captions",
+  blurb: "A skeleton acts out your topic in cinematic shots, with narration and captions",
   icon: "💀",
   group: "generated",
   preview: "video",
   status: "ready",
   phase: 5,
-  config: clayLikeConfig,
-  pipeline: clayLikePipeline("SKELETON_STYLE"),
+  config: {
+    character: field.avatar({
+      label: "Character",
+      optional: true,
+      help: "Optional. Leave empty for the default skeleton.",
+    }),
+    productImage: field.image({
+      label: "Product image",
+      optional: true,
+      help: "Optional. The skeleton uses it as a prop where it fits.",
+    }),
+    duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
+    language: field.language(),
+    style: clayLikeConfig.style,
+    captionOverlay: field.captionOverlay(),
+    captionStyle: field.captionStyle(),
+    narration: field.longText({ label: "Narration", optional: true, generatedBy: "P1" }),
+    prompt: field.prompt(),
+  },
+  // Always plans: even hand-written narration needs splitting into shots.
+  pipeline: [
+    { id: "copy", primitive: "P1", label: "Write the script and plan the shots" },
+    { id: "scene", primitive: "P2", label: "Stage each shot" },
+    { id: "clip", primitive: "P3", label: "Animate each shot" },
+    { id: "speech", primitive: "P4", label: "Record the narration" },
+    {
+      id: "captions",
+      primitive: "P8",
+      label: "Burn in captions",
+      when: { field: "captionOverlay", is: "present" },
+    },
+  ],
 });
 
 // ---------------------------------------------------------------- Phase 6

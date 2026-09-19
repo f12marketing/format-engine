@@ -143,6 +143,12 @@ function costForStep(
     }
 
     case "P2": {
+      // Skeleton stages one frame per ~5s shot with an image edit, the same
+      // count convex/skeleton.ts's shotLengths() splits the duration into.
+      if (ctx.format.id === "skeleton") {
+        const total = Math.max(1, Math.round(ctx.duration));
+        return Math.max(1, Math.round(total / 5)) * RATES.compositePerUnit;
+      }
       const units = ctx.format.preview === "deck" ? 0 : ctx.imageCount;
       return units * RATES.imagePerUnit;
     }
