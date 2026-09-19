@@ -401,7 +401,12 @@ export const productSpokesperson = defineFormat({
     { id: "copy", primitive: "P1", label: "Write the script", when: { field: "script", is: "empty" } },
     { id: "speech", primitive: "P4", label: "Generate the voice" },
     { id: "avatar", primitive: "P5", label: "Animate the spokesperson" },
-    { id: "captions", primitive: "P8", label: "Burn in captions" },
+    {
+      id: "captions",
+      primitive: "P8",
+      label: "Burn in captions",
+      when: { field: "captionOverlay", is: "present" },
+    },
   ],
 });
 

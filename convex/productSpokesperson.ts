@@ -156,7 +156,10 @@ export const animateAvatar = internalAction({
   },
 });
 
-/** P8. Custom's own renderer, pointed at the avatar clip. */
+/**
+ * P8. Custom's own renderer, pointed at the avatar clip. Still runs, with no
+ * text, when Caption overlay is off -- same reasoning as Talking Head UGC's.
+ */
 export const caption = internalAction({
   args: { jobId: v.id("jobs"), clientId: v.id("clients") },
   handler: async (ctx, { jobId, clientId }): Promise<null> => {
@@ -179,7 +182,8 @@ export const caption = internalAction({
 
     const written = (job.steps.find((s) => s.id === "copy")?.output as { text?: string } | undefined)
       ?.text;
-    const text = (written ?? config.script ?? "").trim();
+    const captioned = job.steps.some((s) => s.id === "captions");
+    const text = captioned ? (written ?? config.script ?? "").trim() : "";
 
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const res = await fetch(`${base}/render/custom`, {
@@ -217,22 +221,24 @@ export const caption = internalAction({
       height: out.height,
     });
 
-    await ctx.runMutation(internal.ledger.record, {
-      clientId,
-      jobId,
-      stepId: "captions",
-      primitive: "P8",
-      model: "ffmpeg",
-      units: 1,
-      unitLabel: "renders",
-      costUsd: 0,
-    });
-    await ctx.runMutation(internal.jobs.patchStep, {
-      jobId,
-      stepId: "captions",
-      state: "done",
-      output: { files: [{ name: "output.mp4" }] },
-    });
+    if (captioned) {
+      await ctx.runMutation(internal.ledger.record, {
+        clientId,
+        jobId,
+        stepId: "captions",
+        primitive: "P8",
+        model: "ffmpeg",
+        units: 1,
+        unitLabel: "renders",
+        costUsd: 0,
+      });
+      await ctx.runMutation(internal.jobs.patchStep, {
+        jobId,
+        stepId: "captions",
+        state: "done",
+        output: { files: [{ name: "output.mp4" }] },
+      });
+    }
     await ctx.runMutation(internal.jobs.setOutputs, { jobId, assetIds: [assetId] });
     return null;
   },
