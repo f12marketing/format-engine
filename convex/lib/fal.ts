@@ -453,7 +453,15 @@ export async function pollQueued(
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, pollMs));
 
-    const statusRes = await fetch(handle.statusUrl, { headers: authHeaders() });
+    // A dropped connection or DNS blip is as transient as a 5xx: throwing
+    // here fails the step, and its retry re-submits -- paying fal twice for
+    // a generation that is still running fine.
+    let statusRes: Response;
+    try {
+      statusRes = await fetch(handle.statusUrl, { headers: authHeaders() });
+    } catch {
+      continue;
+    }
     if (!statusRes.ok) continue; // transient; keep polling until the deadline
 
     const { status } = (await statusRes.json()) as { status: string };
