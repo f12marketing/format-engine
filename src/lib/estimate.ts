@@ -36,6 +36,18 @@ export const RATES = {
   swapPerSec: 0.04,
   /** fal-ai/elevenlabs/voice-changer, $0.30/minute -- Character Swap's voice conversion, not TTS. */
   voiceChangePerSec: 0.005,
+  /** openai/gpt-5.6-luna via the fal OpenRouter passthrough -- Drama's writer. */
+  dramaLlmInputPer1M: 0.2,
+  dramaLlmOutputPer1M: 1.2,
+  /** fal-ai/index-tts-2/text-to-speech, per second of speech. */
+  indexTtsPerSec: 0.002,
+  /** bytedance/seedance-2.0/{fast/,}reference-to-video, per video-second. */
+  seedancePerSec: {
+    fast: { "720p": 0.2419, "480p": 0.1125 },
+    standard: { "720p": 0.3034, "480p": 0.1406 },
+  },
+  /** fal-ai/elevenlabs/music, per started minute. */
+  musicPerMinute: 0.6,
 } as const;
 
 export interface EstimateLine {
@@ -86,14 +98,17 @@ export function estimateCost(
     // no P1 call, and the estimate should say so before the run, not after.
     if (!stepApplies(step, values)) continue;
 
-    const cost = costForStep(step.primitive, {
-      duration,
-      slideCount,
-      imageCount,
-      inputWords,
-      resolution,
-      format,
-    });
+    const cost =
+      format.id === "drama"
+        ? dramaStepCost(step.id, values)
+        : costForStep(step.primitive, {
+            duration,
+            slideCount,
+            imageCount,
+            inputWords,
+            resolution,
+            format,
+          });
     if (cost !== null) lines.push({ label: step.label, costUsd: cost });
   }
 
@@ -160,5 +175,49 @@ function costForStep(
 
     default:
       return null;
+  }
+}
+
+/**
+ * Drama is priced by step id rather than by primitive: its two P2 steps draw
+ * very different numbers of images (a handful of cast sheets, then a frame
+ * per beat), and its P3 is Seedance rather than vidu. Rates mirror
+ * convex/drama.ts; the cast and speech shares are typical-episode guesses,
+ * since the real cast isn't known until the script is written.
+ */
+const DRAMA_TYPICAL_CAST = 3;
+const DRAMA_TYPICAL_SETS = 2;
+/** Roughly how much of an episode's running time is someone talking. */
+const DRAMA_SPOKEN_SHARE = 0.7;
+
+function dramaStepCost(stepId: string, values: Record<string, unknown>): number {
+  const seconds = num(values.durationSec, 45);
+  const beats = Math.min(15, Math.max(5, Math.round(seconds / 6)));
+  const llm = (inputTokens: number, outputTokens: number) =>
+    (inputTokens / 1e6) * RATES.dramaLlmInputPer1M +
+    (outputTokens / 1e6) * RATES.dramaLlmOutputPer1M;
+
+  switch (stepId) {
+    case "script":
+      return llm(2500 + words(values.premise) * TOKENS_PER_WORD, beats * 180 + 900);
+    case "cast":
+      return (
+        (DRAMA_TYPICAL_CAST + DRAMA_TYPICAL_SETS) * RATES.imagePerUnit +
+        ((DRAMA_TYPICAL_CAST * 70) / 1000) * RATES.ttsPer1000Chars
+      );
+    case "storyboard":
+      return beats * RATES.imagePerUnit + llm(beats * 250 + 1200, beats * 220);
+    case "voices":
+      return seconds * DRAMA_SPOKEN_SHARE * RATES.indexTtsPerSec;
+    case "scenes": {
+      const tier = values.videoModel === "Seedance 2.0" ? "standard" : "fast";
+      const res = values.resolution === "480p" ? "480p" : "720p";
+      return seconds * RATES.seedancePerSec[tier][res];
+    }
+    case "music":
+      return Math.ceil(seconds / 60) * RATES.musicPerMinute;
+    // The cut is ffmpeg on the render service -- free at the margin.
+    default:
+      return 0;
   }
 }

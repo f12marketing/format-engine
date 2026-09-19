@@ -22,6 +22,7 @@ import type * as crons from "../crons.js";
 import type * as custom from "../custom.js";
 import type * as cuttingFruit from "../cuttingFruit.js";
 import type * as dev from "../dev.js";
+import type * as drama from "../drama.js";
 import type * as felt from "../felt.js";
 import type * as galleryFaces from "../galleryFaces.js";
 import type * as greenScreenMeme from "../greenScreenMeme.js";
@@ -90,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   custom: typeof custom;
   cuttingFruit: typeof cuttingFruit;
   dev: typeof dev;
+  drama: typeof drama;
   felt: typeof felt;
   galleryFaces: typeof galleryFaces;
   greenScreenMeme: typeof greenScreenMeme;

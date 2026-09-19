@@ -111,7 +111,8 @@ export type Field = ChoiceField | SecondsField | CountField | TextField | Simple
  */
 export type StepCondition =
   | { field: string; is: "empty" | "present" }
-  | { field: string; equals: string };
+  | { field: string; equals: string }
+  | { field: string; notEquals: string };
 
 export interface Step {
   /** Stable id -- this is what the job's steps[] and the ledger key off. */
@@ -157,6 +158,7 @@ export function stepApplies(step: Step, config: Record<string, unknown>): boolea
   if (!c) return true;
   const value = config[c.field];
   if ("equals" in c) return value === c.equals;
+  if ("notEquals" in c) return value !== c.notEquals;
   const empty = value === undefined || value === null || value === "";
   return c.is === "empty" ? empty : !empty;
 }

@@ -60,17 +60,24 @@ export interface ToolCallResult {
   outputTokens: number;
 }
 
-/** One forced-tool-call LLM request. Used by every P1 step. */
+/**
+ * One forced-tool-call LLM request. Used by every P1 step.
+ *
+ * `model` exists for Drama, which runs on the model DramaClaw itself is
+ * tuned for rather than the app-wide default -- fal's OpenRouter passthrough
+ * serves any OpenRouter model id through the same endpoint and key.
+ */
 export async function callTool(
   system: string,
   userPrompt: string,
   tool: ToolSpec,
+  opts: { model?: string } = {},
 ): Promise<ToolCallResult> {
   const res = await fetch(`${LLM_BASE}/chat/completions`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({
-      model: LLM_MODEL,
+      model: opts.model ?? LLM_MODEL,
       messages: [
         { role: "system", content: system },
         { role: "user", content: userPrompt },
@@ -229,6 +236,35 @@ export async function submitAndPoll(
   const timeoutMs = opts.timeoutMs ?? 8 * 60_000;
   const pollMs = opts.pollMs ?? 3_000;
 
+  const handle = await submitQueued(model, input);
+  const polled = await pollQueued(model, handle, { budgetMs: timeoutMs, pollMs });
+  if (polled.state === "done") return polled.result;
+  if (polled.state === "policy") {
+    throw new FalContentPolicyError(`content checker rejected the request to ${model}`);
+  }
+  throw new Error(`fal job for ${model} did not finish within ${timeoutMs}ms`);
+}
+
+/** Where a submitted queue request can be checked on and collected from. */
+export interface QueuedRequest {
+  requestId: string;
+  statusUrl: string;
+  responseUrl: string;
+}
+
+export type QueuedPoll =
+  | { state: "done"; result: unknown }
+  | { state: "pending" }
+  | { state: "policy" };
+
+/**
+ * The submit half of `submitAndPoll`, on its own. For a generation that can
+ * outlive one action -- a 15-second Seedance clip queued behind others --
+ * the caller keeps this handle in a workflow step and polls from later
+ * steps, so running out of time means "poll again" rather than "submit
+ * again and pay twice".
+ */
+export async function submitQueued(model: string, input: unknown): Promise<QueuedRequest> {
   const submit = await fetch(`${QUEUE_BASE}/${model}`, {
     method: "POST",
     headers: authHeaders(),
@@ -237,55 +273,77 @@ export async function submitAndPoll(
   if (!submit.ok) {
     throw new Error(`fal submit failed: ${submit.status} ${await submit.text()}`);
   }
-
-  const { status_url, response_url } = (await submit.json()) as {
+  const { request_id, status_url, response_url } = (await submit.json()) as {
+    request_id: string;
     status_url: string;
     response_url: string;
   };
+  return { requestId: request_id, statusUrl: status_url, responseUrl: response_url };
+}
 
-  const deadline = Date.now() + timeoutMs;
+/**
+ * Poll a queued request for up to `budgetMs`. Never throws on a request
+ * that is merely slow -- that comes back as "pending" for the caller to
+ * poll again later -- and reports a content-checker rejection as "policy"
+ * so a fallback ladder can react to it without catching exceptions.
+ */
+export async function pollQueued(
+  model: string,
+  handle: Pick<QueuedRequest, "statusUrl" | "responseUrl">,
+  opts: { budgetMs: number; pollMs?: number },
+): Promise<QueuedPoll> {
+  const pollMs = opts.pollMs ?? 3_000;
+  const deadline = Date.now() + opts.budgetMs;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, pollMs));
 
-    const statusRes = await fetch(status_url, { headers: authHeaders() });
+    const statusRes = await fetch(handle.statusUrl, { headers: authHeaders() });
     if (!statusRes.ok) continue; // transient; keep polling until the deadline
 
     const { status } = (await statusRes.json()) as { status: string };
     if (status === "COMPLETED") {
-      let lastStatus = 0;
-      let lastText = "";
-      // fal can also report COMPLETED slightly before the result is actually
-      // fetchable at response_url -- observed directly as a transient 422
-      // that then succeeded seconds later when reproduced by hand with the
-      // identical payload. A short retry closes that window instead of
-      // failing (and re-billing every other item in the same Promise.all)
-      // over what is fal's own propagation delay -- but only when the body
-      // isn't a content-policy rejection, which is deterministic and won't
-      // change on retry.
-      for (let attempt = 0; attempt < 4; attempt += 1) {
-        if (attempt > 0) await new Promise((r) => setTimeout(r, 1500));
-        const out = await fetch(response_url, { headers: authHeaders() });
-        lastText = await out.text();
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(lastText);
-        } catch {
-          parsed = null;
-        }
-        if (isContentPolicyBody(parsed ?? lastText)) {
-          throw new FalContentPolicyError(`content checker rejected the request to ${model}`);
-        }
-        if (out.ok) return parsed;
-        lastStatus = out.status;
+      try {
+        return { state: "done", result: await fetchCompletedResult(model, handle.responseUrl) };
+      } catch (e) {
+        if (e instanceof FalContentPolicyError) return { state: "policy" };
+        throw e;
       }
-      throw new Error(`fal result fetch failed: ${lastStatus} ${lastText}`);
     }
     if (status === "FAILED") {
       throw new Error(`fal job failed for ${model}`);
     }
   }
+  return { state: "pending" };
+}
 
-  throw new Error(`fal job for ${model} did not finish within ${timeoutMs}ms`);
+async function fetchCompletedResult(model: string, responseUrl: string): Promise<unknown> {
+  let lastStatus = 0;
+  let lastText = "";
+  // fal can also report COMPLETED slightly before the result is actually
+  // fetchable at response_url -- observed directly as a transient 422
+  // that then succeeded seconds later when reproduced by hand with the
+  // identical payload. A short retry closes that window instead of
+  // failing (and re-billing every other item in the same Promise.all)
+  // over what is fal's own propagation delay -- but only when the body
+  // isn't a content-policy rejection, which is deterministic and won't
+  // change on retry.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 1500));
+    const out = await fetch(responseUrl, { headers: authHeaders() });
+    lastText = await out.text();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(lastText);
+    } catch {
+      parsed = null;
+    }
+    if (isContentPolicyBody(parsed ?? lastText)) {
+      throw new FalContentPolicyError(`content checker rejected the request to ${model}`);
+    }
+    if (out.ok) return parsed;
+    lastStatus = out.status;
+  }
+  throw new Error(`fal result fetch failed: ${lastStatus} ${lastText}`);
 }
 
 /**
@@ -337,7 +395,10 @@ function isContentPolicyBody(body: unknown): boolean {
  * version of this used a bare chat completion with temperature 0.2, and there
  * is no structured shape to enforce for a single string of prose.
  */
-export async function rewritePromptNeutrally(originalPrompt: string): Promise<string> {
+export async function rewritePromptNeutrally(
+  originalPrompt: string,
+  opts: { model?: string } = {},
+): Promise<string> {
   const system = `You rewrite image-generation prompts that an automated content filter rejected. The scenes are from animated storytelling and are not intended to be graphic. Rewrite the prompt so it describes the SAME scene, composition, characters and mood using calm, non-graphic visual language.
 Rules:
 - Keep every @imageN reference tag exactly as written, in the same order.
@@ -352,7 +413,7 @@ Reply with ONLY the rewritten prompt text, no preamble or quotes.`;
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({
-      model: LLM_MODEL,
+      model: opts.model ?? LLM_MODEL,
       messages: [
         { role: "system", content: system },
         { role: "user", content: originalPrompt },

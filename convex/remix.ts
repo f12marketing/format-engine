@@ -23,15 +23,15 @@ import { STARTERS, type RunnableFormatId } from "./starters";
  * there is nothing for it to regenerate, so the frontend should disable
  * rather than price it at zero.
  *
- * Video Animation is excluded below, not silently handled: its three gates
- * mean a regenerated story can produce a different shot COUNT, and reusing
- * old scene/clip/voice output built for the old shots would be wrong, not
- * just wasteful. Making that correct needs per-shot diffing this session
+ * Video Animation and Drama are excluded below, not silently handled: their
+ * three gates mean a regenerated story can produce a different shot COUNT,
+ * and reusing old scene/clip/voice output built for the old shots would be
+ * wrong, not just wasteful. Making that correct needs per-shot diffing this session
  * doesn't have time for -- a known gap, not an oversight.
  */
 const COPY_PRIMITIVES = new Set(["P1"]);
 const ALWAYS_RERUN_PRIMITIVES = new Set(["P7", "P8"]);
-const GATED_FORMATS = new Set(["video-animation", "product-spokesperson"]);
+const GATED_FORMATS = new Set(["video-animation", "drama", "product-spokesperson"]);
 
 export const remix = mutation({
   args: {
