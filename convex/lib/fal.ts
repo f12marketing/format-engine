@@ -16,11 +16,17 @@
  *    this exact endpoint with no status_url/response_url at all.
  *
  * Auth is fal's own scheme -- `Authorization: Key <token>`, not Bearer.
+ *
+ * Every request that carries file URLs passes its input through
+ * `falReachable` first, which copies anything on a private host to fal's
+ * own storage -- see that function for why.
  */
 
 const LLM_BASE = "https://fal.run/openrouter/router/openai/v1";
 const QUEUE_BASE = "https://queue.fal.run";
 const SYNC_BASE = "https://fal.run";
+const STORAGE_INITIATE =
+  "https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3";
 
 /**
  * Sonnet 5 rather than 4.5: strictly better on both axes, verified against
@@ -44,6 +50,153 @@ function key(): string {
 
 function authHeaders(): Record<string, string> {
   return { Authorization: `Key ${key()}`, "Content-Type": "application/json" };
+}
+
+/**
+ * fal fetches every file URL it is given from its own servers, so a URL on a
+ * loopback or private-network host can never work -- which is every file a
+ * local `npx convex dev` backend serves (`http://127.0.0.1:3210/api/storage/
+ * ...`), and was why uploaded images, avatar portraits and stored scenes all
+ * failed with fal's "Failed to download the file" 422 in local runs.
+ *
+ * Such URLs are copied to fal's CDN first and swapped for the copy. A
+ * deployed backend's URLs are public, so in production this finds nothing
+ * and every request goes out byte-for-byte as before -- no file is ever
+ * downloaded and re-uploaded inside an action there.
+ */
+export async function falReachable<T>(input: T): Promise<T> {
+  const found = new Set<string>();
+  collectPrivateUrls(input, found);
+  if (found.size === 0) return input;
+
+  const copies = new Map<string, string>();
+  await Promise.all(
+    [...found].map(async (url) => copies.set(url, await copyToFalStorage(url))),
+  );
+  return swapUrls(input, copies) as T;
+}
+
+/** Copies are only needed for the request that uses them. */
+const COPY_TTL_SECONDS = 24 * 60 * 60;
+
+/**
+ * Remembers copies within one action's lifetime, so a content-policy retry
+ * (up to three submissions of the same input) uploads each file once.
+ * Entries are dropped well before fal expires the copy.
+ */
+const recentCopies = new Map<string, { url: string; at: number }>();
+const REUSE_COPY_MS = 60 * 60 * 1000;
+
+async function copyToFalStorage(url: string): Promise<string> {
+  const cached = recentCopies.get(url);
+  if (cached && Date.now() - cached.at < REUSE_COPY_MS) return cached.url;
+
+  const source = await fetch(url);
+  if (!source.ok) {
+    throw new Error(`could not read ${url} to copy it to fal storage: ${source.status}`);
+  }
+  const contentType = source.headers.get("content-type") ?? "application/octet-stream";
+  const bytes = await source.arrayBuffer();
+
+  const initiate = await fetch(STORAGE_INITIATE, {
+    method: "POST",
+    headers: {
+      ...authHeaders(),
+      "X-Fal-Object-Lifecycle": JSON.stringify({ expiration_duration_seconds: COPY_TTL_SECONDS }),
+    },
+    body: JSON.stringify({ content_type: contentType, file_name: fileNameFor(url, contentType) }),
+  });
+  if (!initiate.ok) {
+    throw new Error(`fal storage upload failed: ${initiate.status} ${await initiate.text()}`);
+  }
+  const { upload_url, file_url } = (await initiate.json()) as {
+    upload_url: string;
+    file_url: string;
+  };
+
+  const put = await fetch(upload_url, {
+    method: "PUT",
+    headers: { "Content-Type": contentType },
+    body: bytes,
+  });
+  if (!put.ok) {
+    throw new Error(`fal storage upload failed: ${put.status} ${await put.text()}`);
+  }
+
+  recentCopies.set(url, { url: file_url, at: Date.now() });
+  return file_url;
+}
+
+/**
+ * Convex storage URLs have no extension, and some fal models infer a file's
+ * format from its name, so the copy gets one from the content type.
+ */
+const EXTENSIONS: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "video/mp4": "mp4",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/mp4": "m4a",
+  "application/zip": "zip",
+};
+
+function fileNameFor(url: string, contentType: string): string {
+  const base = new URL(url).pathname.split("/").filter(Boolean).pop() ?? "file";
+  const ext = EXTENSIONS[contentType.split(";")[0].trim().toLowerCase()];
+  return ext && !base.includes(".") ? `${base}.${ext}` : base;
+}
+
+function collectPrivateUrls(value: unknown, into: Set<string>): void {
+  if (typeof value === "string") {
+    if (isPrivateUrl(value)) into.add(value);
+  } else if (Array.isArray(value)) {
+    for (const v of value) collectPrivateUrls(v, into);
+  } else if (value && typeof value === "object") {
+    for (const v of Object.values(value)) collectPrivateUrls(v, into);
+  }
+}
+
+function swapUrls(value: unknown, copies: Map<string, string>): unknown {
+  if (typeof value === "string") return copies.get(value) ?? value;
+  if (Array.isArray(value)) return value.map((v) => swapUrls(v, copies));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, swapUrls(v, copies)]));
+  }
+  return value;
+}
+
+function isPrivateUrl(value: string): boolean {
+  if (!/^https?:\/\//i.test(value)) return false;
+  let host: string;
+  try {
+    host = new URL(value).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    return false;
+  }
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
+  if (host.includes(":")) {
+    // IPv6: loopback, unique-local (fc00::/7), link-local (fe80::/10).
+    return host === "::1" || /^f[cd]/.test(host) || host.startsWith("fe80:");
+  }
+  const octets = host.split(".").map(Number);
+  if (octets.length !== 4 || octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255)) {
+    return false;
+  }
+  const [a, b] = octets;
+  return (
+    a === 127 ||
+    a === 10 ||
+    a === 0 ||
+    (a === 192 && b === 168) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 169 && b === 254)
+  );
 }
 
 export interface ToolSpec {
@@ -147,7 +300,10 @@ export async function callVisionTool(
           role: "user",
           content: [
             { type: "text", text: userPrompt },
-            ...imageUrls.map((url) => ({ type: "image_url", image_url: { url } })),
+            ...(await falReachable(imageUrls)).map((url) => ({
+              type: "image_url",
+              image_url: { url },
+            })),
           ],
         },
       ],
@@ -211,7 +367,7 @@ export async function submitWithWebhook(
   const submit = await fetch(url, {
     method: "POST",
     headers: authHeaders(),
-    body: JSON.stringify(input),
+    body: JSON.stringify(await falReachable(input)),
   });
   if (!submit.ok) {
     throw new Error(`fal submit failed: ${submit.status} ${await submit.text()}`);
@@ -268,7 +424,7 @@ export async function submitQueued(model: string, input: unknown): Promise<Queue
   const submit = await fetch(`${QUEUE_BASE}/${model}`, {
     method: "POST",
     headers: authHeaders(),
-    body: JSON.stringify(input),
+    body: JSON.stringify(await falReachable(input)),
   });
   if (!submit.ok) {
     throw new Error(`fal submit failed: ${submit.status} ${await submit.text()}`);
@@ -474,7 +630,7 @@ export async function callSync(model: string, input: unknown): Promise<unknown> 
   const res = await fetch(`${SYNC_BASE}/${model}`, {
     method: "POST",
     headers: authHeaders(),
-    body: JSON.stringify(input),
+    body: JSON.stringify(await falReachable(input)),
   });
   if (!res.ok) {
     throw new Error(`fal sync call failed for ${model}: ${res.status} ${await res.text()}`);
