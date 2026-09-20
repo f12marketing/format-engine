@@ -52,6 +52,69 @@ function authHeaders(): Record<string, string> {
   return { Authorization: `Key ${key()}`, "Content-Type": "application/json" };
 }
 
+/** Attempts per request, first try included. */
+const NETWORK_ATTEMPTS = 4;
+/** Doubles each retry (1s, 2s, 4s), with jitter. */
+const NETWORK_BACKOFF_MS = 1_000;
+
+/**
+ * Whether a thrown fetch error happened while *establishing* the connection
+ * -- a connect timeout, refused connection or DNS failure -- which means the
+ * request never reached fal and resending it cannot run it twice. The
+ * runtime's wording varies (`client error (Connect)` in Convex's own runtime,
+ * an `ECONNREFUSED`-style `cause.code` in Node), so both are matched.
+ */
+function isConnectError(e: unknown): boolean {
+  const cause = (e as { cause?: { message?: string; code?: string } } | null)?.cause;
+  const text = [e instanceof Error ? e.message : String(e), cause?.message, cause?.code].join(" ");
+  return /\(Connect\)|tcp connect error|dns error|connect timeout|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ENETUNREACH/i.test(
+    text,
+  );
+}
+
+/**
+ * `fetch` for every request to fal, retrying with exponential backoff when
+ * the network drops out from under it. Only *thrown* errors are retried --
+ * an HTTP response, even a 5xx, is fal's answer and is left for the caller.
+ *
+ * What is safe to resend depends on the request. By default only connect-phase
+ * failures are retried, because a paid submit that dies after the bytes were
+ * sent may have been accepted, and resending it would bill the generation
+ * twice. `resendable` is for requests where a duplicate costs nothing (an
+ * LLM call is cents; a GET or a storage upload is free), and retries any
+ * network error.
+ *
+ * Exhausted retries throw one error that says fal was unreachable, with the
+ * original as its `cause`, instead of surfacing the runtime's bare
+ * "error sending request" as an uncaught TypeError.
+ */
+export async function falFetch(
+  url: string | URL,
+  init: RequestInit,
+  opts: { resendable?: boolean } = {},
+): Promise<Response> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await fetch(url, init);
+    } catch (e) {
+      if (!opts.resendable && !isConnectError(e)) throw e;
+      const reason = e instanceof Error ? e.message : String(e);
+      if (attempt >= NETWORK_ATTEMPTS) {
+        throw Object.assign(
+          new Error(
+            `could not reach fal (${new URL(url).host}) after ${attempt} attempts -- check this ` +
+              `machine's network, VPN or firewall: ${reason}`,
+          ),
+          { cause: e },
+        );
+      }
+      const delay = NETWORK_BACKOFF_MS * 2 ** (attempt - 1) * (0.75 + Math.random() * 0.5);
+      console.warn(`fal request to ${new URL(url).host} failed (attempt ${attempt}), retrying: ${reason}`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+}
+
 /**
  * fal fetches every file URL it is given from its own servers, so a URL on a
  * loopback or private-network host can never work -- which is every file a
@@ -98,14 +161,18 @@ async function copyToFalStorage(url: string): Promise<string> {
   const contentType = source.headers.get("content-type") ?? "application/octet-stream";
   const bytes = await source.arrayBuffer();
 
-  const initiate = await fetch(STORAGE_INITIATE, {
-    method: "POST",
-    headers: {
-      ...authHeaders(),
-      "X-Fal-Object-Lifecycle": JSON.stringify({ expiration_duration_seconds: COPY_TTL_SECONDS }),
+  const initiate = await falFetch(
+    STORAGE_INITIATE,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "X-Fal-Object-Lifecycle": JSON.stringify({ expiration_duration_seconds: COPY_TTL_SECONDS }),
+      },
+      body: JSON.stringify({ content_type: contentType, file_name: fileNameFor(url, contentType) }),
     },
-    body: JSON.stringify({ content_type: contentType, file_name: fileNameFor(url, contentType) }),
-  });
+    { resendable: true },
+  );
   if (!initiate.ok) {
     throw new Error(`fal storage upload failed: ${initiate.status} ${await initiate.text()}`);
   }
@@ -114,11 +181,15 @@ async function copyToFalStorage(url: string): Promise<string> {
     file_url: string;
   };
 
-  const put = await fetch(upload_url, {
-    method: "PUT",
-    headers: { "Content-Type": contentType },
-    body: bytes,
-  });
+  const put = await falFetch(
+    upload_url,
+    {
+      method: "PUT",
+      headers: { "Content-Type": contentType },
+      body: bytes,
+    },
+    { resendable: true },
+  );
   if (!put.ok) {
     throw new Error(`fal storage upload failed: ${put.status} ${await put.text()}`);
   }
@@ -226,28 +297,32 @@ export async function callTool(
   tool: ToolSpec,
   opts: { model?: string } = {},
 ): Promise<ToolCallResult> {
-  const res = await fetch(`${LLM_BASE}/chat/completions`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify({
-      model: opts.model ?? LLM_MODEL,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: userPrompt },
-      ],
-      tools: [
-        {
-          type: "function",
-          function: {
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.input_schema,
+  const res = await falFetch(
+    `${LLM_BASE}/chat/completions`,
+    {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        model: opts.model ?? LLM_MODEL,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: userPrompt },
+        ],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: tool.name,
+              description: tool.description,
+              parameters: tool.input_schema,
+            },
           },
-        },
-      ],
-      tool_choice: { type: "function", function: { name: tool.name } },
-    }),
-  });
+        ],
+        tool_choice: { type: "function", function: { name: tool.name } },
+      }),
+    },
+    { resendable: true },
+  );
 
   if (!res.ok) {
     throw new Error(`fal LLM call failed: ${res.status} ${await res.text()}`);
@@ -289,37 +364,41 @@ export async function callVisionTool(
   imageUrls: string[],
   tool: ToolSpec,
 ): Promise<ToolCallResult> {
-  const res = await fetch(`${LLM_BASE}/chat/completions`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify({
-      model: LLM_MODEL,
-      messages: [
-        { role: "system", content: system },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: userPrompt },
-            ...(await falReachable(imageUrls)).map((url) => ({
-              type: "image_url",
-              image_url: { url },
-            })),
-          ],
-        },
-      ],
-      tools: [
-        {
-          type: "function",
-          function: {
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.input_schema,
+  const res = await falFetch(
+    `${LLM_BASE}/chat/completions`,
+    {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        model: LLM_MODEL,
+        messages: [
+          { role: "system", content: system },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: userPrompt },
+              ...(await falReachable(imageUrls)).map((url) => ({
+                type: "image_url",
+                image_url: { url },
+              })),
+            ],
           },
-        },
-      ],
-      tool_choice: { type: "function", function: { name: tool.name } },
-    }),
-  });
+        ],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: tool.name,
+              description: tool.description,
+              parameters: tool.input_schema,
+            },
+          },
+        ],
+        tool_choice: { type: "function", function: { name: tool.name } },
+      }),
+    },
+    { resendable: true },
+  );
 
   if (!res.ok) {
     throw new Error(`fal vision LLM call failed: ${res.status} ${await res.text()}`);
@@ -364,7 +443,7 @@ export async function submitWithWebhook(
   const url = new URL(`${QUEUE_BASE}/${model}`);
   url.searchParams.set("fal_webhook", webhookUrl);
 
-  const submit = await fetch(url, {
+  const submit = await falFetch(url, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(await falReachable(input)),
@@ -421,7 +500,7 @@ export type QueuedPoll =
  * again and pay twice".
  */
 export async function submitQueued(model: string, input: unknown): Promise<QueuedRequest> {
-  const submit = await fetch(`${QUEUE_BASE}/${model}`, {
+  const submit = await falFetch(`${QUEUE_BASE}/${model}`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(await falReachable(input)),
@@ -493,7 +572,9 @@ async function fetchCompletedResult(model: string, responseUrl: string): Promise
   // change on retry.
   for (let attempt = 0; attempt < 4; attempt += 1) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 1500));
-    const out = await fetch(responseUrl, { headers: authHeaders() });
+    // A GET, so any network error is safe to resend -- and worth it: failing
+    // here after COMPLETED re-submits the whole generation.
+    const out = await falFetch(responseUrl, { headers: authHeaders() }, { resendable: true });
     lastText = await out.text();
     let parsed: unknown;
     try {
@@ -573,18 +654,22 @@ Rules:
 - Never try to disguise or smuggle prohibited content; if a scene cannot be shown acceptably, describe it symbolically instead.
 Reply with ONLY the rewritten prompt text, no preamble or quotes.`;
 
-  const res = await fetch(`${LLM_BASE}/chat/completions`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify({
-      model: opts.model ?? LLM_MODEL,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: originalPrompt },
-      ],
-      temperature: 0.2,
-    }),
-  });
+  const res = await falFetch(
+    `${LLM_BASE}/chat/completions`,
+    {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        model: opts.model ?? LLM_MODEL,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: originalPrompt },
+        ],
+        temperature: 0.2,
+      }),
+    },
+    { resendable: true },
+  );
   if (!res.ok) throw new Error(`prompt rewrite failed: ${res.status} ${await res.text()}`);
   const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
   const rewritten = body.choices?.[0]?.message?.content?.trim();
@@ -635,7 +720,7 @@ export async function submitWithContentPolicyFallback(
 
 /** A model fast enough that fal serves it directly, no queue. */
 export async function callSync(model: string, input: unknown): Promise<unknown> {
-  const res = await fetch(`${SYNC_BASE}/${model}`, {
+  const res = await falFetch(`${SYNC_BASE}/${model}`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(await falReachable(input)),
