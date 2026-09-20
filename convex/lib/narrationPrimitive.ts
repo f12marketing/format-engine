@@ -3,6 +3,7 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { LLM_MODEL } from "./fal";
 import { wordBudget, writeWithinBudget } from "./wordBudget";
+import { GROUNDING_RULES } from "./grounding";
 
 /** Measured on the ElevenLabs narration voice: 2.3-2.5 words/second. */
 const NARRATION_WORDS_PER_SEC = 2.3;
@@ -30,7 +31,9 @@ generated separately -- the viewer sees a scene, not a person talking to camera.
 - Avoid stock ad-voiceover filler: "in today's world", "imagine a world
   where", "picture this", "let's dive in", "game-changer", "at the end of
   the day". If a line could open any video about anything, it's not
-  specific enough to this one.`;
+  specific enough to this one.
+
+${GROUNDING_RULES}`;
 
 const NARRATION_TOOL = {
   name: "save_narration",

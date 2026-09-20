@@ -174,6 +174,7 @@ export const videoAnimation = defineFormat({
       default: 30,
       help: "Shots are 5s each, so this sets roughly how many the story is broken into.",
     }),
+    videoModel: field.videoModel(),
     style: field.choice({
       label: "Image style",
       options: [
@@ -453,6 +454,7 @@ export const cuttingFruit = defineFormat({
     // silent choice. The updated spec settles it: pick a clip or upload one.
     audio: field.audioClip(),
     duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
+    videoModel: field.videoModel(),
     style: field.choice({
       label: "Style",
       options: ["Ranting", "Quick Thought", "Storytime", "Advice", "Not sure"],
@@ -477,7 +479,11 @@ export const cuttingFruit = defineFormat({
  * Objects still differ by one art-direction constant.
  */
 const clayLikeConfig = {
-  productImage: { ...field.image({ label: "Product image" }) },
+  productImage: field.image({
+    label: "Product image",
+    optional: true,
+    help: "Optional. With one, it is placed into the scene as it is. Without one, the scene is drawn from your prompt.",
+  }),
   duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
   language: field.language(),
   style: field.choice({
@@ -485,6 +491,7 @@ const clayLikeConfig = {
     options: ["Educational", "Problem > Solution", "Storytime", "UGC Hook"],
     default: "Educational",
   }),
+  videoModel: field.videoModel(),
   captionOverlay: field.captionOverlay(),
   captionStyle: field.captionStyle(),
   narration: field.longText({ label: "Narration", optional: true, generatedBy: "P1" }),
@@ -550,6 +557,7 @@ export const skeleton = defineFormat({
     duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
     language: field.language(),
     style: clayLikeConfig.style,
+    videoModel: field.videoModel(),
     captionOverlay: field.captionOverlay(),
     captionStyle: field.captionStyle(),
     narration: field.longText({ label: "Narration", optional: true, generatedBy: "P1" }),
@@ -557,7 +565,7 @@ export const skeleton = defineFormat({
   },
   // Always plans: even hand-written narration needs splitting into shots.
   pipeline: [
-    { id: "copy", primitive: "P1", label: "Write the script and plan the shots" },
+    { id: "copy", primitive: "P1", label: "Write the story and break it into shots" },
     { id: "scene", primitive: "P2", label: "Stage each shot" },
     { id: "clip", primitive: "P3", label: "Animate each shot" },
     { id: "speech", primitive: "P4", label: "Record the narration" },
@@ -656,6 +664,7 @@ export const onAWalk = defineFormat({
     whosWalking: field.avatar({ label: "Who's walking" }),
     audio: field.audioClip(),
     duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
+    videoModel: field.videoModel(),
     style: spokenSceneStyle(),
     prompt: field.prompt(),
   },
@@ -676,6 +685,7 @@ export const netflixDocumentary = defineFormat({
     whosOnCamera: field.avatar({ label: "Who's on camera" }),
     audio: field.audioClip(),
     duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
+    videoModel: field.videoModel(),
     style: spokenSceneStyle(),
     prompt: field.prompt(),
   },
@@ -748,6 +758,7 @@ const broadcastConfig = {
   brandName: field.shortText({ label: "Brand name" }),
   duration: field.seconds({ label: "Duration", min: 3, max: 60, default: 30 }),
   language: field.language(),
+  videoModel: field.videoModel(),
   captionOverlay: field.captionOverlay(),
   captionStyle: field.captionStyle(),
   // FLAG: same gap as clayLikeConfig's `narration` -- a P1-generated script

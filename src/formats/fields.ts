@@ -63,6 +63,22 @@ export const field = {
   }),
 
   /**
+   * Which Kling tier animates the clip, for every format with a P3 step.
+   * Standard is the default because it measured level with Pro on the same
+   * story and the same staged frames, for 25% less and in half the time;
+   * Pro is there for a final render. Mirrored by CLIP_MODELS in
+   * convex/lib/klingClip.ts and RATES.klingPerSec in src/lib/estimate.ts.
+   */
+  videoModel: (o?: Partial<Omit<ChoiceField, "kind" | "options">>): ChoiceField => ({
+    kind: "choice",
+    label: "Video model",
+    options: ["Kling 3 Standard", "Kling 3 Pro"],
+    default: "Kling 3 Standard",
+    help: "Standard is the default. Pro is sharper on faces and hands, and about 33% dearer.",
+    ...o,
+  }),
+
+  /**
    * Whether captions are burned in at all. Separate from Caption style, which
    * only says what they look like -- the P8 step is skipped entirely when this
    * is off, so it is a pipeline condition rather than a cosmetic choice.

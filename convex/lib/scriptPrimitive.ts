@@ -3,6 +3,7 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { LLM_MODEL } from "./fal";
 import { wordBudget, writeWithinBudget } from "./wordBudget";
+import { GROUNDING_RULES } from "./grounding";
 
 /** Conversational delivery runs a little faster than narration. */
 const SCRIPT_WORDS_PER_SEC = 2.5;
@@ -27,7 +28,9 @@ directly to camera.
 - Stay within the word limit given with the brief -- it is what fits the
   video's length at a natural speaking pace. A short video gets one sharp
   line, not a compressed paragraph.
-- If told to mention a business, weave its name in naturally -- don't append it.`;
+- If told to mention a business, weave its name in naturally -- don't append it.
+
+${GROUNDING_RULES}`;
 
 const SCRIPT_TOOL = {
   name: "save_script",

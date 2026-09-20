@@ -8,6 +8,7 @@ import { STARTERS, type RunnableFormatId } from "./starters";
 import * as zernio from "./lib/zernio";
 import { submitWithContentPolicyFallback } from "./lib/fal";
 import { referencePortraitPrompt, REFERENCE_PORTRAIT_FALLBACK } from "./lib/facePrompt";
+import { groundScene } from "./lib/grounding";
 
 /**
  * Dev-only helpers, callable from the CLI with `npx convex run`.
@@ -526,4 +527,14 @@ export const approveStep = internalMutation({
     });
     return null;
   },
+});
+
+/**
+ * Exercises the world-logic pass from the CLI without generating an image,
+ * so a prompt can be checked for a fraction of a cent. See lib/grounding.ts.
+ */
+export const groundSceneTest = internalAction({
+  args: { topic: v.string(), style: v.optional(v.string()), artDirection: v.optional(v.string()) },
+  handler: async (_ctx, { topic, style, artDirection }) =>
+    groundScene(topic, { style, artDirection }),
 });

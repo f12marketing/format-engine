@@ -20,8 +20,17 @@ export const RATES = {
   imagePerUnit: 0.08,
   /** alibaba/qwen-image-3/edit at 1K, per composite. */
   compositePerUnit: 0.04,
-  /** fal-ai/vidu/q3 image-to-video, per video-second. */
+  /**
+   * fal-ai/vidu/q3 image-to-video, per video-second. No longer used by any
+   * format -- kept as the record of what P3 cost before Kling.
+   */
   viduPerSec: { "360p": 0.035, "540p": 0.035, "720p": 0.077, "1080p": 0.077 },
+  /**
+   * fal-ai/kling-video/v3/{pro,standard}/image-to-video, per video-second
+   * with audio off -- every format's P3 step. Mirrored by CLIP_PER_SEC in
+   * convex/lib/klingClip.ts.
+   */
+  klingPerSec: { "Kling 3 Pro": 0.112, "Kling 3 Standard": 0.084 } as Record<string, number>,
   /** fal-ai/elevenlabs/tts/eleven-v3, per 1000 characters. */
   ttsPer1000Chars: 0.1,
   /** fal-ai/bytedance/omnihuman/v1.5, per second. The single most expensive line here. */
@@ -62,6 +71,10 @@ export interface Estimate {
 
 const TOKENS_PER_WORD = 1.35;
 const AVG_SPEECH_CHARS_PER_SEC = 15;
+/** Mirrors DEFAULT_CLIP_MODEL in convex/lib/klingClip.ts and field.videoModel(). */
+const DEFAULT_KLING_TIER = "Kling 3 Standard";
+/** The formats whose scene step is convex/lib/clayScenePrimitive.ts. */
+const CLAY_FAMILY = new Set(["claymation", "lego", "felt", "talking-objects"]);
 
 function words(text: unknown): number {
   if (typeof text !== "string") return 0;
@@ -108,6 +121,7 @@ export function estimateCost(
             inputWords,
             resolution,
             format,
+            values,
           });
     if (cost !== null) lines.push({ label: step.label, costUsd: cost });
   }
@@ -116,6 +130,19 @@ export function estimateCost(
     lines,
     totalUsd: lines.reduce((sum, l) => sum + l.costUsd, 0),
   };
+}
+
+/**
+ * How many shots Skeleton splits a duration into -- one staged frame each.
+ * Mirrors shotLengths() in convex/skeleton.ts, including the clip model's
+ * own 3--15s floor and ceiling on a single shot.
+ */
+function skeletonShots(duration: number): number {
+  const total = Math.max(3, Math.round(duration));
+  return Math.min(
+    Math.max(1, Math.floor(total / 3)),
+    Math.max(Math.ceil(total / 15), Math.max(1, Math.round(total / 5))),
+  );
 }
 
 function costForStep(
@@ -127,6 +154,7 @@ function costForStep(
     inputWords: number;
     resolution: keyof typeof RATES.viduPerSec;
     format: FormatDefinition;
+    values: Record<string, unknown>;
   },
 ): number | null {
   switch (primitive) {
@@ -143,18 +171,25 @@ function costForStep(
     }
 
     case "P2": {
-      // Skeleton stages one frame per ~5s shot with an image edit, the same
-      // count convex/skeleton.ts's shotLengths() splits the duration into.
-      if (ctx.format.id === "skeleton") {
-        const total = Math.max(1, Math.round(ctx.duration));
-        return Math.max(1, Math.round(total / 5)) * RATES.compositePerUnit;
+      // Skeleton stages one frame per shot, with nano-banana-2/edit.
+      if (ctx.format.id === "skeleton") return skeletonShots(ctx.duration) * RATES.imagePerUnit;
+      // The clay family composites a supplied product into the set (an edit)
+      // or, with none, draws the scene from the prompt -- see
+      // convex/lib/clayScenePrimitive.ts. The two are different models.
+      if (CLAY_FAMILY.has(ctx.format.id)) {
+        return ctx.values.productImage ? RATES.compositePerUnit : RATES.imagePerUnit;
       }
       const units = ctx.format.preview === "deck" ? 0 : ctx.imageCount;
       return units * RATES.imagePerUnit;
     }
 
-    case "P3":
-      return ctx.duration * RATES.viduPerSec[ctx.resolution];
+    case "P3": {
+      // Every animating format is on Kling v3 now, at the tier its config
+      // picks. vidu's rate is kept above only as the historical record of
+      // what these lines used to cost.
+      const tier = typeof ctx.values.videoModel === "string" ? ctx.values.videoModel : "";
+      return ctx.duration * (RATES.klingPerSec[tier] ?? RATES.klingPerSec[DEFAULT_KLING_TIER]);
+    }
 
     case "P4":
       // Character Swap's "voice" step is audio-to-audio voice conversion,
