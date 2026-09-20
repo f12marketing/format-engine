@@ -9,6 +9,7 @@ import {
   submitAndPoll,
   submitWithContentPolicyFallback,
 } from "./lib/fal";
+import { GROUNDING_RULES } from "./lib/grounding";
 import { assertVoiceoverSupport, renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 import {
   assetUrlOf,
@@ -184,7 +185,9 @@ For each slide, write:
 
 The slides together should read as one short narrative arc: an opening that
 earns attention, a middle that develops the idea, and a close that lands it --
-proportioned to however many slides you were asked for.`;
+proportioned to however many slides you were asked for.
+
+${GROUNDING_RULES}`;
 
 const SLIDESHOW_TOOL = {
   name: "save_slideshow",
