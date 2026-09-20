@@ -15,7 +15,7 @@ import type { Id } from "../../convex/_generated/dataModel";
  */
 const COPY_PRIMITIVES = new Set(["P1"]);
 const ALWAYS_RERUN_PRIMITIVES = new Set(["P7", "P8"]);
-const GATED_FORMATS = new Set(["video-animation", "product-spokesperson"]);
+const GATED_FORMATS = new Set(["video-animation", "drama", "product-spokesperson"]);
 
 function isMeaningful(
   steps: { primitive: string }[],

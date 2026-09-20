@@ -1,7 +1,12 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { callTool, LLM_MODEL } from "./fal";
+import { LLM_MODEL } from "./fal";
+import { wordBudget, writeWithinBudget } from "./wordBudget";
+import { GROUNDING_RULES } from "./grounding";
+
+/** Conversational delivery runs a little faster than narration. */
+const SCRIPT_WORDS_PER_SEC = 2.5;
 
 /**
  * P1, shared by the four avatar formats whose script-writing step is
@@ -20,9 +25,12 @@ directly to camera.
 - Conversational, first person, plain words. Never sound like an ad voiceover:
   no "game-changer", "you won't believe", "here's the thing", "trust me on
   this one" -- a real person talking to a friend doesn't reach for those.
-- Length should read aloud in roughly the target duration at a natural
-  speaking pace (~2.5 words/second).
-- If told to mention a business, weave its name in naturally -- don't append it.`;
+- Stay within the word limit given with the brief -- it is what fits the
+  video's length at a natural speaking pace. A short video gets one sharp
+  line, not a compressed paragraph.
+- If told to mention a business, weave its name in naturally -- don't append it.
+
+${GROUNDING_RULES}`;
 
 const SCRIPT_TOOL = {
   name: "save_script",
@@ -58,12 +66,13 @@ export const writeScript = internalAction({
     await ctx.runMutation(internal.ledger.assertUnderCap, { clientId, aboutToSpendUsd: 0.03 });
 
     const duration = config.duration ?? 30;
+    const maxWords = wordBudget(duration, SCRIPT_WORDS_PER_SEC);
     const userPrompt =
-      `${brief}\n\nTarget spoken length: about ${duration} seconds.` +
+      `${brief}\n\nTarget spoken length: ${duration} seconds -- at most ${maxWords} words.` +
       (config.mentionBusiness ? "\n\nMention the business by name." : "");
 
-    const call = await callTool(SCRIPT_SYSTEM, userPrompt, SCRIPT_TOOL as never);
-    const script = String((call.value as { script?: string })?.script ?? "").trim();
+    const call = await writeWithinBudget(SCRIPT_SYSTEM, userPrompt, SCRIPT_TOOL, "script", maxWords);
+    const script = call.text;
     if (!script) throw new Error("model returned no script");
 
     const costUsd =

@@ -74,6 +74,9 @@ export const renderNarratedClip = internalAction({
         ],
         dimensions: dimensions ?? "9:16",
         captionStyle: "Classic",
+        // The clip is only as long as the duration setting; narration that
+        // runs over holds the last frame instead of being cut mid-sentence.
+        extendToAudio: true,
         uploadUrl,
       }),
     });

@@ -10,6 +10,14 @@ import {
   submitWithContentPolicyFallback,
 } from "./lib/fal";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
+import { GROUNDING_RULES } from "./lib/grounding";
+import {
+  animateClip,
+  characterElement,
+  clipModelFor,
+  clipRate,
+  MAX_CLIP_SECONDS,
+} from "./lib/klingClip";
 
 /**
  * Video Animation: story -> characters -> shots -> composites -> clips ->
@@ -74,7 +82,6 @@ const LLM_INPUT_PER_1M = 2.0;
 const LLM_OUTPUT_PER_1M = 10.0;
 const IMAGE_PRICE_PER_UNIT = 0.08; // fal-ai/nano-banana-2 at 1K
 const COMPOSITE_PRICE_PER_UNIT = 0.04; // alibaba/qwen-image-3/edit at 1K
-const VIDU_PRICE_PER_SEC = 0.077; // fal-ai/vidu/q3/image-to-video/turbo, 720p
 const TTS_PRICE_PER_1000_CHARS = 0.1; // fal-ai/elevenlabs/tts/eleven-v3
 
 function llmCost(inputTokens: number, outputTokens: number): number {
@@ -123,6 +130,7 @@ function config(job: { config: unknown }) {
     style?: string;
     aspectRatio?: string;
     language?: string;
+    videoModel?: string;
   };
 }
 
@@ -148,6 +156,8 @@ Instructions:
    in this specific moment -- avoid generic movie-trailer lines ("This changes
    everything", "We have to go, now!") that could drop into any story
    unchanged.
+
+${GROUNDING_RULES}
 
 Output as markdown with this structure:
 
@@ -705,39 +715,60 @@ export const generateClips = internalAction({
       ?.shots ?? []) as Shot[];
     if (!shots.length) throw new Error("no composited shots to animate");
 
-    const totalSeconds = shots.reduce((sum, s) => sum + (s.duration_seconds || PER_SHOT_SECONDS), 0);
+    const secondsOf = (s: Shot) =>
+      Math.min(MAX_CLIP_SECONDS, s.duration_seconds || PER_SHOT_SECONDS);
+    const totalSeconds = shots.reduce((sum, s) => sum + secondsOf(s), 0);
+    const model = clipModelFor(config(job).videoModel);
+    const rate = clipRate(model);
     await ctx.runMutation(internal.ledger.assertUnderCap, {
       clientId,
-      aboutToSpendUsd: totalSeconds * VIDU_PRICE_PER_SEC,
+      aboutToSpendUsd: totalSeconds * rate,
     });
 
-    // vidu can take minutes; leave real headroom under the 10-minute action
-    // ceiling since several of these run concurrently.
-    const clipOpts = { timeoutMs: 8 * 60_000 };
+    // The cast sheets drawn back in stage 2, so each shot can be held to the
+    // same faces rather than only to whatever its own composite happened to
+    // show. Kling takes at most a handful, and a shot rarely has more.
+    const cast = job.steps.find((s) => s.id === "characters")?.output as
+      | { characters?: Character[] }
+      | undefined;
+    const charById = new Map((cast?.characters ?? []).map((c) => [c.character_id, c]));
 
     const animated = await Promise.all(
-      shots.map(async (shot) => {
+      shots.map(async (shot, i) => {
         if (!shot.composite_url) throw new Error(`shot ${shot.shot_id} has no composite to animate`);
-        const duration = shot.duration_seconds || PER_SHOT_SECONDS;
-        const buildInput = (prompt: string) => ({
-          prompt,
-          image_url: shot.composite_url,
-          duration,
-          resolution: "720p",
-          audio: true,
-        });
-        const result = (await submitWithContentPolicyFallback(
-          "fal-ai/vidu/q3/image-to-video/turbo",
-          buildInput,
-          shot.veo_prompt || shot.action,
-          () =>
+        // Within one scene the shots are consecutive moments, so each clip is
+        // made to land on the next one's opening frame and the cut joins.
+        // Across a scene change it should NOT: that cut is meant to be felt.
+        const next = shots[i + 1];
+        const endImageUrl =
+          next?.composite_url && next.scene_number === shot.scene_number
+            ? next.composite_url
+            : undefined;
+
+        const onScreen = shot.characters
+          .map((id) => charById.get(id))
+          .filter((c): c is Character => Boolean(c?.image_url))
+          .slice(0, 4);
+        const named = onScreen
+          .map((c, n) => `${c.name} is @Element${n + 1} and keeps that exact design.`)
+          .join(" ");
+
+        const url = await animateClip({
+          model,
+          startImageUrl: shot.composite_url,
+          endImageUrl,
+          elements: onScreen.map((c) => characterElement(c.image_url!, shot.composite_url)),
+          seconds: secondsOf(shot),
+          prompt:
+            `${named} ${shot.veo_prompt || shot.action} ` +
+            (endImageUrl ? "The shot settles into its final framing at the end. " : "") +
+            "Faces and hands stay whole and correctly formed throughout, and the set and " +
+            "lighting stay exactly as they start.",
+          minimalPrompt: () =>
             "Subtle cinematic camera movement and gentle ambient motion. " +
             "Keep the composition and characters exactly as in the source image, " +
             "with no warping or distortion of faces or hands.",
-          clipOpts,
-        )) as { video?: { url?: string } };
-        const url = result.video?.url;
-        if (!url) throw new Error(`no clip returned for shot ${shot.shot_id}`);
+        });
         return { ...shot, clip_url: url };
       }),
     );
@@ -747,10 +778,10 @@ export const generateClips = internalAction({
       jobId,
       stepId: "clips",
       primitive: "P3",
-      model: "fal-ai/vidu/q3/image-to-video/turbo",
+      model,
       units: totalSeconds,
       unitLabel: "seconds",
-      costUsd: totalSeconds * VIDU_PRICE_PER_SEC,
+      costUsd: totalSeconds * rate,
     });
     await ctx.runMutation(internal.jobs.patchStep, {
       jobId,

@@ -1,7 +1,12 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { callTool, LLM_MODEL } from "./fal";
+import { LLM_MODEL } from "./fal";
+import { wordBudget, writeWithinBudget } from "./wordBudget";
+import { GROUNDING_RULES } from "./grounding";
+
+/** Measured on the ElevenLabs narration voice: 2.3-2.5 words/second. */
+const NARRATION_WORDS_PER_SEC = 2.3;
 
 /**
  * P1, shared by Cutting Fruit, Claymation and Skeleton -- voiceover narration
@@ -20,13 +25,15 @@ generated separately -- the viewer sees a scene, not a person talking to camera.
   the mango" reads naturally here; "I'm going to show you" does not).
 - Open with a hook in the first sentence -- the viewer decides whether to
   keep watching in the first two seconds.
-- Plain, concrete words. Length should read aloud in roughly the target
-  duration at a natural narration pace (~2.3 words/second, slightly slower
-  than conversational speech).
+- Plain, concrete words. Stay within the word limit given with the brief --
+  it is what fits the video's length when read aloud. A short video gets
+  one sharp line, not a compressed paragraph.
 - Avoid stock ad-voiceover filler: "in today's world", "imagine a world
   where", "picture this", "let's dive in", "game-changer", "at the end of
   the day". If a line could open any video about anything, it's not
-  specific enough to this one.`;
+  specific enough to this one.
+
+${GROUNDING_RULES}`;
 
 const NARRATION_TOOL = {
   name: "save_narration",
@@ -60,12 +67,19 @@ export const writeNarration = internalAction({
     await ctx.runMutation(internal.ledger.assertUnderCap, { clientId, aboutToSpendUsd: 0.03 });
 
     const duration = config.duration ?? 30;
+    const maxWords = wordBudget(duration, NARRATION_WORDS_PER_SEC);
     const userPrompt =
-      `${brief}\n\nTarget spoken length: about ${duration} seconds.` +
+      `${brief}\n\nTarget spoken length: ${duration} seconds -- at most ${maxWords} words.` +
       (config.style ? `\nTone/style: ${config.style}.` : "");
 
-    const call = await callTool(NARRATION_SYSTEM, userPrompt, NARRATION_TOOL as never);
-    const narration = String((call.value as { narration?: string })?.narration ?? "").trim();
+    const call = await writeWithinBudget(
+      NARRATION_SYSTEM,
+      userPrompt,
+      NARRATION_TOOL,
+      "narration",
+      maxWords,
+    );
+    const narration = call.text;
     if (!narration) throw new Error("model returned no narration");
 
     const costUsd =
