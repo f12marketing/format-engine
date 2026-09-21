@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { getSupabaseClient } from "@/lib/supabaseClient";
@@ -21,21 +21,23 @@ export function AuthStatus() {
     isAuthenticated && me === null ? {} : "skip",
   );
   const bootstrap = useMutation(api.clients.bootstrapFirstClient);
-  const [bootstrapped, setBootstrapped] = useState(false);
+  // A ref, not state: it only guards against re-firing and never affects what
+  // renders, so flipping it shouldn't cost a render.
+  const bootstrapped = useRef(false);
 
   useEffect(() => {
     // Only ever worth trying while the gate has admitted no one -- once
     // someone owns this deployment, the call can only fail, and Convex logs
     // that failure to the console even though `bootstrapped` never fires
     // again this session.
-    if (isAuthenticated && me === null && anyClientExists === false && !bootstrapped) {
-      setBootstrapped(true);
+    if (isAuthenticated && me === null && anyClientExists === false && !bootstrapped.current) {
+      bootstrapped.current = true;
       bootstrap({}).catch(() => {
         // Lost a race with another first sign-in between the check above and
         // this call. clients.me staying null is the correct, visible state.
       });
     }
-  }, [isAuthenticated, me, anyClientExists, bootstrapped, bootstrap]);
+  }, [isAuthenticated, me, anyClientExists, bootstrap]);
 
   if (!isAuthenticated) {
     return (

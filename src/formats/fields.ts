@@ -28,6 +28,121 @@ export const CAPTION_STYLES = [
 /** English in the UI; the TTS layer underneath is already multilingual. */
 export const LANGUAGES = [{ code: "en", label: "English" }] as const;
 
+/**
+ * Aspect ratios, labelled with what each one is actually FOR.
+ *
+ * "4:5" tells you nothing at the moment you're choosing; "Instagram /
+ * LinkedIn post" tells you everything. The leading token is the real value --
+ * convex/slideshow.ts splits on the first space and checks the result against
+ * render-service's DIMENSIONS map, so these labels can be reworded without
+ * the server caring, but the RATIO in front must stay a key of that map.
+ */
+export const ASPECT_RATIOS = [
+  "16:9 — YouTube",
+  "9:16 — Instagram Reels & Stories",
+  "1:1 — Facebook feed post",
+  "4:5 — Instagram / LinkedIn post",
+  "3:4 — Instagram feed",
+] as const;
+
+/**
+ * The curated Google Fonts from the old app's settings page, shared by the
+ * subtitle and branding pickers. Not exhaustive -- the APIs underneath accept
+ * any Google Font -- just a closed set of bold, legible choices for a
+ * dropdown.
+ */
+export const GOOGLE_FONTS = [
+  "Montserrat",
+  "Roboto",
+  "Open Sans",
+  "Poppins",
+  "Oswald",
+  "Bebas Neue",
+  "Anton",
+  "Inter",
+  "Nunito",
+  "Lato",
+  "Bangers",
+  "Archivo Black",
+] as const;
+
+/**
+ * Named CSS colours double as valid values for auto-subtitle's font_color /
+ * highlight_color / stroke_color, so no hex conversion is needed anywhere
+ * between this dropdown and fal.
+ */
+export const SUBTITLE_COLORS = [
+  "white",
+  "black",
+  "yellow",
+  "red",
+  "green",
+  "blue",
+  "purple",
+  "orange",
+  "pink",
+  "cyan",
+] as const;
+
+/**
+ * fal-ai/topaz/upscale/video's real `model` enum, copied from the old app's
+ * settings page -- which verified it against fal's own API reference rather
+ * than guessing, since a wrong string here fails a paid render.
+ *
+ * "Gaia 2" leads because it suits this app's own generated/animated output
+ * and costs half of Proteus at the same output tier.
+ */
+export const TOPAZ_MODELS = [
+  "Gaia 2",
+  "Proteus",
+  "Artemis HQ",
+  "Artemis MQ",
+  "Artemis LQ",
+  "Gaia HQ",
+  "Gaia CG",
+  "Nyx",
+  "Nyx Fast",
+  "Nyx XL",
+  "Nyx HF",
+  "Starlight Precise 1",
+  "Starlight Precise 2",
+  "Starlight Precise 2.5",
+  "Starlight HQ",
+  "Starlight Mini",
+  "Starlight Sharp",
+  "Starlight Fast 1",
+  "Starlight Fast 2",
+] as const;
+
+/**
+ * ElevenLabs' premade voices. The same list convex/drama.ts casts from, minus
+ * its per-voice notes -- a narrator is chosen by ear from a dropdown, not
+ * described to a model.
+ */
+export const VOICES = [
+  "Sarah",
+  "Rachel",
+  "Laura",
+  "Charlotte",
+  "Alice",
+  "Matilda",
+  "Jessica",
+  "Lily",
+  "Aria",
+  "Roger",
+  "Charlie",
+  "George",
+  "Callum",
+  "Liam",
+  "Will",
+  "Eric",
+  "Chris",
+  "Brian",
+  "Daniel",
+  "Bill",
+  "River",
+] as const;
+
 export const field = {
   shortText: (o: Omit<TextField, "kind">): TextField => ({ kind: "shortText", ...o }),
   longText: (o: Omit<TextField, "kind">): TextField => ({ kind: "longText", ...o }),
@@ -45,7 +160,29 @@ export const field = {
   count: (o: Omit<CountField, "kind">): CountField => ({ kind: "count", ...o }),
 
   image: (o: Omit<SimpleField, "kind">): SimpleField => ({ kind: "image", ...o }),
+
+  /**
+   * Several images as one value, held as an array of asset ids in order.
+   *
+   * The order is the meaning, not a detail: a composite step names each
+   * reference by its index in the prompt ("Image 2 is Character 1"), which is
+   * how a recurring cast stays recognisable from slide to slide.
+   */
+  images: (o: Omit<SimpleField, "kind">): SimpleField => ({
+    kind: "images",
+    maxItems: 4,
+    ...o,
+  }),
   video: (o: Omit<SimpleField, "kind">): SimpleField => ({ kind: "video", ...o }),
+
+  /**
+   * A hex colour, drawn by the browser's native picker.
+   *
+   * Not a choice of named swatches like the subtitle colours: a brand colour
+   * has an exact value, and offering ten approximations of it is worse than
+   * offering none.
+   */
+  color: (o: Omit<SimpleField, "kind">): SimpleField => ({ kind: "color", ...o }),
 
   language: (o?: Partial<Omit<SimpleField, "kind">>): SimpleField => ({
     kind: "language",

@@ -20,25 +20,28 @@ import type { Id } from "../_generated/dataModel";
  */
 function pickDownloadUrl(body: unknown): string | null {
   const candidates = [
-    (body as any)?.download_no_watermark_addr,
-    (body as any)?.video?.download_no_watermark_addr,
-    (body as any)?.aweme_detail?.video?.download_no_watermark_addr,
-    (body as any)?.play_addr,
-    (body as any)?.video?.play_addr,
-    (body as any)?.aweme_detail?.video?.play_addr,
+    pickField(body, [["download_no_watermark_addr"]]),
+    pickField(body, [["video", "download_no_watermark_addr"]]),
+    pickField(body, [["aweme_detail", "video", "download_no_watermark_addr"]]),
+    pickField(body, [["play_addr"]]),
+    pickField(body, [["video", "play_addr"]]),
+    pickField(body, [["aweme_detail", "video", "play_addr"]]),
   ];
   for (const c of candidates) {
     if (typeof c === "string" && c) return c;
-    const fromList = c?.url_list?.[0] ?? c?.urlList?.[0];
+    const fromList = pickField(c, [["url_list", "0"], ["urlList", "0"]]);
     if (typeof fromList === "string" && fromList) return fromList;
   }
   return null;
 }
 
+/** Walks a response of unknown shape; array indices are written as "0", "1", ... */
 function pickField(body: unknown, paths: string[][]): unknown {
   for (const path of paths) {
     let cur: unknown = body;
-    for (const key of path) cur = (cur as any)?.[key];
+    for (const key of path) {
+      cur = cur !== null && typeof cur === "object" ? (cur as Record<string, unknown>)[key] : undefined;
+    }
     if (cur !== undefined && cur !== null) return cur;
   }
   return undefined;

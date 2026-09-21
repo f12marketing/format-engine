@@ -1,9 +1,11 @@
 import { v } from "convex/values";
 import { WorkflowManager } from "@convex-dev/workflow";
 import { components, internal } from "./_generated/api";
-import { internalAction, internalMutation } from "./_generated/server";
+import { internalAction, internalMutation, mutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { requireClient } from "./clients";
 import { callTool, LLM_MODEL } from "./lib/fal";
+import { enforceRateLimit } from "./lib/rateLimit";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 import {
   CAROUSEL_LIMITS,
@@ -13,6 +15,7 @@ import {
   carouselUserPrompt,
   type CarouselSlide,
 } from "./lib/carouselPrompt";
+import { CAROUSEL_TEMPLATE_IDS, DEFAULT_CAROUSEL_TEMPLATE } from "./lib/carouselTemplates";
 
 export const workflow = new WorkflowManager(components.workflow);
 
@@ -191,7 +194,7 @@ export const renderDeck = internalAction({
         slides: carouselSlides(deck),
         caption: deck?.caption ?? "",
         hashtags: deck?.hashtags ?? [],
-        template: config.template ?? "bold-statement",
+        template: config.template ?? DEFAULT_CAROUSEL_TEMPLATE,
         aspectRatio: config.aspectRatio ?? "4:5",
       }),
     });
@@ -243,6 +246,119 @@ export const renderDeck = internalAction({
     });
     await ctx.runMutation(internal.jobs.setOutputs, { jobId, assetIds });
     return null;
+  },
+});
+
+/**
+ * Re-render a finished deck with hand-edited slide text and/or another template.
+ *
+ * Same shape as a remix: a NEW job whose "copy" step is frozen at done (holding
+ * the edited deck) and whose render step is pending, so the workflow skips the
+ * paid call and only rasterises again -- free. The original job and the assets
+ * it produced are left alone, which matters because a scheduled post may
+ * already point at those PNGs.
+ *
+ * Only the text fields are editable. `slide_id` and `role` are carried over
+ * from the source by position, so the slide count cannot change here -- adding
+ * or dropping a slide is a regenerate, not an edit. The template is safe to
+ * change after the copy is written because every template is built to hold the
+ * same limits.
+ */
+export const rerenderEdited = mutation({
+  args: {
+    jobId: v.id("jobs"),
+    slides: v.array(
+      v.object({
+        kicker: v.string(),
+        headline: v.string(),
+        body: v.string(),
+        swipe_cue: v.string(),
+      }),
+    ),
+    /** Omitted keeps the source job's template. */
+    template: v.optional(v.string()),
+  },
+  handler: async (ctx, { jobId, slides, template }): Promise<Id<"jobs">> => {
+    const client = await requireClient(ctx);
+    await enforceRateLimit(ctx, "generateJob", client._id);
+
+    const source = await ctx.db.get(jobId);
+    if (!source || source.clientId !== client._id || source.formatId !== "carousel") {
+      throw new Error("job not found");
+    }
+    if (source.status !== "done") {
+      throw new Error("Only a finished carousel can be re-rendered.");
+    }
+
+    type Deck = { slides?: unknown; caption?: string; hashtags?: string[] };
+    if (template !== undefined && !CAROUSEL_TEMPLATE_IDS.includes(template)) {
+      throw new Error(`Unknown template "${template}".`);
+    }
+
+    const config = source.config as { deck?: Deck; template?: string };
+    // Either P1 wrote the deck, or the caller supplied one and P1 never ran.
+    const hasCopyStep = source.steps.some((s) => s.id === "copy");
+    const deck = (source.steps.find((s) => s.id === "copy")?.output as Deck | undefined) ?? config.deck;
+    const original = carouselSlides(deck);
+
+    if (slides.length !== original.length) {
+      throw new Error(`Expected ${original.length} slides, got ${slides.length}.`);
+    }
+
+    const edited: CarouselSlide[] = original.map((o, i) => ({
+      ...o,
+      kicker: slides[i].kicker.trim(),
+      headline: slides[i].headline.trim(),
+      body: slides[i].body.trim(),
+      swipe_cue: slides[i].swipe_cue.trim(),
+    }));
+
+    // The same budgets writeDeck enforces: every template is designed to hold
+    // them, so copy typed past a limit would overflow the slide it lands on.
+    const problems = edited.flatMap((s, i) => {
+      const out: string[] = [];
+      if (!s.headline) out.push(`slide ${i + 1} needs a headline`);
+      for (const f of Object.keys(CAROUSEL_LIMITS) as (keyof typeof CAROUSEL_LIMITS)[]) {
+        if (s[f].length > CAROUSEL_LIMITS[f]) {
+          out.push(`slide ${i + 1} ${f} is ${s[f].length} characters (max ${CAROUSEL_LIMITS[f]})`);
+        }
+      }
+      return out;
+    });
+    if (problems.length) throw new Error(problems.join("; "));
+
+    const editedDeck = { ...deck, slides: edited };
+
+    const steps = source.steps.map((s) =>
+      s.id === "copy"
+        ? {
+            id: s.id,
+            primitive: s.primitive,
+            label: s.label,
+            state: "done" as const,
+            output: editedDeck,
+          }
+        : { id: s.id, primitive: s.primitive, label: s.label, state: "pending" as const },
+    );
+
+    const newJobId = await ctx.db.insert("jobs", {
+      clientId: client._id,
+      formatId: source.formatId,
+      config: {
+        ...source.config,
+        template: template ?? config.template ?? DEFAULT_CAROUSEL_TEMPLATE,
+        // A hand-written deck lives in the config, since it has no copy step to
+        // hold it; the render reads it from there.
+        ...(hasCopyStep ? {} : { deck: editedDeck }),
+      },
+      status: "running",
+      steps,
+      costUsd: 0,
+      remixedFromJobId: jobId,
+    });
+
+    await ctx.runMutation(internal.carousel.start, { jobId: newJobId, clientId: client._id });
+    return newJobId;
   },
 });
 

@@ -17,40 +17,9 @@ import { field } from "./fields";
 
 // ---------------------------------------------------------------- Phase 1
 
-export const slideshow = defineFormat({
-  id: "slideshow",
-  name: "Slideshow",
-  blurb: "Multi-image carousel with captions",
-  icon: "🖼️",
-  group: "slides-text",
-  preview: "video",
-  shipsToday: true, // the old app's Image Slideshow mode
-  status: "ready",
-  phase: 1,
-  config: {
-    mode: field.mode(),
-    mentionBusiness: field.mentionBusiness(),
-    images: field.count({ label: "Images", min: 3, max: 20, default: 10 }),
-    style: field.choice({
-      label: "Style",
-      options: [
-        "Pixar 3D",
-        "Anime",
-        "Watercolor",
-        "Photorealistic",
-        "Hyper-realistic",
-        "Claymation",
-      ],
-      default: "Photorealistic",
-    }),
-    prompt: field.prompt(),
-  },
-  pipeline: [
-    { id: "copy", primitive: "P1", label: "Write the captions" },
-    { id: "images", primitive: "P2", label: "Generate slide images" },
-    { id: "render", primitive: "P8", label: "Assemble with captions" },
-  ],
-});
+// Slideshow moved out to formats/slideshow.ts once it grew real pipeline
+// options -- the same move this file's header describes for every format that
+// outgrows a bare declaration.
 
 export const wallOfText = defineFormat({
   id: "wall-of-text",
@@ -155,65 +124,8 @@ export const custom = defineFormat({
 
 // ---------------------------------------------------------------- Phase 2
 
-export const videoAnimation = defineFormat({
-  id: "video-animation",
-  name: "Video Animation",
-  blurb: "Story to characters to shots to a finished animated video",
-  icon: "🎬",
-  group: "generated",
-  preview: "video",
-  shipsToday: true,
-  status: "ready",
-  phase: 2,
-  config: {
-    logline: field.longText({ label: "Logline or script" }),
-    durationSec: field.seconds({
-      label: "Target length",
-      min: 15,
-      max: 90,
-      default: 30,
-      help: "Shots are 5s each, so this sets roughly how many the story is broken into.",
-    }),
-    videoModel: field.videoModel(),
-    style: field.choice({
-      label: "Image style",
-      options: [
-        "Pixar 3D",
-        "Anime",
-        "Watercolor",
-        "Photorealistic",
-        "Hyper-realistic",
-        "Claymation",
-      ],
-      default: "Pixar 3D",
-    }),
-    aspectRatio: field.choice({
-      label: "Aspect ratio",
-      options: ["16:9", "9:16", "1:1", "4:5"],
-      default: "16:9",
-    }),
-    language: field.language(),
-    mentionBusiness: field.mentionBusiness(),
-  },
-  /**
-   * Three gates, which is why porting this early is worth it: the approval
-   * step type it forces is the same one Product Spokesperson needs in Phase 4.
-   *
-   * "stitch" absorbs what would have been a separate "captions" step -- same
-   * reasoning as Custom's composite step: burning captions in is the same
-   * ffmpeg invocation as the mux, so a second declared step would describe
-   * two things happening when only one encode actually runs.
-   */
-  pipeline: [
-    { id: "story", primitive: "P1", label: "Write the story", gate: true },
-    { id: "characters", primitive: "P2", label: "Design characters and backgrounds", gate: true },
-    { id: "shots", primitive: "P1", label: "Build the shot list", gate: true },
-    { id: "scenes", primitive: "P2", label: "Composite each scene" },
-    { id: "clips", primitive: "P3", label: "Animate each shot" },
-    { id: "voice", primitive: "P4", label: "Record voiceover" },
-    { id: "stitch", primitive: "P7", label: "Stitch, caption and mux" },
-  ],
-});
+// Video Animation moved out to formats/videoAnimation.ts once its config grew the
+// Advanced block -- the same move Slideshow made.
 
 // ---------------------------------------------------------------- Phase 3
 

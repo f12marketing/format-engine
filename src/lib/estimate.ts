@@ -55,8 +55,20 @@ export const RATES = {
     fast: { "720p": 0.2419, "480p": 0.1125 },
     standard: { "720p": 0.3034, "480p": 0.1406 },
   },
-  /** fal-ai/elevenlabs/music, per started minute. */
+  /** fal-ai/elevenlabs/music, per started minute. Drama's score. */
   musicPerMinute: 0.6,
+  /** CassetteAI/music-generator, per minute -- Slideshow's score. Checked against fal's pricing endpoint. */
+  cassettePerMinute: 0.02,
+  /**
+   * fal-ai/topaz/upscale/video, per second, tiered by OUTPUT resolution --
+   * that is, the source's short edge times the upscale factor, not the
+   * source on its own. Gaia 2 is half price at every tier; 60fps doubles it,
+   * which nothing here renders at. Carried over from the old app's dashboard
+   * estimator, which checked these against fal's own pricing page.
+   */
+  topazPerSec: { upTo720p: 0.01, upTo1080p: 0.02, above1080p: 0.08 },
+  /** fal-ai/workflow-utilities/auto-subtitle, per minute of video. */
+  subtitlesPerMinute: 0.03,
 } as const;
 
 export interface EstimateLine {
@@ -98,10 +110,10 @@ export function estimateCost(
 
   const duration = num(values.duration, 30);
   const slideCount = num(values.slideCount, 7);
-  // Slideshow's own "images" field supplies its real value once the config
-  // panel initializes; 1 (not that field's default of 10) is the right
-  // fallback for every other P2 format, which composites exactly one image
-  // (Product Spokesperson, Green Screen Mobile) and has no such field at all.
+  // 1 is the right default for every P2 format still priced by primitive:
+  // they composite exactly one image (Product Spokesperson, Green Screen
+  // Mobile) and have no image-count field at all. Slideshow, the one format
+  // that does, now prices itself through PER_STEP_COST.
   const imageCount = num(values.images, 1);
   const inputWords = words(values.logline) || words(values.prompt);
   const resolution = "720p" as keyof typeof RATES.viduPerSec;
@@ -111,18 +123,18 @@ export function estimateCost(
     // no P1 call, and the estimate should say so before the run, not after.
     if (!stepApplies(step, values)) continue;
 
-    const cost =
-      format.id === "drama"
-        ? dramaStepCost(step.id, values)
-        : costForStep(step.primitive, {
-            duration,
-            slideCount,
-            imageCount,
-            inputWords,
-            resolution,
-            format,
-            values,
-          });
+    const perStep = PER_STEP_COST[format.id];
+    const cost = perStep
+      ? perStep(step.id, values)
+      : costForStep(step.primitive, {
+          duration,
+          slideCount,
+          imageCount,
+          inputWords,
+          resolution,
+          format,
+          values,
+        });
     if (cost !== null) lines.push({ label: step.label, costUsd: cost });
   }
 
@@ -216,6 +228,181 @@ function costForStep(
 
     default:
       return null;
+  }
+}
+
+/**
+ * Formats whose steps can't be priced from their primitive alone.
+ *
+ * The primitive table below answers "what does a P3 second cost" with one
+ * number, which is right until two steps share a primitive and not a model.
+ * Drama's two P2 steps draw wildly different numbers of images; Slideshow's
+ * P4 is TTS in one step and a music model in the next, and its P3 is Topaz
+ * rather than vidu. Those formats price themselves by step id instead.
+ */
+const PER_STEP_COST: Record<
+  string,
+  (stepId: string, values: Record<string, unknown>) => number
+> = {
+  drama: dramaStepCost,
+  slideshow: slideshowStepCost,
+  "video-animation": videoAnimationStepCost,
+};
+
+/**
+ * Video Animation, step by step. It used to be priced from its primitives
+ * alone, which undercounted it badly: every P2 step was one image, so a cast
+ * and a set of backgrounds cost the same as a single frame, and every clip
+ * second was billed at vidu's rate rather than Kling's.
+ *
+ * The cast size is a typical-story guess -- the real one isn't known until the
+ * story is written and the characters extracted -- and so is how much of the
+ * runtime is someone speaking. Rates mirror convex/videoAnimation.ts.
+ */
+const VA_SHOT_SECONDS = 5;
+const VA_TYPICAL_CHARACTERS = 4;
+const VA_TYPICAL_BACKGROUNDS = 3;
+/** Roughly how many shots carry a line of dialogue, and how long a line runs. */
+const VA_SPEAKING_SHARE = 0.6;
+const VA_DIALOGUE_CHARS = 70;
+
+function videoAnimationStepCost(stepId: string, values: Record<string, unknown>): number {
+  const shots = Math.max(1, Math.round(num(values.durationSec, 30) / VA_SHOT_SECONDS));
+  const seconds = shots * VA_SHOT_SECONDS;
+  const llm = (inputTokens: number, outputTokens: number) =>
+    (inputTokens / 1e6) * RATES.llmInputPer1M + (outputTokens / 1e6) * RATES.llmOutputPer1M;
+
+  switch (stepId) {
+    case "story":
+      return llm(700 + words(values.logline) * TOKENS_PER_WORD, 1200 + shots * 200);
+    case "characters":
+      // One extraction call, then a sheet per character and a plate per set.
+      return (
+        llm(1500 + shots * 250, 1200) +
+        (VA_TYPICAL_CHARACTERS + VA_TYPICAL_BACKGROUNDS) * RATES.imagePerUnit
+      );
+    case "shots":
+      return llm(2500 + shots * 100, 300 + shots * 250);
+    case "scenes":
+      // qwen-image-3/edit, a composite per shot.
+      return shots * RATES.compositePerUnit;
+    case "clips":
+      return (
+        seconds *
+        (RATES.klingPerSec[String(values.videoModel)] ?? RATES.klingPerSec[DEFAULT_KLING_TIER])
+      );
+    case "voice":
+      return ((shots * VA_SPEAKING_SHARE * VA_DIALOGUE_CHARS) / 1000) * RATES.ttsPer1000Chars;
+    case "music": {
+      // CassetteAI only accepts 10-180 seconds; the renderer loops or trims it.
+      const bed = Math.min(180, Math.max(10, seconds));
+      return (bed / 60) * RATES.cassettePerMinute;
+    }
+    case "upscale":
+      return seconds * topazPerSecond(values);
+    case "subtitles":
+      return (seconds / 60) * RATES.subtitlesPerMinute;
+    // The stitch is ffmpeg on the render service -- free at the margin.
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Slideshow, step by step. Every optional stage is already filtered out by
+ * `stepApplies` before this is called, so a step reaching here is one that
+ * will actually run and be billed.
+ *
+ * Rates mirror convex/slideshow.ts.
+ */
+/** A slide's floor. With a voiceover it stretches to however long the line takes. */
+const SLIDE_SECONDS = 3;
+const SLIDE_SECONDS_SPOKEN = 5;
+/** A caption is capped at 90 characters; they land nearer 75 in practice. */
+const CAPTION_CHARS = 75;
+
+function slideshowSeconds(values: Record<string, unknown>): number {
+  const slides = num(values.images, 10);
+  return slides * (values.voiceover ? SLIDE_SECONDS_SPOKEN : SLIDE_SECONDS);
+}
+
+/**
+ * Composite scenes with nothing uploaded: the writer designs the cast and one
+ * reference image is drawn per character. Between one and four; three is the
+ * same typical-cast guess Drama uses.
+ */
+const SLIDESHOW_DESIGNED_CAST = 3;
+
+function slideshowDesignsCast(values: Record<string, unknown>): boolean {
+  const uploaded = values.compositeReferenceAssetIds;
+  return !(Array.isArray(uploaded) && uploaded.length > 0);
+}
+
+/**
+ * Topaz is tiered by OUTPUT resolution. Every ratio in render-service's
+ * DIMENSIONS map is 1080 on its short edge, so the output tier is decided by
+ * the upscale factor alone.
+ */
+function topazPerSecond(values: Record<string, unknown>): number {
+  const factor = Number(values.upscaleFactor) || 2;
+  const outputShortEdge = 1080 * factor;
+  const rate =
+    outputShortEdge <= 720
+      ? RATES.topazPerSec.upTo720p
+      : outputShortEdge <= 1080
+        ? RATES.topazPerSec.upTo1080p
+        : RATES.topazPerSec.above1080p;
+  return values.upscaleModel === "Gaia 2" ? rate / 2 : rate;
+}
+
+function slideshowStepCost(stepId: string, values: Record<string, unknown>): number {
+  const slides = num(values.images, 10);
+  const seconds = slideshowSeconds(values);
+
+  switch (stepId) {
+    case "copy": {
+      // One image prompt and one caption per slide, plus the system prompt.
+      const inputTokens = 1250 + words(values.prompt) * TOKENS_PER_WORD;
+      // A designed cast adds a name and a reference-image prompt each.
+      const castTokens =
+        values.compositeScenes && slideshowDesignsCast(values)
+          ? SLIDESHOW_DESIGNED_CAST * 150
+          : 0;
+      const outputTokens = 200 + slides * 120 + castTokens;
+      return (
+        (inputTokens / 1e6) * RATES.llmInputPer1M +
+        (outputTokens / 1e6) * RATES.llmOutputPer1M
+      );
+    }
+    case "images":
+      return slides * RATES.imagePerUnit;
+    // nano-banana-2/edit, not the qwen-image-3/edit the other formats
+    // composite with -- so it bills at the flat image rate, not the cheaper
+    // composite one. See convex/slideshow.ts for why the model differs.
+    case "composite":
+      return (
+        (slideshowDesignsCast(values) ? SLIDESHOW_DESIGNED_CAST : 0) * RATES.imagePerUnit +
+        slides * RATES.imagePerUnit
+      );
+    case "voice":
+      return ((slides * CAPTION_CHARS) / 1000) * RATES.ttsPer1000Chars;
+    case "music": {
+      // Mirrors convex/slideshow.ts's scoreMusic: the bed is requested before
+      // the cut exists, at 6s a spoken slide (the cut itself stretches to fit
+      // the voice), and CassetteAI only accepts 10-180 seconds.
+      const bed = Math.min(
+        180,
+        Math.max(10, Math.round(slides * (values.voiceover ? 6 : SLIDE_SECONDS))),
+      );
+      return (bed / 60) * RATES.cassettePerMinute;
+    }
+    case "upscale":
+      return seconds * topazPerSecond(values);
+    case "subtitles":
+      return (seconds / 60) * RATES.subtitlesPerMinute;
+    // The cut is Chrome and ffmpeg on the render service -- free at the margin.
+    default:
+      return 0;
   }
 }
 

@@ -21,6 +21,47 @@ import type { Id } from "../_generated/dataModel";
  * directive may contain ONLY actions, never a query or mutation, so this
  * lives on its own rather than inside any pipeline file.
  */
+/**
+ * Downloads a model-hosted video and stores it as one of a job's assets.
+ *
+ * Slideshow's Topaz and auto-subtitle passes both answer with a URL on fal's
+ * CDN rather than bytes, and both replace the job's deliverable -- so the
+ * file has to come back into Convex storage or the output would point at
+ * something fal expires. Here rather than in slideshow.ts for the same reason
+ * as everything else in this file: an upscaled 1080p cut is exactly the size
+ * that crosses the default runtime's 64MB heap ceiling, and `"use node"`
+ * cannot share a module with a query or a mutation.
+ */
+export const storeVideoFromUrl = internalAction({
+  args: {
+    clientId: v.id("clients"),
+    jobId: v.id("jobs"),
+    url: v.string(),
+    contentType: v.optional(v.string()),
+  },
+  handler: async (ctx, { clientId, jobId, url, contentType }): Promise<Id<"assets">> => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`could not fetch the finished video: ${res.status}`);
+    // Only a real video/* type is trusted. fal's CDN serves the subtitled cut
+    // as application/octet-stream, and the assets table classifies by MIME
+    // type -- anything unlisted falls through to "text" -- so trusting the
+    // header stored a perfectly good video as a text file: no player, no
+    // poster, and invisible to every picker that filters on kind. This
+    // function only ever stores videos, so a generic type means "mp4".
+    const served = res.headers.get("content-type") ?? "";
+    const type = contentType ?? (served.startsWith("video/") ? served : "video/mp4");
+    const buf = Buffer.from(await res.arrayBuffer());
+    const storageId = await ctx.storage.store(new Blob([buf], { type }));
+    return ctx.runMutation(internal.assets.record, {
+      clientId,
+      producedByJobId: jobId,
+      storageId,
+      mimeType: type,
+      bytes: buf.byteLength,
+    });
+  },
+});
+
 export const storeRenderedFiles = internalAction({
   args: {
     clientId: v.id("clients"),

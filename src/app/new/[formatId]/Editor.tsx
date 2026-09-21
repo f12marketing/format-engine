@@ -13,7 +13,7 @@ import {
 import { ConfigPanel } from "@/components/ConfigPanel";
 import { PreviewPanel } from "@/components/PreviewPanel";
 import { estimateCost } from "@/lib/estimate";
-import { stepApplies } from "@/formats/types";
+import { effectiveConfig, stepApplies } from "@/formats/types";
 import type { Field, FormatDefinition } from "@/formats/types";
 
 /** Seed from each field's declared default, so the panel opens usable. */
@@ -32,7 +32,12 @@ export function Editor({ format }: { format: FormatDefinition }) {
   const [error, setError] = useState<string | null>(null);
   const generate = useMutation(api.run.generate);
 
-  const estimate = estimateCost(format, values);
+  // What runs is what is on screen: a field the panel is hiding contributes
+  // nothing to the estimate, the steps or the config frozen onto the job.
+  // Without this, switching Voiceover off after switching Subtitles on would
+  // still bill a subtitle pass for a card the user can no longer see.
+  const effective = effectiveConfig(format, values);
+  const estimate = estimateCost(format, effective);
 
   async function onGenerate() {
     setError(null);
@@ -41,10 +46,10 @@ export function Editor({ format }: { format: FormatDefinition }) {
       // Only the steps that will actually run are sent, so the job's step list
       // matches what happens rather than what the format could do.
       const steps = format.pipeline
-        .filter((step) => stepApplies(step, values))
+        .filter((step) => stepApplies(step, effective))
         .map((step) => ({ id: step.id, primitive: step.primitive, label: step.label }));
 
-      const jobId = await generate({ formatId: format.id, config: values, steps });
+      const jobId = await generate({ formatId: format.id, config: effective, steps });
       router.push(`/jobs/${jobId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
