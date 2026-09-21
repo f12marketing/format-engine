@@ -1,0 +1,15 @@
+/* The one entry point for carousel slide styling: the browser preview imports
+   this file and nothing else, so the order below is the whole cascade (Next
+   orders CSS by import order, and _base must come first).
+
+   MIRRORS ../../../render-service/carousel-templates -- that folder is what the
+   PNG/PDF export actually renders, and this copy is what the live preview
+   renders. The two must stay byte-identical (the .css files and slide-dom.js);
+   change one and copy it across, or the preview stops matching the export. */
+@import "./_base.css";
+@import "./bold-statement.css";
+@import "./editorial-serif.css";
+@import "./dark-mode.css";
+@import "./numbered-list.css";
+@import "./gradient-pop.css";
+@import "./minimal-grid.css";

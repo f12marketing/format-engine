@@ -1,6 +1,8 @@
 import type { FormatDefinition, FormatGroup } from "./types";
 import carousel from "./carousel";
 import drama from "./drama";
+import slideshow from "./slideshow";
+import videoAnimation from "./videoAnimation";
 import * as planned from "./planned";
 
 /**
@@ -10,10 +12,10 @@ import * as planned from "./planned";
  */
 export const FORMATS: FormatDefinition[] = [
   carousel,
-  planned.slideshow,
+  slideshow,
   planned.wallOfText,
   planned.custom,
-  planned.videoAnimation,
+  videoAnimation,
   drama,
   planned.videoHookDemo,
   planned.greenScreenMeme,
@@ -54,4 +56,13 @@ export function formatsInGroup(group: FormatGroup): FormatDefinition[] {
 }
 
 export * from "./types";
-export { field, CAPTION_STYLES, LANGUAGES } from "./fields";
+export {
+  field,
+  ASPECT_RATIOS,
+  CAPTION_STYLES,
+  GOOGLE_FONTS,
+  LANGUAGES,
+  SUBTITLE_COLORS,
+  TOPAZ_MODELS,
+  VOICES,
+} from "./fields";

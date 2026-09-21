@@ -18,7 +18,12 @@ export function UploadField({
   value,
   onChange,
 }: {
-  accept: "image" | "video";
+  /**
+   * "video" takes a still too -- a Custom source is either. "videoOnly" does
+   * not: a bookend frame is spliced onto the timeline as its own segment, so
+   * an image there is a file the renderer has no duration for.
+   */
+  accept: "image" | "video" | "videoOnly";
   value: unknown;
   onChange: (assetId: string | null) => void;
 }) {
@@ -30,9 +35,25 @@ export function UploadField({
   const [error, setError] = useState<string | null>(null);
 
   const acceptAttr =
-    accept === "video" ? "video/*,image/*" : "image/png,image/jpeg,image/webp";
+    accept === "videoOnly"
+      ? "video/*"
+      : accept === "video"
+        ? "video/*,image/*"
+        : "image/png,image/jpeg,image/webp";
 
   async function upload(file: File) {
+    // The accept attribute filters the dialog; it does not enforce anything.
+    // Every OS file picker offers an "All files" escape hatch, and some
+    // browsers ignore accept on drag-and-drop entirely -- so the only place
+    // video-only can actually be video-only is here, on the chosen file.
+    if (accept === "videoOnly" && !file.type.startsWith("video/")) {
+      setState("error");
+      setName(null);
+      setError(`${file.name} isn't a video. This field takes video files only.`);
+      onChange(null);
+      return;
+    }
+
     setState("uploading");
     setError(null);
     setName(file.name);
@@ -84,13 +105,19 @@ export function UploadField({
           state === "uploading" ? "opacity-60" : "hover:border-accent",
         ].join(" ")}
       >
-        <span aria-hidden>{accept === "video" ? "🎞️" : "🖼️"}</span>
+        <span aria-hidden>{accept === "image" ? "🖼️" : "🎞️"}</span>
         <span className="min-w-0 flex-1 truncate">
           {state === "uploading"
             ? `Uploading ${name}…`
             : has
               ? (name ?? "Uploaded")
-              : `Choose ${accept === "video" ? "a video or image" : "an image"}`}
+              : `Choose ${
+                  accept === "videoOnly"
+                    ? "a video"
+                    : accept === "video"
+                      ? "a video or image"
+                      : "an image"
+                }`}
         </span>
         {has && state === "idle" && (
           <span

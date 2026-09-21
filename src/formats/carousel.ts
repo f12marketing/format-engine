@@ -1,5 +1,9 @@
 import { defineFormat } from "./types";
 import { field } from "./fields";
+import {
+  CAROUSEL_TEMPLATE_IDS,
+  DEFAULT_CAROUSEL_TEMPLATE,
+} from "../../convex/lib/carouselTemplates";
 
 /**
  * Phase 0. The whole format, and the one that proves the spine.
@@ -38,15 +42,8 @@ export default defineFormat({
     }),
     template: field.choice({
       label: "Template",
-      options: [
-        "bold-statement",
-        "editorial-serif",
-        "dark-mode",
-        "numbered-list",
-        "gradient-pop",
-        "minimal-grid",
-      ],
-      default: "bold-statement",
+      options: CAROUSEL_TEMPLATE_IDS,
+      default: DEFAULT_CAROUSEL_TEMPLATE,
     }),
     aspectRatio: field.choice({
       label: "Aspect ratio",

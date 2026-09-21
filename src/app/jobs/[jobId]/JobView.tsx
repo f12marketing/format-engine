@@ -8,7 +8,10 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 import { getFormat } from "@/formats";
 import { ApprovalGate } from "@/components/ApprovalGate";
 import { RemixActions } from "@/components/RemixActions";
+import { DeckEditor } from "@/components/DeckEditor";
 import { PostComposer, type ComposerMedia } from "@/components/PostComposer";
+import { carouselSlides } from "../../../../convex/lib/carouselPrompt";
+import { DEFAULT_CAROUSEL_TEMPLATE } from "../../../../convex/lib/carouselTemplates";
 
 /**
  * The run, watched live.
@@ -32,9 +35,12 @@ export function JobView({ jobId }: { jobId: string }) {
   }
 
   const format = getFormat(job.formatId);
-  const deck = job.steps.find((s) => s.id === "copy")?.output as
-    | { title?: string; slides?: unknown[]; caption?: string; hashtags?: string[] }
-    | undefined;
+  // Written by the copy step, or supplied up front when that step was skipped
+  // (a hand-written deck, or a re-render of edited copy).
+  const deckSource =
+    job.steps.find((s) => s.id === "copy")?.output ??
+    (job.config as { deck?: unknown } | undefined)?.deck;
+  const slides = job.formatId === "carousel" ? carouselSlides(deckSource) : [];
   const files = (job.steps.find((s) => s.id === "render")?.output as
     | { files?: { name: string }[] }
     | undefined)?.files;
@@ -45,9 +51,13 @@ export function JobView({ jobId }: { jobId: string }) {
   // Custom can all produce more than one, and that's exactly what a carousel
   // post is for.
   const postableVideo = assets?.find((a) => a.url && a.kind === "video");
-  const postableAssets = postableVideo
-    ? [postableVideo]
-    : (assets ?? []).filter((a) => a.url && a.kind === "image");
+  const images = (assets ?? []).filter((a) => a.url && a.kind === "image");
+  const postableAssets = postableVideo ? [postableVideo] : images;
+
+  // A carousel is previewed live in the deck editor below, from the same
+  // markup and stylesheets the render uses, so its PNGs get no second strip of
+  // their own here -- they stay downloadable in the file list.
+  const deckPreviewed = slides.length > 0;
 
   return (
     <Shell>
@@ -141,29 +151,21 @@ export function JobView({ jobId }: { jobId: string }) {
         ))}
       </ol>
 
-      {deck?.slides?.length ? (
-        <>
-          <h2 className="mt-8 font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">
-            Deck — {deck.slides.length} slides
-          </h2>
-          <ol className="mt-2 space-y-2">
-            {(deck.slides as Record<string, string>[]).map((s, i) => (
-              <li key={i} className="rounded-lg border border-line bg-surface p-3">
-                {s.kicker && (
-                  <p className="font-mono text-[0.6rem] uppercase tracking-wider text-muted">
-                    {s.kicker}
-                  </p>
-                )}
-                <p className="text-sm font-semibold">{s.headline}</p>
-                {s.body && <p className="mt-1 text-sm text-muted">{s.body}</p>}
-                {s.swipe_cue && (
-                  <p className="mt-1 text-xs italic text-muted">{s.swipe_cue}</p>
-                )}
-              </li>
-            ))}
-          </ol>
-        </>
-      ) : null}
+      {slides.length > 0 && (
+        <DeckEditor
+          // A re-render lands on a new job, but keying on the id also resets
+          // any half-typed edits if this component is reused across jobs.
+          key={job._id}
+          jobId={job._id}
+          slides={slides}
+          template={
+            (job.config as { template?: string } | undefined)?.template ??
+            DEFAULT_CAROUSEL_TEMPLATE
+          }
+          aspectRatio={(job.config as { aspectRatio?: string } | undefined)?.aspectRatio ?? "4:5"}
+          editable={job.status === "done"}
+        />
+      )}
 
       {assets?.length ? (
         <>
@@ -178,27 +180,35 @@ export function JobView({ jobId }: { jobId: string }) {
           */}
           <div className="mt-2 space-y-3">
             {assets
-              .filter((a) => a.url && (a.kind === "video" || a.kind === "image"))
+              .filter((a) => a.url && a.kind === "video")
               .slice(0, 4)
-              .map((a) =>
-                a.kind === "video" ? (
-                  <video
-                    key={a.id}
-                    src={a.url!}
-                    controls
-                    playsInline
-                    className="w-full max-w-[280px] rounded-xl border border-line bg-black"
-                  />
-                ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={a.id}
-                    src={a.url!}
-                    alt="Rendered output"
-                    className="w-full max-w-[280px] rounded-xl border border-line"
-                  />
-                ),
-              )}
+              .map((a) => (
+                <video
+                  key={a.id}
+                  src={a.url!}
+                  controls
+                  playsInline
+                  className="w-full max-w-[280px] rounded-xl border border-line bg-black"
+                />
+              ))}
+
+            {/* Several stills are a set to swipe through, not a column to
+                scroll past -- and every one of them, not just the first few. */}
+            {!deckPreviewed && images.length > 0 && (
+              <ul className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3">
+                {images.map((a, i) => (
+                  <li key={a.id} className="w-60 shrink-0 snap-start">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={a.url!}
+                      alt={`Rendered output ${i + 1}`}
+                      className="w-full rounded-xl border border-line"
+                      draggable={false}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <ul className="mt-3 flex flex-wrap gap-2">

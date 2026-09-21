@@ -15,7 +15,7 @@ import { StatusPill } from "@/components/StatusPill";
 export default function HistoryPage() {
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-10">
-      <h1 className="text-xl font-semibold tracking-tight">Job history</h1>
+      <h1 className="text-xl font-semibold tracking-tight">History</h1>
 
       <AuthorisedBoundary>
         <HistoryList />

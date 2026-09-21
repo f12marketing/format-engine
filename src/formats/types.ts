@@ -39,7 +39,9 @@ export type FieldKind =
   | "seconds"
   | "count"
   | "image"
+  | "images"
   | "video"
+  | "color"
   | "language"
   | "captionStyle"
   | "avatar"
@@ -58,6 +60,30 @@ export interface FieldBase {
    * "we'll write it for you".
    */
   generatedBy?: Primitive;
+  /**
+   * Moves the control out of the main panel and into the collapsed "Advanced
+   * options" block. A format with thirty knobs and six that matter is
+   * unusable otherwise -- and which six matter is the format's own
+   * judgement, not the panel's.
+   */
+  advanced?: boolean;
+  /**
+   * Advanced fields sharing a group render together under that heading, in
+   * declaration order. Named after the pipeline stage they configure
+   * ("Voiceover", "Subtitles"), so the panel reads like the old settings page.
+   */
+  group?: string;
+  /**
+   * Hide the control unless this holds -- the same declarative condition a
+   * step's `when` uses, and for the same reason: a closure cannot cross the
+   * Server Component boundary, and a frozen config snapshot has to stay
+   * explainable six weeks later.
+   *
+   * Every group whose stage is optional points its sub-fields at that group's
+   * own toggle, so switching Voiceover off takes its voice and language with
+   * it rather than leaving dead controls on screen.
+   */
+  showWhen?: StepCondition;
 }
 
 /**
@@ -96,6 +122,21 @@ export interface TextField extends FieldBase {
 export interface SimpleField extends FieldBase {
   kind: Exclude<FieldKind, ChoiceLikeKind | "seconds" | "count" | "shortText" | "longText">;
   default?: string | boolean;
+  /**
+   * Video uploads normally accept a still too -- a "source" is either. A
+   * bookend frame is not: it is spliced onto the timeline as its own segment,
+   * so a PNG there would be a file the renderer has no duration for. This
+   * narrows the picker to video/* AND re-checks the MIME on the chosen file,
+   * because "All files" in the OS dialog defeats the accept attribute alone.
+   */
+  videoOnly?: boolean;
+  /**
+   * For "images": how many files the control accepts. A cast of recurring
+   * characters is several reference sheets, not one -- but every edit model
+   * degrades as the reference count climbs, so the control caps rather than
+   * letting a deck of twenty be pasted in.
+   */
+  maxItems?: number;
 }
 
 export type Field = ChoiceField | SecondsField | CountField | TextField | SimpleField;
@@ -131,6 +172,33 @@ export interface Step {
   options?: Record<string, unknown>;
 }
 
+/**
+ * One stage of a format's production line, drawn as a card inside the
+ * Advanced options block: a title, the model behind it, a line on what it
+ * does, and -- for a stage that can be left out -- an on/off switch in the
+ * header. It is the old settings page's card, declared as data.
+ */
+export interface AdvancedCard {
+  /** Matches `field.group` on every field that belongs to this card. */
+  title: string;
+  /** The model behind the stage, shown as a badge. Free text: not every stage is a fal model. */
+  model?: string;
+  blurb: string;
+  /**
+   * Config key of the toggle that switches this stage on. It is drawn as the
+   * header switch instead of as a labelled control, and the card's other
+   * fields appear only while it is on. Omit for a stage that always runs.
+   */
+  toggle?: string;
+}
+
+/** A run of cards under one heading -- the old page's Core pipeline / Optional extras / Branding. */
+export interface AdvancedSection {
+  title: string;
+  blurb: string;
+  cards: AdvancedCard[];
+}
+
 export interface FormatDefinition {
   id: string;
   name: string;
@@ -149,6 +217,12 @@ export interface FormatDefinition {
   /** Build phase from the implementation plan. Drives the picker's badge. */
   phase: number;
   config: Record<string, Field>;
+  /**
+   * How the `advanced` fields are laid out. Optional: a format that marks
+   * fields advanced without declaring this still gets them, grouped by
+   * `field.group`, in a single unheaded section.
+   */
+  advancedSections?: AdvancedSection[];
   pipeline: Step[];
 }
 
@@ -156,13 +230,61 @@ export function defineFormat(def: FormatDefinition): FormatDefinition {
   return def;
 }
 
-/** Evaluate a step's condition against a config snapshot. */
-export function stepApplies(step: Step, config: Record<string, unknown>): boolean {
-  const c = step.when;
+/**
+ * Evaluate one declarative condition against a config snapshot.
+ *
+ * Shared by steps (`when`) and fields (`showWhen`) so that "Voiceover is off"
+ * means the same thing to the panel, the estimate and the workflow. Three
+ * readings of one toggle that could drift apart is exactly the bug this
+ * avoids.
+ */
+export function conditionHolds(
+  c: StepCondition | undefined,
+  config: Record<string, unknown>,
+): boolean {
   if (!c) return true;
   const value = config[c.field];
   if ("equals" in c) return value === c.equals;
   if ("notEquals" in c) return value !== c.notEquals;
   const empty = value === undefined || value === null || value === "" || value === false;
   return c.is === "empty" ? empty : !empty;
+}
+
+/** Evaluate a step's condition against a config snapshot. */
+export function stepApplies(step: Step, config: Record<string, unknown>): boolean {
+  return conditionHolds(step.when, config);
+}
+
+/** Whether a field's control should be on screen at all, given what's set so far. */
+export function fieldApplies(field: Field, config: Record<string, unknown>): boolean {
+  return conditionHolds(field.showWhen, config);
+}
+
+/**
+ * The config a run actually uses: `values` minus every field the panel is
+ * not showing.
+ *
+ * Hiding a control does not clear its value, and that matters. Switch
+ * Subtitles on, then Voiceover off: the Subtitles card disappears but
+ * `subtitles` is still true, so a step declared `when: subtitles present`
+ * would run -- and be billed -- for a stage the user can no longer see.
+ * Steps, the estimate and the config frozen onto the job all read this
+ * instead, so what runs is exactly what is on screen. The raw values stay in
+ * the panel's state, so switching a stage back on restores its settings.
+ *
+ * Walked in declaration order, which is what resolves chains: Subtitles
+ * depends on Voiceover, and Subtitles' own fields depend on Subtitles, so
+ * dropping the first drops the rest. A format must therefore declare a
+ * field after the one its `showWhen` names -- which every one reads
+ * naturally as anyway.
+ */
+export function effectiveConfig(
+  format: FormatDefinition,
+  values: Record<string, unknown>,
+): Record<string, unknown> {
+  const out = { ...values };
+  for (const [key, field] of Object.entries(format.config)) {
+    if (!fieldApplies(field, out)) delete out[key];
+  }
+  return out;
 }

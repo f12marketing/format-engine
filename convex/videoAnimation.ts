@@ -18,6 +18,16 @@ import {
   clipRate,
   MAX_CLIP_SECONDS,
 } from "./lib/klingClip";
+import {
+  bookendsAndBranding,
+  musicVolumeOf,
+  ratioOf,
+  scoreMusicStep,
+  stabilityOf,
+  subtitlesStep,
+  upscaleStep,
+} from "./lib/extras";
+import type { ExtrasConfig } from "./lib/extras";
 
 /**
  * Video Animation: story -> characters -> shots -> composites -> clips ->
@@ -63,8 +73,30 @@ export const run = workflow
 
       await step.runAction(internal.videoAnimation.compositeScenes, args, { retry: true });
       await step.runAction(internal.videoAnimation.generateClips, args, { retry: true });
-      await step.runAction(internal.videoAnimation.generateVoiceover, args, { retry: true });
+
+      // Which of the optional steps exist is decided once, at submit, by the
+      // pipeline's `when` conditions -- so this is the authority, never a
+      // second reading of the config. A job from before these options existed
+      // lists "voice" and none of the others, and runs exactly as it did.
+      const planned = await step.runQuery(internal.jobs.plannedStepIds, { jobId });
+      if (planned.includes("voice")) {
+        await step.runAction(internal.videoAnimation.generateVoiceover, args, { retry: true });
+      }
+      if (planned.includes("music")) {
+        await step.runAction(internal.videoAnimation.scoreMusic, args, { retry: true });
+      }
+
       await step.runAction(internal.videoAnimation.stitch, args, { retry: true });
+
+      // Both replace the job's output asset with a new one, in this order:
+      // burning subtitles in first would send the text through Topaz too,
+      // softening the one element that was already pixel-sharp.
+      if (planned.includes("upscale")) {
+        await step.runAction(internal.videoAnimation.upscale, args, { retry: true });
+      }
+      if (planned.includes("subtitles")) {
+        await step.runAction(internal.videoAnimation.burnSubtitles, args, { retry: true });
+      }
 
       await step.runMutation(internal.jobs.finish, { jobId, status: "done" });
     } catch (e) {
@@ -123,15 +155,27 @@ interface Shot {
   audio_url?: string;
 }
 
-function config(job: { config: unknown }) {
-  return job.config as {
-    logline?: string;
-    durationSec?: number;
-    style?: string;
-    aspectRatio?: string;
-    language?: string;
-    videoModel?: string;
-  };
+/**
+ * The job's frozen config. Every field is optional because a job created
+ * before a field existed still has to run -- and each default below is what
+ * that job did before the field was there.
+ */
+interface VideoAnimationConfig extends ExtrasConfig {
+  logline?: string;
+  durationSec?: number;
+  style?: string;
+  /** "Kling 3 Standard" or "Kling 3 Pro" -- see lib/klingClip.ts. */
+  videoModel?: string;
+
+  imageOutputFormat?: string;
+  imageSafetyTolerance?: string;
+
+  compositeOutputFormat?: string;
+  compositeSafetyChecker?: boolean;
+}
+
+function config(job: { config: unknown }): VideoAnimationConfig {
+  return job.config as VideoAnimationConfig;
 }
 
 const PER_SHOT_SECONDS = 5;
@@ -363,15 +407,17 @@ export const designCharacters = internalAction({
     // aspect ratio; backgrounds match the project so composites don't have to
     // crop them later. Both run in parallel -- independent images, nothing to
     // serialise.
-    const backgroundAspect = cfg.aspectRatio ?? "16:9";
+    const backgroundAspect = ratioOf(cfg.aspectRatio, "16:9");
+    const imageFormat = cfg.imageOutputFormat ?? "png";
+    const imageSafety = cfg.imageSafetyTolerance ?? "4";
     const [charImages, bgImages] = await Promise.all([
       Promise.all(
         characters.map(async (c) => {
           const buildInput = (prompt: string) => ({
             prompt,
             aspect_ratio: "1:1",
-            output_format: "png",
-            safety_tolerance: "4",
+            output_format: imageFormat,
+            safety_tolerance: imageSafety,
             num_images: 1,
           });
           // Ported minimal fallback: drop straight to a bare reference-sheet
@@ -395,8 +441,8 @@ export const designCharacters = internalAction({
           const buildInput = (prompt: string) => ({
             prompt,
             aspect_ratio: backgroundAspect,
-            output_format: "png",
-            safety_tolerance: "4",
+            output_format: imageFormat,
+            safety_tolerance: imageSafety,
             num_images: 1,
           });
           const result = (await submitWithContentPolicyFallback(
@@ -599,7 +645,8 @@ export const compositeScenes = internalAction({
     if (!job) throw new Error("unknown job");
     const cfg = config(job);
     const imageStyle = cfg.style ?? "Pixar-style 3D animation, cinematic lighting";
-    const imageSize = ASPECT_TO_COMPOSITE_IMAGE_SIZE[cfg.aspectRatio ?? "16:9"] ?? "landscape_16_9";
+    const imageSize =
+      ASPECT_TO_COMPOSITE_IMAGE_SIZE[ratioOf(cfg.aspectRatio, "16:9")] ?? "landscape_16_9";
     const framing = COMPOSITE_FRAMING_DESCRIPTION[imageSize] ?? "Cinematic composition";
 
     const cast = job.steps.find((s) => s.id === "characters")?.output as
@@ -659,8 +706,8 @@ export const compositeScenes = internalAction({
           prompt,
           image_urls: imageUrls,
           image_size: imageSize,
-          output_format: "jpeg",
-          enable_safety_checker: true,
+          output_format: cfg.compositeOutputFormat ?? "jpeg",
+          enable_safety_checker: cfg.compositeSafetyChecker !== false,
         });
         // Rung 3: the full wrapper survives, only the scene prose is dropped
         // down to the bare scene title and mood -- ported from the old app's
@@ -829,8 +876,8 @@ export const generateVoiceover = internalAction({
         // schema (see speechPrimitive.ts for the full note).
         const result = (await callSync("fal-ai/elevenlabs/tts/eleven-v3", {
           text,
-          voice: "Sarah",
-          stability: 0.5,
+          voice: cfg.voice ?? "Sarah",
+          stability: stabilityOf(cfg),
           language_code: languageCode,
           apply_text_normalization: "auto",
         })) as { audio?: { url?: string } };
@@ -871,11 +918,19 @@ export const stitch = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
     const cfg = config(job);
-    const shots = ((job.steps.find((s) => s.id === "voice")?.output as { shots?: Shot[] } | undefined)
-      ?.shots ?? []) as Shot[];
-    if (!shots.length) throw new Error("no voiced shots to stitch");
+    // With Voiceover switched off the voice step never ran, so the shots
+    // come straight from the clips step instead.
+    const stitchable = (job.steps.find((s) => s.id === "voice")?.output ??
+      job.steps.find((s) => s.id === "clips")?.output) as { shots?: Shot[] } | undefined;
+    const shots = (stitchable?.shots ?? []) as Shot[];
+    if (!shots.length) throw new Error("no shots to stitch");
 
     const base = renderServiceBase();
+    const musicUrl =
+      (job.steps.find((s) => s.id === "music")?.output as { url?: string } | undefined)?.url ??
+      null;
+    // Start/end videos and the branded cards ride on this same render call.
+    const { startVideoUrl, endVideoUrl, branding } = await bookendsAndBranding(ctx, cfg);
 
     // A stitched video routinely lands well past Convex's 16MB
     // function-argument ceiling -- the first real run here hit 17.5MB as
@@ -895,10 +950,18 @@ export const stitch = internalAction({
           videoUrl: s.clip_url,
           audioUrl: s.audio_url ?? null,
           durationSec: s.duration_seconds || PER_SHOT_SECONDS,
-          caption: (s.dialogue ?? "").trim() || null,
+          // Burned-in karaoke subtitles are transcribed from this very
+          // dialogue, so with them on the per-shot caption would say every
+          // line twice.
+          caption: cfg.subtitles ? null : (s.dialogue ?? "").trim() || null,
         })),
-        dimensions: cfg.aspectRatio ?? "16:9",
+        dimensions: ratioOf(cfg.aspectRatio, "16:9"),
         captionStyle: "Classic",
+        musicUrl,
+        musicVolume: musicVolumeOf(cfg),
+        startVideoUrl,
+        endVideoUrl,
+        branding,
         uploadUrl,
       }),
     });
@@ -943,6 +1006,62 @@ export const stitch = internalAction({
       output: { files: [{ name: "output.mp4" }] },
     });
     await ctx.runMutation(internal.jobs.setOutputs, { jobId, assetIds });
+    return null;
+  },
+});
+
+// ---------------------------------------------------------------- optional: music, upscale, subtitles
+
+/** The finished cut's length, from whichever step last held the shots. */
+function totalSecondsOf(job: { steps: { id: string; output?: unknown }[] }): number {
+  const out = (job.steps.find((s) => s.id === "voice")?.output ??
+    job.steps.find((s) => s.id === "clips")?.output) as { shots?: Shot[] } | undefined;
+  return (out?.shots ?? []).reduce((sum, s) => sum + (s.duration_seconds || PER_SHOT_SECONDS), 0);
+}
+
+/**
+ * The score is generated BEFORE the cut exists, so its length is the shots'
+ * total -- known by now, unlike Slideshow's, which has to guess how long a
+ * voice will stretch each slide. The shared step clamps it to what
+ * CassetteAI accepts, and the renderer loops or trims it to fit.
+ */
+export const scoreMusic = internalAction({
+  args: { jobId: v.id("jobs"), clientId: v.id("clients") },
+  handler: async (ctx, { jobId, clientId }): Promise<null> => {
+    const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
+    if (!job) throw new Error("unknown job");
+    const cfg = config(job);
+    await scoreMusicStep(ctx, {
+      jobId,
+      clientId,
+      wantedSeconds: totalSecondsOf(job),
+      subject: cfg.logline ?? "",
+    });
+    return null;
+  },
+});
+
+export const upscale = internalAction({
+  args: { jobId: v.id("jobs"), clientId: v.id("clients") },
+  handler: async (ctx, { jobId, clientId }): Promise<null> => {
+    const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
+    if (!job) throw new Error("unknown job");
+    await upscaleStep(ctx, { jobId, clientId, fallbackSeconds: totalSecondsOf(job) });
+    return null;
+  },
+});
+
+export const burnSubtitles = internalAction({
+  args: { jobId: v.id("jobs"), clientId: v.id("clients") },
+  handler: async (ctx, { jobId, clientId }): Promise<null> => {
+    const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
+    if (!job) throw new Error("unknown job");
+    await subtitlesStep(ctx, {
+      jobId,
+      clientId,
+      fallbackSeconds: totalSecondsOf(job),
+      defaultAspect: "16:9",
+    });
     return null;
   },
 });

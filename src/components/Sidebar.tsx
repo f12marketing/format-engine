@@ -20,8 +20,7 @@ const NAV = [
   { href: "/library", label: "Library", icon: LibraryIcon },
   { href: "/calendar", label: "Calendar", icon: CalendarIcon },
   { href: "/analytics", label: "Analytics", icon: ChartIcon },
-  { href: "/history", label: "Jobs", icon: ListIcon },
-  { href: "/projects", label: "Projects", icon: FolderIcon },
+  { href: "/history", label: "History", icon: ListIcon },
   { href: "/connections", label: "Connections", icon: PlugIcon },
 ];
 
@@ -109,14 +108,6 @@ function ListIcon({ className }: { className?: string }) {
     <svg {...iconProps(className)}>
       <path d="M8 6h13M8 12h13M8 18h13" />
       <path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" />
-    </svg>
-  );
-}
-
-function FolderIcon({ className }: { className?: string }) {
-  return (
-    <svg {...iconProps(className)}>
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
     </svg>
   );
 }
