@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
-import { getSupabaseClient } from "@/lib/supabaseClient";
+import { getSupabaseClient, supabaseConfigured } from "@/lib/supabaseClient";
 
 /**
  * The contract ConvexProviderWithAuth needs, implemented against Supabase
@@ -16,14 +16,14 @@ import { getSupabaseClient } from "@/lib/supabaseClient";
  */
 export function useSupabaseAuth() {
   const [session, setSession] = useState<Session | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  // With no Supabase client there is nothing to wait for, so start settled
+  // rather than flipping it inside the effect. `supabaseConfigured` is a
+  // build-time constant, so server and client agree on it.
+  const [isLoading, setIsLoading] = useState(supabaseConfigured);
 
   useEffect(() => {
     const supabase = getSupabaseClient();
-    if (!supabase) {
-      setIsLoading(false);
-      return;
-    }
+    if (!supabase) return;
 
     supabase.auth
       .getSession()
