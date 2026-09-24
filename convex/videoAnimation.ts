@@ -3,14 +3,8 @@ import { internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
-import {
-  callSync,
-  callTool,
-  LLM_MODEL,
-  submitWithContentPolicyFallback,
-} from "./lib/fal";
-import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
-import { GROUNDING_RULES } from "./lib/grounding";
+import { callTool, LLM_MODEL, submitWithContentPolicyFallback } from "./lib/fal";
+import { assertVoiceoverSupport, renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 import {
   animateClip,
   characterElement,
@@ -23,17 +17,25 @@ import {
   musicVolumeOf,
   ratioOf,
   scoreMusicStep,
-  stabilityOf,
   subtitlesStep,
   upscaleStep,
 } from "./lib/extras";
 import type { ExtrasConfig } from "./lib/extras";
+import { SCENE_SECONDS } from "./lib/scriptTiming";
+import { listFrom, narrateScript } from "./lib/scriptVoice";
+import type { NarratedScript } from "./lib/scriptVoice";
+import { businessContext } from "./lib/businessContext";
 
 /**
- * Video Animation: story -> characters -> shots -> composites -> clips ->
- * voice -> stitch. The old app's flagship, and the reason porting it early
+ * Video Animation: script -> voiceover -> characters -> shots -> composites ->
+ * clips -> stitch. The old app's flagship, and the reason porting it early
  * pays for the whole rewrite -- it lands P2, P3 and P4 in one phase and forces
  * the approval-gate mechanism Product Spokesperson needs later.
+ *
+ * The video is cut to its voiceover. The script is recorded first; however
+ * long that takes (X seconds) becomes X / 3 shots of three seconds each, and
+ * each shot is planned around the words spoken while it is on screen. So
+ * nobody is asked how long the video should be -- the script already says.
  *
  * Three gates use `step.awaitEvent`, which suspends the workflow completely
  * (no resources consumed) until `jobs.approveStep` sends the matching event.
@@ -56,10 +58,15 @@ export const run = workflow
   .handler(async (step, args): Promise<null> => {
     const { jobId, clientId } = args;
     try {
-      await step.runAction(internal.videoAnimation.writeStory, args, { retry: true });
-      await step.awaitEvent({ name: `approve:${jobId}:story` });
-      await step.runMutation(internal.jobs.patchStep, { jobId, stepId: "story", state: "done" });
-      await step.runMutation(internal.jobs.setRunning, { jobId });
+      // Which optional steps exist is decided once, at submit, by the
+      // pipeline's `when` conditions -- so this is the authority, never a
+      // second reading of the config.
+      const planned = await step.runQuery(internal.jobs.plannedStepIds, { jobId });
+
+      // The voiceover comes first and everything else is cut to it. Nothing
+      // before the cast is gated: the script is the person's own, and the first
+      // thing worth reviewing is what the characters look like.
+      await step.runAction(internal.videoAnimation.recordVoiceover, args, { retry: true });
 
       await step.runAction(internal.videoAnimation.designCharacters, args, { retry: true });
       await step.awaitEvent({ name: `approve:${jobId}:characters` });
@@ -74,14 +81,6 @@ export const run = workflow
       await step.runAction(internal.videoAnimation.compositeScenes, args, { retry: true });
       await step.runAction(internal.videoAnimation.generateClips, args, { retry: true });
 
-      // Which of the optional steps exist is decided once, at submit, by the
-      // pipeline's `when` conditions -- so this is the authority, never a
-      // second reading of the config. A job from before these options existed
-      // lists "voice" and none of the others, and runs exactly as it did.
-      const planned = await step.runQuery(internal.jobs.plannedStepIds, { jobId });
-      if (planned.includes("voice")) {
-        await step.runAction(internal.videoAnimation.generateVoiceover, args, { retry: true });
-      }
       if (planned.includes("music")) {
         await step.runAction(internal.videoAnimation.scoreMusic, args, { retry: true });
       }
@@ -114,7 +113,6 @@ const LLM_INPUT_PER_1M = 2.0;
 const LLM_OUTPUT_PER_1M = 10.0;
 const IMAGE_PRICE_PER_UNIT = 0.08; // fal-ai/nano-banana-2 at 1K
 const COMPOSITE_PRICE_PER_UNIT = 0.04; // alibaba/qwen-image-3/edit at 1K
-const TTS_PRICE_PER_1000_CHARS = 0.1; // fal-ai/elevenlabs/tts/eleven-v3
 
 function llmCost(inputTokens: number, outputTokens: number): number {
   return (inputTokens / 1e6) * LLM_INPUT_PER_1M + (outputTokens / 1e6) * LLM_OUTPUT_PER_1M;
@@ -161,8 +159,8 @@ interface Shot {
  * that job did before the field was there.
  */
 interface VideoAnimationConfig extends ExtrasConfig {
-  logline?: string;
-  durationSec?: number;
+  /** What the voiceover says, word for word. Required. */
+  script?: string;
   style?: string;
   /** "Kling 3 Standard" or "Kling 3 Pro" -- see lib/klingClip.ts. */
   videoModel?: string;
@@ -172,124 +170,78 @@ interface VideoAnimationConfig extends ExtrasConfig {
 
   compositeOutputFormat?: string;
   compositeSafetyChecker?: boolean;
+  mentionBusiness?: boolean;
 }
 
 function config(job: { config: unknown }): VideoAnimationConfig {
   return job.config as VideoAnimationConfig;
 }
 
-const PER_SHOT_SECONDS = 5;
+// ---------------------------------------------------------------- stage 0: the voiceover inputs
 
-// ---------------------------------------------------------------- stage 1: story
-const STORY_SYSTEM = `You expand a short story logline into a structured animation screenplay.
+/** The voiceover step's output: the script as spoken, how long it ran, and the scene windows. */
+function voiceOf(job: { steps: { id: string; output?: unknown }[] }): NarratedScript | undefined {
+  return job.steps.find((s) => s.id === "voice")?.output as NarratedScript | undefined;
+}
 
-Instructions:
-1. Analyze the logline: identify genre, tone, conflict arc, and resolution.
-2. Expand into 8-15 scenes (targets ~3-5 minutes at ~8 sec/shot, but the
-   project's target duration below takes priority if it implies fewer scenes).
-3. Each scene must include:
-   - Scene number and title
-   - Location: detailed visual description (used for background image generation)
-   - Characters present: with brief visual descriptions on first appearance
-   - Action and dialogue: visual storytelling focus (show, don't tell)
-   - Shot Notes: suggested camera angles/movements (wide, close-up, tracking, etc.)
-   - Tone/Pacing: emotional beat
-4. Write for 3D animation: visually descriptive and action-oriented.
-5. Keep character count manageable (3-6 main characters).
-6. Dialogue should sound like something a specific person would actually say
-   in this specific moment -- avoid generic movie-trailer lines ("This changes
-   everything", "We have to go, now!") that could drop into any story
-   unchanged.
+// ---------------------------------------------------------------- stage 1: the voiceover (P4)
 
-${GROUNDING_RULES}
-
-Output as markdown with this structure:
-
-# [Story Title]
-
-## Logline
-[Original logline]
-
-## Characters
-- **Name**: Brief description (age, appearance, personality)
-
-## Scene 1: [Scene Title]
-**Location**: [Detailed visual setting description]
-**Characters**: [Characters present]
-**Time of Day**: [Morning/Afternoon/Night]
-
-[Narrative action and dialogue]
-
-**Shot Notes**: [Camera angles and movements]
-**Tone**: [Emotional beat]
-
----
-
-## Scene 2: ...`;
-
-const STORY_TOOL = {
-  name: "save_story",
-  description: "Save the generated story screenplay as markdown.",
-  input_schema: {
-    type: "object",
-    properties: {
-      markdown: {
-        type: "string",
-        description: "The full story, formatted exactly per the system instructions.",
-      },
-    },
-    required: ["markdown"],
-  },
-};
-
-export const writeStory = internalAction({
+/**
+ * The whole script in one take, before anything is drawn or animated. How long
+ * it takes to say (X seconds) decides how many scenes there are (X / 3, rounded
+ * up), and the speech model's word timings say which words are spoken during
+ * which scene -- see lib/scriptTiming.ts.
+ *
+ * This replaces the old per-shot dialogue: one continuous narration has one
+ * continuous rhythm, and the clips are cut to it rather than the other way
+ * round.
+ */
+export const recordVoiceover = internalAction({
   args: { jobId: v.id("jobs"), clientId: v.id("clients") },
   handler: async (ctx, { jobId, clientId }): Promise<null> => {
-    await ctx.runMutation(internal.jobs.patchStep, { jobId, stepId: "story", state: "running" });
+    await ctx.runMutation(internal.jobs.patchStep, { jobId, stepId: "voice", state: "running" });
 
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
     const cfg = config(job);
-    const logline = (cfg.logline ?? "").trim();
-    if (!logline) throw new Error("A logline or script is required.");
-    const targetDurationSeconds = cfg.durationSec ?? 30;
-    const imageStyle = cfg.style ?? "Pixar-style 3D animation, cinematic lighting";
 
-    await ctx.runMutation(internal.ledger.assertUnderCap, { clientId, aboutToSpendUsd: 0.05 });
+    // Required: it is the video's only source of length and of story.
+    const script = (cfg.script ?? "").trim();
+    if (!script) throw new Error("A script is required.");
 
-    const prompt =
-      `Logline: ${logline}\n` +
-      `Target final video length: ${targetDurationSeconds} seconds ` +
-      `(~${Math.max(1, Math.round(targetDurationSeconds / PER_SHOT_SECONDS))} five-second shots downstream -- ` +
-      `pace scene count accordingly, fewer scenes for shorter videos).\n` +
-      `Art direction for visual descriptions: ${imageStyle}.`;
+    // Before anything is spent: see assertVoiceoverSupport.
+    await assertVoiceoverSupport();
 
-    const call = await callTool(STORY_SYSTEM, prompt, STORY_TOOL as never);
-    const markdown = String((call.value as { markdown?: string })?.markdown ?? "").trim();
-    if (!markdown) throw new Error("model returned an empty story");
-
-    await ctx.runMutation(internal.ledger.record, {
-      clientId,
+    const narrated = await narrateScript(ctx, { jobId, clientId, script, config: cfg });
+    await ctx.runMutation(internal.jobs.patchStep, {
       jobId,
-      stepId: "story",
-      primitive: "P1",
-      model: LLM_MODEL,
-      units: call.inputTokens + call.outputTokens,
-      unitLabel: "tokens",
-      costUsd: llmCost(call.inputTokens, call.outputTokens),
-    });
-    await ctx.runMutation(internal.jobs.setAwaitingApproval, {
-      jobId,
-      stepId: "story",
-      output: { markdown },
+      stepId: "voice",
+      state: "done",
+      output: narrated,
     });
     return null;
   },
 });
 
+/** The script laid out as numbered three-second scenes, for the steps that plan around it. */
+function scenesText(voice: NarratedScript): string {
+  return voice.windows
+    .map((w, i) => `Scene ${i + 1} (${i * SCENE_SECONDS}-${(i + 1) * SCENE_SECONDS}s): ${w.trim() || "(a pause -- nothing is said)"}`)
+    .join("\n");
+}
+
 // ---------------------------------------------------------------- stage 2: characters + backgrounds
-const CHARACTERS_SYSTEM = `Parse a story screenplay to extract unique characters and locations, then write
-detailed image-generation prompts for each.
+const CHARACTERS_SYSTEM = `Read a narration script to extract the characters and locations it needs on
+screen, then write detailed image-generation prompts for each.
+
+The script is a voiceover read over generated footage, divided into numbered
+scenes of three seconds each -- not a screenplay. Characters are the people or
+creatures it talks about or that would naturally appear in what it describes.
+If it is about things rather than people (a process, a place, an object, an
+idea), the characters list may be EMPTY: the backgrounds carry the picture. Do
+not invent a cast the script does not call for. Give the backgrounds real
+variety -- at least two, more for a longer script -- so the shots do not all
+look alike.
 
 Characters:
 1. Identify every unique character mentioned across all scenes.
@@ -372,25 +324,22 @@ export const designCharacters = internalAction({
     if (!job) throw new Error("unknown job");
     const cfg = config(job);
     const imageStyle = cfg.style ?? "Pixar-style 3D animation, cinematic lighting";
-    const storyMarkdown = String(
-      (job.steps.find((s) => s.id === "story")?.output as { markdown?: string } | undefined)
-        ?.markdown ?? "",
-    );
-    if (!storyMarkdown) throw new Error("no approved story to extract characters from");
+    const voice = voiceOf(job);
+    if (!voice?.windows?.length) throw new Error("no voiceover to extract characters from");
 
     await ctx.runMutation(internal.ledger.assertUnderCap, { clientId, aboutToSpendUsd: 0.3 });
 
     const call = await callTool(
       CHARACTERS_SYSTEM,
-      `Art direction: ${imageStyle}.\n\nStory:\n\n${storyMarkdown}`,
+      `Art direction: ${imageStyle}.\n\nScript, cut into scenes:\n\n${scenesText(voice)}`,
       CHARACTERS_TOOL as never,
     );
     const extracted = call.value as { characters?: Character[]; backgrounds?: Background[] };
     const characters = extracted.characters ?? [];
     const backgrounds = extracted.backgrounds ?? [];
-    if (!characters.length || !backgrounds.length) {
-      throw new Error("model returned no characters or no backgrounds");
-    }
+    // Characters may legitimately be none (see the system prompt); a video
+    // with no place to happen in cannot be.
+    if (!backgrounds.length) throw new Error("model returned no backgrounds");
 
     await ctx.runMutation(internal.ledger.record, {
       clientId,
@@ -481,25 +430,33 @@ export const designCharacters = internalAction({
 });
 
 // ---------------------------------------------------------------- stage 3: shot list
-const SHOTS_SYSTEM = `Decompose a story into discrete shots of a FIXED duration (given in the
-prompt as "shots of Ns each") mapped to character/background IDs and
-self-contained video generation prompts.
+const SHOTS_SYSTEM = `Turn a narration script into a shot list, one shot for each numbered scene.
 
-Shot count and per-shot duration are both given exactly in the prompt as
-"Target: exactly N shots of Ds seconds each" -- use those numbers precisely,
-do not recompute them. Distribute shots across scenes proportionally to
-their importance/length; break each scene into 1-3 shots.
+The video is cut to a voiceover that is already recorded. The script is divided
+into numbered scenes of exactly three seconds each, and every scene is ONE shot:
+shot N is on screen while scene N of the script is spoken, so it must show what
+is being said in those three seconds. Write exactly one shot per scene, in
+order -- no more and no fewer. The scene and shot count are given in the prompt;
+use those numbers precisely, do not recompute them.
+
+A scene with no words is a pause: carry the visual thread on from the shot
+before it.
+
+Group consecutive shots that happen in the same place into one story scene:
+give them the same scene_number (starting at 1) and number them
+shot_number_in_scene from 1. A change of place starts a new scene_number.
 
 Assign sequential IDs: shot_001, shot_002, ...
 
 For each shot:
-- duration_seconds: exactly the per-shot duration given in the prompt, for every shot
-- characters: list of character_id's present (must match the given characters)
+- duration_seconds: 3, for every shot
+- characters: list of character_id's present (must match the given characters;
+  an empty list is fine for a shot with nobody in it)
 - background: the bg_id for this location (must match the given backgrounds)
-- action: clear visual description of what happens in this shot
+- action: clear visual description of what happens in this shot, in three seconds
 - camera_movement: e.g. "static wide shot", "slow dolly-in", "pan left",
-  "close-up on face", "tracking shot"
-- dialogue: spoken line if any, or "" if none.
+  "close-up on face", "tracking shot". One simple move: three seconds is short.
+- dialogue: always "" -- the voiceover speaks the script
 - mood: emotional tone
 - veo_prompt: a self-contained video generation prompt for an image-to-video
   model that receives this shot's already-composited image alongside it --
@@ -556,27 +513,24 @@ export const writeShotList = internalAction({
     if (!job) throw new Error("unknown job");
     const cfg = config(job);
     const imageStyle = cfg.style ?? "Pixar-style 3D animation, cinematic lighting";
-    const targetDurationSeconds = cfg.durationSec ?? 30;
 
-    const storyMarkdown = String(
-      (job.steps.find((s) => s.id === "story")?.output as { markdown?: string } | undefined)
-        ?.markdown ?? "",
-    );
+    // One shot per scene of the voiceover: X / 3, already worked out.
+    const voice = voiceOf(job);
+    if (!voice?.windows?.length) throw new Error("no voiceover to cut the shots to");
+    const shotCount = voice.windows.length;
+
     const cast = job.steps.find((s) => s.id === "characters")?.output as
       | { characters?: Character[]; backgrounds?: Background[] }
       | undefined;
     const characters = cast?.characters ?? [];
     const backgrounds = cast?.backgrounds ?? [];
-    if (!storyMarkdown || !characters.length || !backgrounds.length) {
-      throw new Error("story and characters must be approved before writing shots");
-    }
+    if (!backgrounds.length) throw new Error("the cast must be approved before writing shots");
 
     await ctx.runMutation(internal.ledger.assertUnderCap, { clientId, aboutToSpendUsd: 0.1 });
 
-    const shotCount = Math.max(1, Math.round(targetDurationSeconds / PER_SHOT_SECONDS));
     const prompt =
-      `Target: exactly ${shotCount} shots of ${PER_SHOT_SECONDS} seconds each ` +
-      `(${shotCount * PER_SHOT_SECONDS}s total).\n` +
+      `Target: exactly ${shotCount} shots of ${SCENE_SECONDS} seconds each ` +
+      `(${shotCount * SCENE_SECONDS}s total), one for each scene below.\n` +
       `Art direction: ${imageStyle}.\n\n` +
       `Available characters:\n${JSON.stringify(
         characters.map((c) => ({ character_id: c.character_id, name: c.name, description: c.description })),
@@ -586,13 +540,36 @@ export const writeShotList = internalAction({
         backgrounds.map((b) => ({ bg_id: b.bg_id, name: b.name, description: b.description })),
         null, 2,
       )}\n\n` +
-      `Story:\n\n${storyMarkdown}`;
+      `Script, cut into scenes:\n\n${scenesText(voice)}` +
+      (await businessContext(
+        ctx,
+        clientId,
+        cfg.mentionBusiness,
+        "Where it fits the script, show the business's product, setting or customers in the shots -- never as an ad.",
+      ));
 
     const call = await callTool(SHOTS_SYSTEM, prompt, SHOTS_TOOL as never);
-    const shots = ((call.value as { shots?: Shot[] })?.shots ?? []).filter(
-      (s) => backgrounds.some((b) => b.bg_id === s.background),
-    );
-    if (shots.length < 1) throw new Error("model returned no valid shots");
+    const drafted = listFrom<Shot>(call.value, "shots");
+    if (drafted.length < shotCount) {
+      throw new Error(`model returned ${drafted.length} shot(s) for ${shotCount} scenes of the script`);
+    }
+
+    // One per scene, no more. And the parts the model has no say in are set
+    // here rather than trusted: every shot is exactly three seconds, the words
+    // shown with it are the ones actually spoken during it, and a background
+    // or character it mistyped falls back to something real rather than
+    // dropping the shot -- a dropped shot would leave a hole in the picture
+    // while the voice carried on.
+    const bgIds = new Set(backgrounds.map((b) => b.bg_id));
+    const charIds = new Set(characters.map((c) => c.character_id));
+    const shots: Shot[] = drafted.slice(0, shotCount).map((s, i) => ({
+      ...s,
+      shot_id: `shot_${String(i + 1).padStart(3, "0")}`,
+      duration_seconds: SCENE_SECONDS,
+      dialogue: voice.windows[i].trim(),
+      background: bgIds.has(s.background) ? s.background : backgrounds[0].bg_id,
+      characters: (s.characters ?? []).filter((id) => charIds.has(id)),
+    }));
 
     await ctx.runMutation(internal.ledger.record, {
       clientId,
@@ -763,7 +740,7 @@ export const generateClips = internalAction({
     if (!shots.length) throw new Error("no composited shots to animate");
 
     const secondsOf = (s: Shot) =>
-      Math.min(MAX_CLIP_SECONDS, s.duration_seconds || PER_SHOT_SECONDS);
+      Math.min(MAX_CLIP_SECONDS, s.duration_seconds || SCENE_SECONDS);
     const totalSeconds = shots.reduce((sum, s) => sum + secondsOf(s), 0);
     const model = clipModelFor(config(job).videoModel);
     const rate = clipRate(model);
@@ -840,75 +817,6 @@ export const generateClips = internalAction({
   },
 });
 
-// ---------------------------------------------------------------- stage 6: voiceover (P4)
-export const generateVoiceover = internalAction({
-  args: { jobId: v.id("jobs"), clientId: v.id("clients") },
-  handler: async (ctx, { jobId, clientId }): Promise<null> => {
-    await ctx.runMutation(internal.jobs.patchStep, { jobId, stepId: "voice", state: "running" });
-
-    const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
-    if (!job) throw new Error("unknown job");
-    const cfg = config(job);
-    const languageCode = cfg.language ?? "en";
-    const shots = ((job.steps.find((s) => s.id === "clips")?.output as { shots?: Shot[] } | undefined)
-      ?.shots ?? []) as Shot[];
-    if (!shots.length) throw new Error("no animated shots to voice");
-
-    const speaking = shots.filter((s) => (s.dialogue ?? "").trim());
-    const totalChars = speaking.reduce((sum, s) => sum + s.dialogue.length, 0);
-
-    if (speaking.length) {
-      await ctx.runMutation(internal.ledger.assertUnderCap, {
-        clientId,
-        aboutToSpendUsd: (totalChars / 1000) * TTS_PRICE_PER_1000_CHARS,
-      });
-    }
-
-    // One call per shot that actually speaks -- the old app's own approach
-    // (no cross-shot narration track). Simpler and, since each shot becomes
-    // its own audio segment muxed onto its own clip in the stitch step,
-    // avoids the cumulative-offset drift a single continuous track risks.
-    const voiced = await Promise.all(
-      shots.map(async (shot) => {
-        const text = (shot.dialogue ?? "").trim();
-        if (!text) return shot;
-        // eleven-v3: `similarity_boost`, `style` and `speed` are not in its
-        // schema (see speechPrimitive.ts for the full note).
-        const result = (await callSync("fal-ai/elevenlabs/tts/eleven-v3", {
-          text,
-          voice: cfg.voice ?? "Sarah",
-          stability: stabilityOf(cfg),
-          language_code: languageCode,
-          apply_text_normalization: "auto",
-        })) as { audio?: { url?: string } };
-        const url = result.audio?.url;
-        if (!url) throw new Error(`no audio returned for shot ${shot.shot_id}`);
-        return { ...shot, audio_url: url };
-      }),
-    );
-
-    if (speaking.length) {
-      await ctx.runMutation(internal.ledger.record, {
-        clientId,
-        jobId,
-        stepId: "voice",
-        primitive: "P4",
-        model: "fal-ai/elevenlabs/tts/eleven-v3",
-        units: totalChars,
-        unitLabel: "chars",
-        costUsd: (totalChars / 1000) * TTS_PRICE_PER_1000_CHARS,
-      });
-    }
-    await ctx.runMutation(internal.jobs.patchStep, {
-      jobId,
-      stepId: "voice",
-      state: "done",
-      output: { shots: voiced },
-    });
-    return null;
-  },
-});
-
 // ---------------------------------------------------------------- stage 7: stitch (P7)
 export const stitch = internalAction({
   args: { jobId: v.id("jobs"), clientId: v.id("clients") },
@@ -918,12 +826,12 @@ export const stitch = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
     const cfg = config(job);
-    // With Voiceover switched off the voice step never ran, so the shots
-    // come straight from the clips step instead.
-    const stitchable = (job.steps.find((s) => s.id === "voice")?.output ??
-      job.steps.find((s) => s.id === "clips")?.output) as { shots?: Shot[] } | undefined;
-    const shots = (stitchable?.shots ?? []) as Shot[];
+    const shots = ((job.steps.find((s) => s.id === "clips")?.output as { shots?: Shot[] } | undefined)
+      ?.shots ?? []) as Shot[];
     if (!shots.length) throw new Error("no shots to stitch");
+    // The one continuous voiceover the whole cut was built around.
+    const voiceoverUrl = voiceOf(job)?.audioUrl;
+    if (!voiceoverUrl) throw new Error("missing voiceover");
 
     const base = renderServiceBase();
     const musicUrl =
@@ -948,15 +856,14 @@ export const stitch = internalAction({
       body: JSON.stringify({
         shots: shots.map((s) => ({
           videoUrl: s.clip_url,
-          audioUrl: s.audio_url ?? null,
-          durationSec: s.duration_seconds || PER_SHOT_SECONDS,
-          // Burned-in karaoke subtitles are transcribed from this very
-          // dialogue, so with them on the per-shot caption would say every
-          // line twice.
-          caption: cfg.subtitles ? null : (s.dialogue ?? "").trim() || null,
+          // Silent: the voiceover is one track laid across the whole cut.
+          audioUrl: null,
+          durationSec: s.duration_seconds || SCENE_SECONDS,
+          // No text of its own: the only words on screen are the subtitles,
+          // transcribed from the voiceover in the step after this one.
         })),
         dimensions: ratioOf(cfg.aspectRatio, "16:9"),
-        captionStyle: "Classic",
+        voiceoverUrl,
         musicUrl,
         musicVolume: musicVolumeOf(cfg),
         startVideoUrl,
@@ -1012,18 +919,15 @@ export const stitch = internalAction({
 
 // ---------------------------------------------------------------- optional: music, upscale, subtitles
 
-/** The finished cut's length, from whichever step last held the shots. */
+/** The finished cut's length: one three-second shot for each scene of the voiceover. */
 function totalSecondsOf(job: { steps: { id: string; output?: unknown }[] }): number {
-  const out = (job.steps.find((s) => s.id === "voice")?.output ??
-    job.steps.find((s) => s.id === "clips")?.output) as { shots?: Shot[] } | undefined;
-  return (out?.shots ?? []).reduce((sum, s) => sum + (s.duration_seconds || PER_SHOT_SECONDS), 0);
+  return (voiceOf(job)?.sceneCount ?? 0) * SCENE_SECONDS;
 }
 
 /**
- * The score is generated BEFORE the cut exists, so its length is the shots'
- * total -- known by now, unlike Slideshow's, which has to guess how long a
- * voice will stretch each slide. The shared step clamps it to what
- * CassetteAI accepts, and the renderer loops or trims it to fit.
+ * The score is as long as the voiceover -- X seconds, known by now because the
+ * voice was recorded first. The shared step clamps it to what CassetteAI
+ * accepts (10-180 seconds), and the renderer loops or trims it to fit.
  */
 export const scoreMusic = internalAction({
   args: { jobId: v.id("jobs"), clientId: v.id("clients") },
@@ -1031,11 +935,13 @@ export const scoreMusic = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
     const cfg = config(job);
+    const voice = voiceOf(job);
+    if (!voice) throw new Error("nothing to score");
     await scoreMusicStep(ctx, {
       jobId,
       clientId,
-      wantedSeconds: totalSecondsOf(job),
-      subject: cfg.logline ?? "",
+      wantedSeconds: voice.seconds,
+      subject: voice.script.slice(0, 300),
     });
     return null;
   },

@@ -28,7 +28,8 @@ export const listTemplates = query({
 
     return Promise.all(
       rows
-        .filter((t) => !t.archived)
+        // Curated tracks only: imported ones are reached through search.
+        .filter((t) => !t.archived && !t.source)
         .map(async (t) => ({
           id: t._id,
           name: t.name,
@@ -72,5 +73,41 @@ export const archiveTemplate = internalMutation({
   args: { templateId: v.id("audioTemplates") },
   handler: async (ctx, { templateId }) => {
     await ctx.db.patch(templateId, { archived: true });
+  },
+});
+
+/** An imported track by where it came from -- the dedupe behind `music.importTrack`. */
+export const templateBySource = internalQuery({
+  args: { source: v.string(), sourceId: v.string() },
+  handler: async (ctx, { source, sourceId }) =>
+    ctx.db
+      .query("audioTemplates")
+      .withIndex("by_source", (q) => q.eq("source", source).eq("sourceId", sourceId))
+      .first(),
+});
+
+export const recordImported = internalMutation({
+  args: {
+    name: v.string(),
+    storageId: v.id("_storage"),
+    mimeType: v.string(),
+    bytes: v.number(),
+    durationSec: v.optional(v.number()),
+    tags: v.array(v.string()),
+    source: v.string(),
+    sourceId: v.string(),
+    creator: v.optional(v.string()),
+    license: v.string(),
+    sourceUrl: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<Id<"audioTemplates">> => {
+    // Two clients picking the same new track at once both download it; the
+    // second insert finds the first's row and uses that.
+    const existing = await ctx.db
+      .query("audioTemplates")
+      .withIndex("by_source", (q) => q.eq("source", args.source).eq("sourceId", args.sourceId))
+      .first();
+    if (existing) return existing._id;
+    return ctx.db.insert("audioTemplates", { ...args, addedAt: Date.now() });
   },
 });

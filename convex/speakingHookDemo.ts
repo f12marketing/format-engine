@@ -5,6 +5,7 @@ import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import { callTool, LLM_MODEL } from "./lib/fal";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
+import { businessContext } from "./lib/businessContext";
 
 /**
  * Speaking Hook & Demo: an avatar says the hook out loud, then cuts to the
@@ -88,7 +89,7 @@ export const writeHook = internalAction({
 
     const userPrompt =
       `Hook topic: ${hook}\nDelivery style: ${config.delivery ?? "Auto"}` +
-      (config.mentionBusiness ? "\n\nMention the business by name." : "");
+      (await businessContext(ctx, clientId, config.mentionBusiness));
     const call = await callTool(HOOK_SYSTEM, userPrompt, HOOK_TOOL as never);
     const saying = String((call.value as { saying?: string })?.saying ?? "").trim();
     if (!saying) throw new Error("model returned no line");

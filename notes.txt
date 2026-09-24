@@ -266,28 +266,42 @@ Images - upload image files
 
 Changes:
 
-Can you add another content option called 'Drama' and that would help users create short drama videos. You can make sure of the below rep. Modify the code to use the same AI models from fal.ai. Let me know if you require any other platform API or access for this content option. 
+-------------
 
-Please create 20 different influencer images from different ethnicities and populate the gallery 
+Let me know if the app is able to provide the desired output for all 22 video formats, when the user chooses and option and fills up the configurations. 
+
+Automations
+
+Choose Fal.ai's best AI models and workflows - fal's own Model Search API
 
 Identify where the prompts are used in the app and improve those prompts with prompt tuning.
 
-Scan the app and a do a thorough security check and suggest me recommendations for a secure app.
+------
 
-Let me know if the app is able to output the desired output, when the user chooses and option and fills up the configurations. 
+Implement Viral content finder - scrapecreators
+
+Pixabay and templates wherever possible
+
+annas-archive secret key
+
+use similar settings for video animation
+
+------
+
+Can you add another content option called 'Drama' and that would help users create short drama videos. There is a existing repo on GitHub with the same function. Here is the repo link:
+
+https://github.com/dramaclaw/dramaclaw
+
+You can make use of the repo. Modify the code to use the same AI models, but from fal.ai. The UI/UX should of the content option and configuration page should be similar to the existing options in the content main area. 
+
+Let me know if you face any issues or require any additional APIs/information for this option to function properly. First create a implementation plan and then let's implement this feature.
 
 In the step 2 of the new influencer popup, make sure to add a generate all button (with pricing, similar to other buttons) to generate the minimum number of images required to go to the next step
 
 I have topped up the fal ai account, please verify all the prompts
 
+Please create 20 different influencer images from different ethnicities and populate the gallery 
+
+Scan the app and a do a thorough security check and suggest me recommendations for a securing the vulnerabilities.
 
 
-Add drama video in the content homepage
-Test each of the format output - is the output video as desired?
-Create 20 different influencers from various ethnicities
-Identify where prompts are used and do Prompt tuning
-
-
-Viral content finder - scrapecreators
-Automations
-Choose Fal.ai's best AI models and workflows - fal's own Model Search API

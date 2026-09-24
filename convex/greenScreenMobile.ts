@@ -63,7 +63,7 @@ export const composite = internalAction({
     if (!config.appScreenshot) throw new Error("An app screenshot is required.");
 
     const [{ imageUrl: avatarUrl, description }, screenshotAsset] = await Promise.all([
-      resolveRosterPersona(ctx, config.presenter),
+      resolveRosterPersona(ctx, config.presenter, { clientId, jobId }),
       ctx.runQuery(internal.assets.getInternal, { assetId: config.appScreenshot }),
     ]);
     if (!screenshotAsset) throw new Error("The app screenshot could not be found.");

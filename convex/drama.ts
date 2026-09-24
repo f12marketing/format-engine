@@ -16,6 +16,7 @@ import {
 } from "./lib/fal";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 import { resolveRosterPersona } from "./lib/roster";
+import { businessContext } from "./lib/businessContext";
 
 /**
  * Drama: premise -> episode -> cast -> storyboard -> dialogue -> filmed
@@ -573,7 +574,7 @@ export const writeScript = internalAction({
 
     // The lead's look comes from the chosen influencer, so the writer
     // describes the person who will actually be on screen.
-    const lead = cfg.lead ? await resolveRosterPersona(ctx, cfg.lead) : null;
+    const lead = cfg.lead ? await resolveRosterPersona(ctx, cfg.lead, { clientId, jobId }) : null;
 
     await ctx.runMutation(internal.ledger.assertUnderCap, { clientId, aboutToSpendUsd: 0.05 });
 
@@ -589,7 +590,12 @@ export const writeScript = internalAction({
         ? `The lead character must be c1, played by this actor -- keep c1's look true to them: ${lead.description}\n`
         : "") +
       (cfg.mentionBusiness
-        ? "Work the client's business into the story naturally -- a place, a product a character uses -- never as an ad read.\n"
+        ? (await businessContext(
+            ctx,
+            clientId,
+            true,
+            "Work the client's business into the story naturally -- a place, a product a character uses -- never as an ad read.",
+          )).trimStart() + "\n"
         : "") +
       `\nVoice presets:\n${voiceIds.map((id) => `- ${id}: ${VOICE_PRESETS[id].gender}, ${VOICE_PRESETS[id].notes}`).join("\n")}`;
 
@@ -651,7 +657,7 @@ export const castCharacters = internalAction({
     const job = await loadJob(ctx, jobId);
     const cfg = config(job);
     const style = styleFor(cfg);
-    const lead = cfg.lead ? await resolveRosterPersona(ctx, cfg.lead) : null;
+    const lead = cfg.lead ? await resolveRosterPersona(ctx, cfg.lead, { clientId, jobId }) : null;
     // Re-normalised: the approved script may have been hand-edited at the gate.
     const ep = normalizeEpisode(episodeFrom(job, "script"), cfg.aspectRatio ?? "9:16", Boolean(lead));
 

@@ -4,6 +4,7 @@ import { internal } from "../_generated/api";
 import { LLM_MODEL } from "./fal";
 import { wordBudget, writeWithinBudget } from "./wordBudget";
 import { GROUNDING_RULES } from "./grounding";
+import { businessContext } from "./businessContext";
 
 /** Conversational delivery runs a little faster than narration. */
 const SCRIPT_WORDS_PER_SEC = 2.5;
@@ -69,7 +70,7 @@ export const writeScript = internalAction({
     const maxWords = wordBudget(duration, SCRIPT_WORDS_PER_SEC);
     const userPrompt =
       `${brief}\n\nTarget spoken length: ${duration} seconds -- at most ${maxWords} words.` +
-      (config.mentionBusiness ? "\n\nMention the business by name." : "");
+      (await businessContext(ctx, clientId, config.mentionBusiness));
 
     const call = await writeWithinBudget(SCRIPT_SYSTEM, userPrompt, SCRIPT_TOOL, "script", maxWords);
     const script = call.text;

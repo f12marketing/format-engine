@@ -3,6 +3,7 @@ import carousel from "./carousel";
 import drama from "./drama";
 import slideshow from "./slideshow";
 import videoAnimation from "./videoAnimation";
+import wallOfText from "./wallOfText";
 import * as planned from "./planned";
 
 /**
@@ -13,7 +14,7 @@ import * as planned from "./planned";
 export const FORMATS: FormatDefinition[] = [
   carousel,
   slideshow,
-  planned.wallOfText,
+  wallOfText,
   planned.custom,
   videoAnimation,
   drama,

@@ -1,11 +1,16 @@
 import { defineFormat } from "./types";
 import { ASPECT_RATIOS, field } from "./fields";
 import { BRANDING_SECTION, extrasFields, optionalExtrasSection } from "./extras";
+import { SCRIPT_MAX_CHARS } from "../../convex/lib/scriptTiming";
 
 /**
- * Slideshow: generated stills, Ken Burns, a caption a slide -- and, behind
- * one collapsed block, the whole production line the old app kept on a
- * separate settings page.
+ * Slideshow: a script, spoken, with a generated still on screen for every
+ * three seconds of it -- and, behind one collapsed block, the whole production
+ * line the old app kept on a separate settings page.
+ *
+ * The video is cut to its voiceover. The script is recorded first; however
+ * long that takes (X seconds) becomes X / 3 slides. So there is no slide count
+ * and no length to choose -- both come from the script.
  *
  * Moving those seven model cards into the format's own config is the point.
  * In the old app they were global: a setting changed for one video changed it
@@ -20,7 +25,7 @@ import { BRANDING_SECTION, extrasFields, optionalExtrasSection } from "./extras"
 export default defineFormat({
   id: "slideshow",
   name: "Slideshow",
-  blurb: "Multi-image carousel with captions",
+  blurb: "Script, voiceover and a new image every 3 seconds, with subtitles",
   icon: "🖼️",
   group: "slides-text",
   preview: "video",
@@ -29,9 +34,22 @@ export default defineFormat({
   phase: 1,
 
   config: {
-    mode: field.mode(),
+    /**
+     * The words the voiceover speaks, and the whole of the video's timing. It
+     * is recorded first; its length divided by three is the slide count, and
+     * each slide is planned around the words spoken while it is on screen
+     * (convex/lib/scriptTiming.ts). Required: it is the video's only source of
+     * length, so nobody is ever asked how long the video should be.
+     */
+    script: field.longText({
+      label: "Script",
+      required: true,
+      maxLength: SCRIPT_MAX_CHARS,
+      rows: 7,
+      placeholder: "The words you want spoken, e.g. a short story or a few tips.",
+      help: "Recorded as the voiceover first. Each slide then stays up for 3 seconds, so a 60-second script becomes 20 slides.",
+    }),
     mentionBusiness: field.mentionBusiness(),
-    images: field.count({ label: "Images", min: 3, max: 20, default: 10 }),
     style: field.choice({
       label: "Style",
       options: [
@@ -121,7 +139,7 @@ export default defineFormat({
       advanced: true,
       group: "Composite Scenes",
       showWhen: { field: "compositeScenes", is: "present" },
-      help: "Reference images, in order. The captions are written around them as Character 1, 2, 3… so the story can call for whoever a slide needs. Leave empty and the characters are designed from your prompt and drawn for you.",
+      help: "Reference images, in order. The slides are planned around them as Character 1, 2, 3… so the story can call for whoever a slide needs. Leave empty and the characters are designed from your prompt and drawn for you.",
     }),
     compositeOutputFormat: field.choice({
       label: "Output format",
@@ -133,8 +151,9 @@ export default defineFormat({
     }),
 
     // Voiceover, music, subtitles, upscale, branding: shared with Video
-    // Animation -- see extras.ts.
-    ...extrasFields({ voiceover: false }),
+    // Animation -- see extras.ts. The voiceover is not optional here: it is
+    // what the video is cut to.
+    ...extrasFields({ voiceover: "always", subtitles: true }),
   },
 
   /**
@@ -168,18 +187,19 @@ export default defineFormat({
       ],
     },
     optionalExtrasSection({
+      voiceoverAlways: true,
       voiceoverBlurb:
-        "Reads each slide's caption aloud. A slide then stays up for as long as its line takes.",
+        "Reads your Script aloud, in one take, before anything is drawn. Its length sets how many slides there are — one for every 3 seconds.",
       subtitlesBlurb:
-        "Word-by-word captions transcribed from the voiceover, burned in over the slide captions.",
+        "Word-by-word subtitles transcribed from the voiceover and burned in. They are the only text on the video, and they are on unless you switch them off.",
     }),
     BRANDING_SECTION,
   ],
 
   /**
-   * Five of the eight steps are conditional, which is what makes the advanced
-   * block worth having: a default slideshow still runs copy -> images ->
-   * render and costs what it always did.
+   * The voiceover comes before everything drawn: the video is cut to it. Music,
+   * upscale, subtitles and composite are conditional, which is what makes the
+   * advanced block worth having.
    *
    * Order is the old pipeline's, and the two places it matters are both
    * deliberate. Bookend frames and brand cards fold into `render` rather than
@@ -190,7 +210,9 @@ export default defineFormat({
    * too, softening the one element that was already pixel-sharp.
    */
   pipeline: [
-    { id: "copy", primitive: "P1", label: "Write the captions" },
+    // The voiceover leads: it is recorded first and the rest is cut to it.
+    { id: "voice", primitive: "P4", label: "Record the voiceover" },
+    { id: "copy", primitive: "P1", label: "Plan a slide for every 3 seconds" },
     { id: "images", primitive: "P2", label: "Generate slide images" },
     {
       id: "composite",
@@ -199,18 +221,12 @@ export default defineFormat({
       when: { field: "compositeScenes", is: "present" },
     },
     {
-      id: "voice",
-      primitive: "P4",
-      label: "Record the voiceover",
-      when: { field: "voiceover", is: "present" },
-    },
-    {
       id: "music",
       primitive: "P4",
       label: "Score the slideshow",
       when: { field: "backgroundMusic", is: "present" },
     },
-    { id: "render", primitive: "P8", label: "Assemble with captions" },
+    { id: "render", primitive: "P8", label: "Assemble the slideshow" },
     {
       id: "upscale",
       primitive: "P3",

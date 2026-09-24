@@ -17,22 +17,38 @@ import { GOOGLE_FONTS, SUBTITLE_COLORS, TOPAZ_MODELS, VOICES, field } from "./fi
  * group's settings after its own switch. Spread this into a format's config
  * as a block; do not reorder within it.
  */
-export function extrasFields(opts: { voiceover: boolean }): Record<string, Field> {
+export function extrasFields(opts: {
+  voiceover: boolean | "always";
+  /** Whether Subtitles starts switched on. Off unless a format says otherwise. */
+  subtitles?: boolean;
+}): Record<string, Field> {
+  // "always": the video is cut to its voiceover (Slideshow, Video Animation),
+  // so there is no switch to declare and nothing to hide the voice settings
+  // behind -- they are simply there.
+  const always = opts.voiceover === "always";
+  const whenVoiceover = always ? {} : { showWhen: { field: "voiceover", is: "present" } as const };
+
   return {
     // ------------------------------------------------------------ Voiceover
-    voiceover: field.toggle({
-      label: "Voiceover",
-      default: opts.voiceover,
-      advanced: true,
-      group: "Voiceover",
-    }),
+    ...(always
+      ? {}
+      : {
+          voiceover: field.toggle({
+            label: "Voiceover",
+            default: opts.voiceover as boolean,
+            advanced: true,
+            group: "Voiceover",
+          }),
+        }),
     voice: field.choice({
       label: "Voice",
       options: VOICES,
       default: "Sarah",
       advanced: true,
       group: "Voiceover",
-      showWhen: { field: "voiceover", is: "present" },
+      ...whenVoiceover,
+      preview: "voice",
+      help: "Play a sample to hear this voice with the Delivery you've picked.",
     }),
     /**
      * eleven-v3's three discrete stability settings, not the old card's 0-1
@@ -46,13 +62,13 @@ export function extrasFields(opts: { voiceover: boolean }): Record<string, Field
       default: "Natural",
       advanced: true,
       group: "Voiceover",
-      showWhen: { field: "voiceover", is: "present" },
+      ...whenVoiceover,
       help: "Creative is the most expressive and the least predictable; Robust is the steadiest.",
     }),
     language: field.language({
       advanced: true,
       group: "Voiceover",
-      showWhen: { field: "voiceover", is: "present" },
+      ...whenVoiceover,
     }),
 
     // ----------------------------------------------------- Background Music
@@ -68,7 +84,7 @@ export function extrasFields(opts: { voiceover: boolean }): Record<string, Field
       advanced: true,
       group: "Background Music",
       showWhen: { field: "backgroundMusic", is: "present" },
-      placeholder: "Mood, genre, instruments, tempo. Leave blank to score it from the captions.",
+      placeholder: "Mood, genre, instruments, tempo. Leave blank to score it from the script.",
     }),
     musicVolume: field.choice({
       label: "Mix level",
@@ -82,17 +98,17 @@ export function extrasFields(opts: { voiceover: boolean }): Record<string, Field
 
     // ------------------------------------------------------------ Subtitles
     /**
-     * Burned-in karaoke captions, transcribed from the finished audio -- a
-     * different thing from the per-slide caption the renderer already draws,
-     * and with nothing to transcribe unless there is a voiceover, which is
-     * why the whole group hides until one is switched on.
+     * Burned-in word-by-word subtitles, transcribed from the finished audio.
+     * They are the only text a video carries -- there are no separate captions
+     * drawn under them -- and with nothing to transcribe unless there is a
+     * voiceover, the whole group hides until one is switched on.
      */
     subtitles: field.toggle({
       label: "Subtitles",
-      default: false,
+      default: opts.subtitles ?? false,
       advanced: true,
       group: "Subtitles",
-      showWhen: { field: "voiceover", is: "present" },
+      ...whenVoiceover,
     }),
     subtitleFont: field.choice({
       label: "Font",
@@ -278,16 +294,20 @@ export function extrasFields(opts: { voiceover: boolean }): Record<string, Field
 export function optionalExtrasSection(o: {
   voiceoverBlurb: string;
   subtitlesBlurb: string;
+  /** No switch on the Voiceover card: the video is cut to it, so it always runs. */
+  voiceoverAlways?: boolean;
 }): AdvancedSection {
   return {
     title: "Optional extras",
-    blurb: "Each is its own on/off switch.",
+    blurb: o.voiceoverAlways
+      ? "The voiceover always runs; the rest are each their own on/off switch."
+      : "Each is its own on/off switch.",
     cards: [
       {
         title: "Voiceover",
         model: "fal-ai/elevenlabs/tts/eleven-v3",
         blurb: o.voiceoverBlurb,
-        toggle: "voiceover",
+        ...(o.voiceoverAlways ? {} : { toggle: "voiceover" }),
       },
       {
         title: "Background Music",

@@ -3,8 +3,10 @@
 import { UploadField } from "./UploadField";
 import { MultiUploadField } from "./MultiUploadField";
 import { TrendingClipField } from "./TrendingClipField";
+import { BusinessProfileCard } from "./BusinessProfileCard";
 import { AvatarField } from "./AvatarField";
 import { AudioClipField } from "./AudioClipField";
+import { VoicePreview } from "./VoicePreview";
 import { AuthorisedBoundary } from "./AuthorisedBoundary";
 import { convexConfigured } from "@/app/ConvexClientProvider";
 import { fieldApplies } from "@/formats/types";
@@ -44,6 +46,7 @@ export function ConfigPanel({
           id={key}
           field={field}
           value={values[key]}
+          values={values}
           onChange={(v) => onChange(key, v)}
         />
       ))}
@@ -228,6 +231,7 @@ function StageCard({
                 id={key}
                 field={field}
                 value={values[key]}
+                values={values}
                 onChange={(v) => onChange(key, v)}
               />
             </div>
@@ -244,7 +248,8 @@ function spansRow(field: Field): boolean {
     field.kind === "longText" ||
     field.kind === "image" ||
     field.kind === "images" ||
-    field.kind === "video"
+    field.kind === "video" ||
+    field.kind === "audioClip"
   );
 }
 
@@ -291,11 +296,14 @@ function FieldControl({
   id,
   field,
   value,
+  values,
   onChange,
 }: {
   id: string;
   field: Field;
   value: unknown;
+  /** Every field's value, for the few controls that depend on a sibling (a voice preview reads Delivery and Language). */
+  values: Record<string, unknown>;
   onChange: (v: unknown) => void;
 }) {
   return (
@@ -312,7 +320,7 @@ function FieldControl({
         )}
       </label>
 
-      <Control id={id} field={field} value={value} onChange={onChange} />
+      <Control id={id} field={field} value={value} values={values} onChange={onChange} />
 
       {field.help && (
         <p className="mt-1 text-xs leading-snug text-muted">{field.help}</p>
@@ -330,18 +338,20 @@ function Control({
   id,
   field,
   value,
+  values,
   onChange,
 }: {
   id: string;
   field: Field;
   value: unknown;
+  values: Record<string, unknown>;
   onChange: (v: unknown) => void;
 }) {
   switch (field.kind) {
     case "choice":
     case "captionStyle":
-    case "mode":
-      return (
+    case "mode": {
+      const select = (
         <select
           id={id}
           className={inputClass}
@@ -356,23 +366,55 @@ function Control({
         </select>
       );
 
-    case "longText":
+      // A voice plays a sample from the deployment, so without one there is
+      // nothing to call -- the plain select is the whole control.
+      if (field.preview !== "voice" || !convexConfigured) return select;
+
+      const voice = String(value ?? field.default ?? "");
+      const stability = typeof values.voiceStability === "string" ? values.voiceStability : undefined;
+      const language = typeof values.language === "string" ? values.language : undefined;
       return (
-        <textarea
-          id={id}
-          rows={4}
-          className={inputClass}
-          placeholder={field.placeholder}
-          value={String(value ?? "")}
-          onChange={(e) => onChange(e.target.value)}
-        />
+        <VoicePreview
+          key={`${voice}|${stability ?? ""}|${language ?? ""}`}
+          voice={voice}
+          stability={stability}
+          language={language}
+        >
+          {select}
+        </VoicePreview>
       );
+    }
+
+    case "longText": {
+      const text = String(value ?? "");
+      return (
+        <div>
+          <textarea
+            id={id}
+            rows={field.rows ?? 4}
+            aria-required={field.required || undefined}
+            maxLength={field.maxLength}
+            className={inputClass}
+            placeholder={field.placeholder}
+            value={text}
+            onChange={(e) => onChange(e.target.value)}
+          />
+          {field.maxLength && (
+            <p className="mt-1 text-right font-mono text-[0.65rem] tabular-nums text-muted">
+              {text.length} / {field.maxLength}
+            </p>
+          )}
+        </div>
+      );
+    }
 
     case "shortText":
       return (
         <input
           id={id}
           type="text"
+          aria-required={field.required || undefined}
+          maxLength={field.maxLength}
           className={inputClass}
           placeholder={field.placeholder}
           value={String(value ?? "")}
@@ -416,21 +458,30 @@ function Control({
         </div>
       );
 
-    case "toggle":
+    case "toggle": {
+      const on = Boolean(value ?? field.default);
       return (
-        <label className="flex cursor-pointer items-center gap-2 text-sm">
-          <input
-            id={id}
-            type="checkbox"
-            checked={Boolean(value ?? field.default)}
-            onChange={(e) => onChange(e.target.checked)}
-            className="size-4 accent-accent"
-          />
-          <span className="text-muted">
-            {Boolean(value ?? field.default) ? "Yes" : "No"}
-          </span>
-        </label>
+        <>
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <input
+              id={id}
+              type="checkbox"
+              checked={on}
+              onChange={(e) => onChange(e.target.checked)}
+              className="size-4 accent-accent"
+            />
+            <span className="text-muted">{on ? "Yes" : "No"}</span>
+          </label>
+          {/* The toggle is only as good as what it mentions -- so the profile
+              it reads sits right under it, and gets filled in there. */}
+          {id === "mentionBusiness" && on && convexConfigured && (
+            <AuthorisedBoundary>
+              <BusinessProfileCard />
+            </AuthorisedBoundary>
+          )}
+        </>
       );
+    }
 
     case "language":
       return (
@@ -498,7 +549,16 @@ function Control({
     case "avatar":
       return convexConfigured ? (
         <AuthorisedBoundary>
-          <AvatarField value={value} onChange={onChange} />
+          <AvatarField
+            value={value}
+            onChange={onChange}
+            options={{
+              label: field.label,
+              emptyLabel: field.emptyLabel,
+              casting: field.casting,
+              videos: field.videos,
+            }}
+          />
         </AuthorisedBoundary>
       ) : (
         <Placeholder kind={field.kind} />
@@ -507,7 +567,7 @@ function Control({
     case "audioClip":
       return convexConfigured ? (
         <AuthorisedBoundary>
-          <AudioClipField value={value} onChange={onChange} />
+          <AudioClipField value={value} onChange={onChange} emptyLabel={field.emptyLabel} label={field.label} />
         </AuthorisedBoundary>
       ) : (
         <Placeholder kind={field.kind} />

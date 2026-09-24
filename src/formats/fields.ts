@@ -227,10 +227,16 @@ export const field = {
     ...o,
   }),
 
-  /** P10. "Who's cutting", "Avatar" and "Presenter" are all this field. */
+  /**
+   * P10. "Who's cutting", "Avatar" and "Presenter" are all this field, drawn
+   * as the casting popup (Anyone / Influencers / Pre-made / My images).
+   * Starts on "Anyone" -- a fresh pre-made face per run -- so a format that
+   * needs a face never opens blank; a field that can be empty overrides it.
+   */
   avatar: (o?: Partial<Omit<SimpleField, "kind">>): SimpleField => ({
     kind: "avatar",
     label: "AI influencer",
+    default: "cast:any",
     ...o,
   }),
 
@@ -270,7 +276,7 @@ export const field = {
   mentionBusiness: (): SimpleField => ({
     kind: "toggle",
     label: "Mention your business?",
-    help: "Pulls name, tone and palette from the brand profile.",
+    help: "Written from your saved business profile (the sign-up quiz).",
     default: false,
   }),
 

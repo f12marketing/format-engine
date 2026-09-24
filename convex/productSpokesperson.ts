@@ -72,7 +72,7 @@ export const composite = internalAction({
     if (!config.productImage) throw new Error("A product image is required.");
 
     const [{ imageUrl: avatarUrl, description }, productAsset] = await Promise.all([
-      resolveRosterPersona(ctx, config.avatar),
+      resolveRosterPersona(ctx, config.avatar, { clientId, jobId }),
       ctx.runQuery(internal.assets.getInternal, { assetId: config.productImage }),
     ]);
     if (!productAsset) throw new Error("The product image could not be found.");

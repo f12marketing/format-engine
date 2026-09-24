@@ -61,10 +61,7 @@ export const composeInterviewScene = internalAction({
     const config = job.config as { whosOnCamera?: string; prompt?: string; style?: string };
     if (!config.whosOnCamera) throw new Error("Choose who's on camera.");
 
-    const { imageUrl: avatarUrl, description } = await resolveRosterPersona(
-      ctx,
-      config.whosOnCamera,
-    );
+    const { imageUrl: avatarUrl, description } = await resolveRosterPersona(ctx, config.whosOnCamera, { clientId, jobId });
 
     await ctx.runMutation(internal.ledger.assertUnderCap, {
       clientId,

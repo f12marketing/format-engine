@@ -4,24 +4,26 @@ import { internalAction, internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import {
-  callSync,
   callTool,
   LLM_MODEL,
   submitAndPoll,
   submitWithContentPolicyFallback,
 } from "./lib/fal";
-import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
+import { assertVoiceoverSupport, renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 import {
   assetUrlOf,
   bookendsAndBranding,
   musicVolumeOf,
   ratioOf,
   scoreMusicStep,
-  stabilityOf,
   subtitlesStep,
   upscaleStep,
 } from "./lib/extras";
 import type { ExtrasConfig } from "./lib/extras";
+import { SCENE_SECONDS } from "./lib/scriptTiming";
+import { listFrom, narrateScript } from "./lib/scriptVoice";
+import type { NarratedScript } from "./lib/scriptVoice";
+import { businessContext } from "./lib/businessContext";
 
 /**
  * Slideshow: the format that finally exercises P2 -- and, since the config
@@ -50,16 +52,20 @@ export const run = workflow
   .handler(async (step, args): Promise<null> => {
     const { jobId } = args;
     try {
+      // Which optional steps exist is decided once, at submit, by the
+      // pipeline's `when` conditions -- so this is the authority, never a
+      // second reading of the config.
+      const planned = await step.runQuery(internal.jobs.plannedStepIds, { jobId });
+
+      // The video is cut to its voiceover, so the voiceover comes first: the
+      // script is recorded, its length (X seconds) becomes X / 3 slides, and
+      // only then is anything drawn.
+      await step.runAction(internal.slideshow.recordVoiceover, args, { retry: true });
       await step.runAction(internal.slideshow.writePlan, args, { retry: true });
       await step.runAction(internal.slideshow.generateImages, args, { retry: true });
 
-      const planned = await step.runQuery(internal.jobs.plannedStepIds, { jobId });
-
       if (planned.includes("composite")) {
         await step.runAction(internal.slideshow.compositeSubject, args, { retry: true });
-      }
-      if (planned.includes("voice")) {
-        await step.runAction(internal.slideshow.recordVoiceover, args, { retry: true });
       }
       if (planned.includes("music")) {
         await step.runAction(internal.slideshow.scoreMusic, args, { retry: true });
@@ -96,14 +102,19 @@ export const run = workflow
  * created before a field existed still has to run.
  */
 interface SlideshowConfig extends ExtrasConfig {
-  images?: number;
   style?: string;
+  /**
+   * What the voiceover says, word for word. Required. There is no slide count:
+   * the script's length decides that.
+   */
+  script?: string;
 
   imageOutputFormat?: string;
   imageSafetyTolerance?: string;
 
   compositeScenes?: boolean;
   compositeReferenceAssetIds?: Id<"assets">[];
+  mentionBusiness?: boolean;
   compositeOutputFormat?: string;
 
   // Voiceover, music, subtitles, upscale and branding settings are the
@@ -153,31 +164,23 @@ const IMAGE_PRICE_PER_UNIT = 0.08; // per image at 1K
  */
 const COMPOSITE_MODEL = "fal-ai/nano-banana-2/edit";
 const COMPOSITE_PRICE_PER_UNIT = 0.08; // nano-banana-2 at 1K, flat -- same as generation
-const TTS_MODEL = "fal-ai/elevenlabs/tts/eleven-v3";
-const TTS_PRICE_PER_1000_CHARS = 0.1;
 const LLM_INPUT_PER_1M = 2.0;
 const LLM_OUTPUT_PER_1M = 10.0;
-const MAX_CAPTION_CHARS = 90;
-/** A slide's floor; a longer spoken line stretches it. Matches the renderer. */
-const SECONDS_PER_SLIDE = 3;
 
 // ---------------------------------------------------------------- stage 1: the plan (P1)
 
 const SLIDESHOW_SYSTEM = `You plan a short vertical slideshow video: a sequence of generated images,
-each on screen for a few seconds with one short line of text.
+each on screen for exactly three seconds, cut to a voiceover that is already
+recorded. The only words on screen are the voiceover's own subtitles, added
+afterwards -- the slides themselves carry no text.
 
 For each slide, write:
 - imagePrompt: what the image shows. Concrete, visual, no text or lettering in
-  the image itself -- the caption is drawn separately. One clear subject per
+  the image itself -- subtitles are added separately. One clear subject per
   slide; do not describe a whole scene of unrelated things. End it with a
   short technical tail covering quality and composition, e.g. "photorealistic,
   high detail, no text, no watermark, no UI elements" (adjust the style words
   to match whatever visual style was requested).
-- caption: at most 90 characters, plain language, no markdown, no emoji, no
-  hashtags, no stock phrases like "game-changer" or "here's the thing". It
-  should make sense read on its own, in three seconds, without the slides
-  before or after it. It may also be read aloud as voiceover, so write it to
-  be spoken as well as seen.
 
 The slides together should read as one short narrative arc: an opening that
 earns attention, a middle that develops the idea, and a close that lands it --
@@ -195,9 +198,8 @@ const SLIDESHOW_TOOL = {
           type: "object",
           properties: {
             imagePrompt: { type: "string" },
-            caption: { type: "string", description: "At most 90 characters." },
           },
-          required: ["imagePrompt", "caption"],
+          required: ["imagePrompt"],
         },
       },
     },
@@ -207,7 +209,6 @@ const SLIDESHOW_TOOL = {
 
 interface SlidePlan {
   imagePrompt: string;
-  caption: string;
 }
 
 /** A character or subject the writer designed because none were uploaded. */
@@ -258,6 +259,55 @@ function slideshowTool(designCast: boolean) {
   };
 }
 
+/** The slides out of the planner's tool call, however the model wrapped them (see listFrom). */
+function draftedSlides(value: unknown): SlidePlan[] {
+  return listFrom<SlidePlan>(value, "slides");
+}
+
+/** The voiceover step's output: the script as spoken, how long it ran, and the scene windows. */
+function voiceOf(job: { steps: { id: string; output?: unknown }[] }): NarratedScript | undefined {
+  return job.steps.find((s) => s.id === "voice")?.output as NarratedScript | undefined;
+}
+
+// ---------------------------------------------------------------- stage 1: the voiceover (P4)
+
+/**
+ * The whole script in one go, before anything is drawn. How long it takes to
+ * say (X seconds) is what decides the slide count (X / 3, rounded up), and the
+ * speech model's word timings say which words fall in which slide's three
+ * seconds. See lib/scriptTiming.ts.
+ */
+export const recordVoiceover = internalAction({
+  args: { jobId: v.id("jobs"), clientId: v.id("clients") },
+  handler: async (ctx, { jobId, clientId }): Promise<null> => {
+    await ctx.runMutation(internal.jobs.patchStep, { jobId, stepId: "voice", state: "running" });
+
+    const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
+    if (!job) throw new Error("unknown job");
+    const config = job.config as SlideshowConfig;
+
+    // Required: it is the video's only source of length. There is no
+    // hand-written fallback the way there is for a carousel deck -- with no
+    // script there is nothing to say and nothing to size the slideshow by.
+    const script = (config.script ?? "").trim();
+    if (!script) throw new Error("A script is required.");
+
+    // Before anything is spent: see assertVoiceoverSupport.
+    await assertVoiceoverSupport();
+
+    const narrated = await narrateScript(ctx, { jobId, clientId, script, config });
+    await ctx.runMutation(internal.jobs.patchStep, {
+      jobId,
+      stepId: "voice",
+      state: "done",
+      output: narrated,
+    });
+    return null;
+  },
+});
+
+// ---------------------------------------------------------------- stage 2: the plan (P1)
+
 export const writePlan = internalAction({
   args: { jobId: v.id("jobs"), clientId: v.id("clients") },
   handler: async (ctx, { jobId, clientId }): Promise<null> => {
@@ -272,19 +322,12 @@ export const writePlan = internalAction({
 
     const config = job.config as SlideshowConfig;
     const subject = (config.prompt ?? "").trim();
-    const count = config.images ?? 10;
     const style = config.style ?? DEFAULT_STYLE;
 
-    // FLAG (spec ambiguity, not invented): the spec marks Prompt optional on
-    // Slideshow the same as it does on Carousel, but a carousel can fall back
-    // to a hand-written deck -- Slideshow has no equivalent, since the images
-    // must come from somewhere. Treated as required until told otherwise.
-    if (!subject) {
-      throw new Error(
-        "A prompt is required to generate slide images -- there is no " +
-          "hand-written fallback the way there is for a carousel deck.",
-      );
-    }
+    // One slide per scene of the voiceover: X / 3, already worked out.
+    const voice = voiceOf(job);
+    if (!voice?.windows?.length) throw new Error("no voiceover to plan the slides around");
+    const count = voice.windows.length;
 
     await ctx.runMutation(internal.ledger.assertUnderCap, {
       clientId,
@@ -338,16 +381,42 @@ export const writePlan = internalAction({
         "a slide may feature one, several or none -- and do not describe their appearance there."
       : "";
 
+    // The slides are cut to the voiceover: slide i is on screen for exactly
+    // three seconds while window i of it is spoken. Each window is the words
+    // actually spoken in those seconds, taken from the speech model's timings.
+    const windowsBrief =
+      "\n\nThe slideshow is cut to a voiceover that is already recorded, and every slide is on " +
+      `screen for exactly ${SCENE_SECONDS} seconds while its own part of the script is spoken. ` +
+      `The ${count} parts, in order:\n` +
+      voice.windows
+        .map((w, i) => `${i + 1}. ${w.trim() || "(a pause -- nothing is said)"}`)
+        .join("\n") +
+      `\n\nWrite exactly ${count} slides, slide 1 for part 1, slide 2 for part 2, and so on. ` +
+      "Each imagePrompt shows what is being said in its part (a pause carries the visual thread " +
+      "on from the slide before).";
+
     const call = await callTool(
       SLIDESHOW_SYSTEM,
       `Plan a ${count}-slide slideshow. Visual style: ${style}. ` +
-        `Framed ${aspectRatio(config)}.${castBrief}${designBrief}\n\nSubject:\n\n${subject}`,
+        `Framed ${aspectRatio(config)}.${castBrief}${designBrief}` +
+        (subject ? `\n\nSubject:\n\n${subject}` : "") +
+        (await businessContext(
+          ctx,
+          clientId,
+          config.mentionBusiness,
+          "Where it fits the script, show the business's product, setting or customers in the slides -- never as an ad.",
+        )) +
+        windowsBrief,
       slideshowTool(designCast) as never,
     );
-    const slides = (call.value as { slides?: SlidePlan[] })?.slides ?? [];
-    if (slides.length < 3) {
-      throw new Error(`model returned only ${slides.length} slide(s) -- need at least 3`);
+    const drafted = draftedSlides(call.value);
+    if (drafted.length < count) {
+      throw new Error(`model returned ${drafted.length} slide(s) for ${count} parts of the script`);
     }
+    // One per part, no more: a spare slide would run past the end of the voice.
+    const slides: SlidePlan[] = drafted
+      .slice(0, count)
+      .map((s) => ({ imagePrompt: s.imagePrompt }));
 
     let characters: CastMember[] | undefined;
     if (designCast) {
@@ -357,16 +426,6 @@ export const writePlan = internalAction({
       if (!characters.length) {
         throw new Error("Composite scenes needs a cast, but the model designed no characters");
       }
-    }
-
-    const over = slides
-      .map((s, i) => ({ i, len: (s.caption ?? "").length }))
-      .filter((s) => s.len > MAX_CAPTION_CHARS);
-    if (over.length) {
-      throw new Error(
-        `caption exceeded ${MAX_CAPTION_CHARS} chars on slide(s): ` +
-          over.map((s) => `${s.i + 1} (${s.len})`).join(", "),
-      );
     }
 
     const costUsd =
@@ -656,85 +715,12 @@ export const compositeSubject = internalAction({
   },
 });
 
-// ---------------------------------------------------------------- stage 4: voiceover (P4)
-
-/**
- * One TTS call per slide rather than one for the whole script.
- *
- * The renderer holds each slide up for as long as its own line takes
- * (video.mjs measures every clip before it builds a single segment), which it
- * can only do if the lines arrive separately. A single stitched track would
- * force a fixed three seconds a slide and clip half the sentences.
- */
-export const recordVoiceover = internalAction({
-  args: { jobId: v.id("jobs"), clientId: v.id("clients") },
-  handler: async (ctx, { jobId, clientId }): Promise<null> => {
-    await ctx.runMutation(internal.jobs.patchStep, {
-      jobId,
-      stepId: "voice",
-      state: "running",
-    });
-
-    const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
-    if (!job) throw new Error("unknown job");
-    const config = job.config as SlideshowConfig;
-
-    const plan = (job.steps.find((s) => s.id === "copy")?.output as
-      | { slides?: SlidePlan[] }
-      | undefined)?.slides;
-    if (!plan?.length) throw new Error("no captions to read aloud");
-
-    const chars = plan.reduce((sum, s) => sum + (s.caption ?? "").length, 0);
-    await ctx.runMutation(internal.ledger.assertUnderCap, {
-      clientId,
-      aboutToSpendUsd: (chars / 1000) * TTS_PRICE_PER_1000_CHARS * 1.2,
-    });
-
-    const stability = stabilityOf(config);
-    const urls = await Promise.all(
-      plan.map(async (slide, i) => {
-        const text = (slide.caption ?? "").trim();
-        // A slide with no caption gets no voice and keeps the floor duration.
-        if (!text) return null;
-        const result = (await callSync(TTS_MODEL, {
-          text,
-          voice: config.voice ?? "Sarah",
-          stability,
-          language_code: config.language ?? "en",
-          apply_text_normalization: "auto",
-        })) as { audio?: { url?: string } };
-        const url = result.audio?.url;
-        if (!url) throw new Error(`no audio returned for slide ${i + 1}`);
-        return url;
-      }),
-    );
-
-    await ctx.runMutation(internal.ledger.record, {
-      clientId,
-      jobId,
-      stepId: "voice",
-      primitive: "P4",
-      model: TTS_MODEL,
-      units: chars,
-      unitLabel: "characters",
-      costUsd: (chars / 1000) * TTS_PRICE_PER_1000_CHARS,
-    });
-    await ctx.runMutation(internal.jobs.patchStep, {
-      jobId,
-      stepId: "voice",
-      state: "done",
-      output: { urls },
-    });
-    return null;
-  },
-});
-
 // ---------------------------------------------------------------- stage 5: music (P4)
 
 /**
- * The score is generated BEFORE the cut exists, so its length is an
- * estimate: three seconds a slide, six when a voice stretches them. The
- * shared step clamps it to what CassetteAI accepts.
+ * The score is as long as the voiceover -- X seconds, known by now because the
+ * voice was recorded first. The shared step clamps it to what CassetteAI
+ * accepts (10-180 seconds), and the renderer loops or trims it to fit.
  */
 export const scoreMusic = internalAction({
   args: { jobId: v.id("jobs"), clientId: v.id("clients") },
@@ -742,16 +728,14 @@ export const scoreMusic = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
     const config = job.config as SlideshowConfig;
-    const plan = (job.steps.find((s) => s.id === "copy")?.output as
-      | { slides?: SlidePlan[] }
-      | undefined)?.slides;
-    if (!plan?.length) throw new Error("nothing to score");
+    const voice = voiceOf(job);
+    if (!voice) throw new Error("nothing to score");
 
     await scoreMusicStep(ctx, {
       jobId,
       clientId,
-      wantedSeconds: plan.length * (config.voiceover ? 6 : SECONDS_PER_SLIDE),
-      subject: plan[0]?.caption ?? config.prompt ?? "",
+      wantedSeconds: voice.seconds,
+      subject: config.prompt?.trim() || voice.script.slice(0, 300),
     });
     return null;
   },
@@ -780,10 +764,9 @@ export const render = internalAction({
       | undefined)?.urls;
     if (!plan?.length || !urls?.length) throw new Error("missing plan or generated images");
 
-    const narration =
-      (job.steps.find((s) => s.id === "voice")?.output as
-        | { urls?: (string | null)[] }
-        | undefined)?.urls ?? [];
+    // The one continuous voiceover the whole cut was built around.
+    const voiceoverUrl = voiceOf(job)?.audioUrl;
+    if (!voiceoverUrl) throw new Error("missing voiceover");
     const musicUrl =
       (job.steps.find((s) => s.id === "music")?.output as { url?: string } | undefined)?.url ??
       null;
@@ -807,11 +790,12 @@ export const render = internalAction({
       headers: renderServiceHeaders(),
       body: JSON.stringify({
         images: urls.map((url) => ({ url })),
-        captions: plan.map((s) => s.caption),
         dimensions: aspectRatio(config),
-        secondsPerImage: SECONDS_PER_SLIDE,
-        captionStyle: "Classic",
-        narration,
+        // Every slide holds for exactly this long, whatever is said over it --
+        // the count of slides is what was fitted to the voice, not the other
+        // way round.
+        secondsPerImage: SCENE_SECONDS,
+        voiceoverUrl,
         musicUrl,
         musicVolume: musicVolumeOf(config),
         startVideoUrl,
@@ -869,8 +853,8 @@ export const upscale = internalAction({
   args: { jobId: v.id("jobs"), clientId: v.id("clients") },
   handler: async (ctx, { jobId, clientId }): Promise<null> => {
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
-    const images = (job?.config as SlideshowConfig | undefined)?.images ?? 10;
-    await upscaleStep(ctx, { jobId, clientId, fallbackSeconds: images * SECONDS_PER_SLIDE });
+    const scenes = (job ? voiceOf(job)?.sceneCount : undefined) ?? 10;
+    await upscaleStep(ctx, { jobId, clientId, fallbackSeconds: scenes * SCENE_SECONDS });
     return null;
   },
 });
@@ -881,11 +865,11 @@ export const burnSubtitles = internalAction({
   args: { jobId: v.id("jobs"), clientId: v.id("clients") },
   handler: async (ctx, { jobId, clientId }): Promise<null> => {
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
-    const images = (job?.config as SlideshowConfig | undefined)?.images ?? 10;
+    const scenes = (job ? voiceOf(job)?.sceneCount : undefined) ?? 10;
     await subtitlesStep(ctx, {
       jobId,
       clientId,
-      fallbackSeconds: images * SECONDS_PER_SLIDE,
+      fallbackSeconds: scenes * SCENE_SECONDS,
       defaultAspect: DEFAULT_ASPECT_RATIO,
     });
     return null;

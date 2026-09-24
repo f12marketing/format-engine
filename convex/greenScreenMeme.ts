@@ -5,6 +5,7 @@ import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import { callTool, LLM_MODEL } from "./lib/fal";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
+import { businessContext } from "./lib/businessContext";
 
 /**
  * Green Screen Meme: a trending green-screen clip, chroma-keyed over the
@@ -124,9 +125,7 @@ export const writeCaption = internalAction({
 
     await ctx.runMutation(internal.ledger.assertUnderCap, { clientId, aboutToSpendUsd: 0.02 });
 
-    const userPrompt = config.mentionBusiness
-      ? `${brief}\n\nMention the business by name.`
-      : brief;
+    const userPrompt = brief + (await businessContext(ctx, clientId, config.mentionBusiness));
     const call = await callTool(CAPTION_SYSTEM, userPrompt, CAPTION_TOOL as never);
     const caption = String((call.value as { caption?: string })?.caption ?? "").trim();
     if (!caption) throw new Error("model returned no caption");

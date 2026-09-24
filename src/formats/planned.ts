@@ -21,60 +21,8 @@ import { field } from "./fields";
 // options -- the same move this file's header describes for every format that
 // outgrows a bare declaration.
 
-export const wallOfText = defineFormat({
-  id: "wall-of-text",
-  name: "Wall of Text",
-  blurb: "Bold text on a plain background",
-  icon: "🔠",
-  group: "slides-text",
-  preview: "video",
-  status: "ready",
-  phase: 1,
-  config: {
-    text: field.longText({
-      label: "Text",
-      optional: true,
-      generatedBy: "P1",
-      placeholder: "One idea, under 140 characters.",
-      help: "Write it yourself, or leave blank and give a prompt below.",
-    }),
-    prompt: field.longText({
-      label: "Prompt",
-      optional: true,
-      placeholder: "What should it say? Only used when Text is blank.",
-    }),
-    captionStyle: field.captionStyle({ default: "Headline" }),
-    backgroundColor: field.choice({
-      label: "Background",
-      options: ["#111111", "#0f1a2e", "#1c1917", "#14532d", "#7f1d1d"],
-      default: "#111111",
-    }),
-    dimensions: field.choice({
-      label: "Dimensions",
-      options: ["9:16", "1:1", "4:5", "16:9"],
-      default: "9:16",
-    }),
-    durationSec: field.seconds({ label: "Duration", min: 1, max: 60, default: 5 }),
-    mentionBusiness: field.mentionBusiness(),
-  },
-  /**
-   * FLAG, still open: the spec adds a Trending video to this format while the
-   * blurb says plain background. Planned as a background choice, with the clip
-   * option arriving in Phase 3 when the library exists. Shipping the plain
-   * version now costs nothing and does not prejudge the answer.
-   */
-  pipeline: [
-    // Skipped entirely when the text is written by hand, which is what makes
-    // this format runnable with no model access at all.
-    {
-      id: "copy",
-      primitive: "P1",
-      label: "Write the text",
-      when: { field: "text", is: "empty" },
-    },
-    { id: "render", primitive: "P8", label: "Typeset and render" },
-  ],
-});
+// Wall of Text moved out to formats/wallOfText.ts once it gained a real video,
+// audio and a studio gate.
 
 export const custom = defineFormat({
   id: "custom",
@@ -459,7 +407,10 @@ export const skeleton = defineFormat({
     character: field.avatar({
       label: "Character",
       optional: true,
-      help: "Optional. Leave empty for the default skeleton.",
+      help: "Optional. Leave it on the default skeleton, or cast your own character.",
+      default: undefined,
+      emptyLabel: "The default skeleton",
+      casting: false,
     }),
     productImage: field.image({
       label: "Product image",
