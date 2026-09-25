@@ -47,6 +47,7 @@ export type FieldKind =
   | "avatar"
   | "trendingClip"
   | "audioClip"
+  | "imageSource"
   | "mode";
 
 export interface FieldBase {
@@ -138,6 +139,12 @@ export interface TextField extends FieldBase {
   maxLength?: number;
   /** Visible lines of a long text. Defaults to 4; a script wants more. */
   rows?: number;
+  /**
+   * Puts an "Improve" button under a long text, which rewrites what was typed
+   * into a sharper brief for this format (and its chosen template) without
+   * saving anything -- the new text simply replaces the old in the field.
+   */
+  improvable?: boolean;
 }
 
 export interface SimpleField extends FieldBase {

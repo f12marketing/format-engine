@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import { useAction } from "convex/react";
+import { api } from "../../convex/_generated/api";
 import { UploadField } from "./UploadField";
 import { MultiUploadField } from "./MultiUploadField";
 import { TrendingClipField } from "./TrendingClipField";
@@ -8,6 +11,7 @@ import { AvatarField } from "./AvatarField";
 import { AudioClipField } from "./AudioClipField";
 import { VoicePreview } from "./VoicePreview";
 import { AuthorisedBoundary } from "./AuthorisedBoundary";
+import { ImageSetField } from "./slideshow/ImageSetPicker";
 import { convexConfigured } from "@/app/ConvexClientProvider";
 import { fieldApplies } from "@/formats/types";
 import type { AdvancedCard, AdvancedSection, Field, FormatDefinition } from "@/formats/types";
@@ -399,11 +403,16 @@ function Control({
             value={text}
             onChange={(e) => onChange(e.target.value)}
           />
-          {field.maxLength && (
-            <p className="mt-1 text-right font-mono text-[0.65rem] tabular-nums text-muted">
-              {text.length} / {field.maxLength}
-            </p>
-          )}
+          <div className="mt-1 flex items-center gap-3">
+            {field.improvable && convexConfigured && (
+              <ImproveButton text={text} values={values} onImproved={(t) => onChange(t)} />
+            )}
+            {field.maxLength && (
+              <p className="ml-auto font-mono text-[0.65rem] tabular-nums text-muted">
+                {text.length} / {field.maxLength}
+              </p>
+            )}
+          </div>
         </div>
       );
     }
@@ -539,6 +548,15 @@ function Control({
         <Placeholder kind={field.kind} />
       );
 
+    case "imageSource":
+      return convexConfigured ? (
+        <AuthorisedBoundary>
+          <ImageSetField value={value ?? field.default} onChange={onChange} />
+        </AuthorisedBoundary>
+      ) : (
+        <Placeholder kind={field.kind} />
+      );
+
     case "trendingClip":
       return convexConfigured ? (
         <TrendingClipField value={value} onChange={onChange} />
@@ -578,6 +596,74 @@ function Control({
   }
 }
 
+/**
+ * Rewrites the prompt into a sharper brief for the images picked above it.
+ * The last version is kept for one Undo -- an improvement the client doesn't
+ * like should cost them nothing to walk back.
+ */
+function ImproveButton({
+  text,
+  values,
+  onImproved,
+}: {
+  text: string;
+  values: Record<string, unknown>;
+  onImproved: (text: string) => void;
+}) {
+  const improve = useAction(api.imageSlideshow.improvePrompt);
+  const [busy, setBusy] = useState(false);
+  const [previous, setPrevious] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onClick() {
+    setBusy(true);
+    setError(null);
+    try {
+      const { prompt } = await improve({
+        prompt: text,
+        images: typeof values.images === "string" ? values.images : undefined,
+        mentionBusiness: Boolean(values.mentionBusiness),
+      });
+      setPrevious(text);
+      onImproved(prompt);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(/Uncaught Error: ([^\n]+)/.exec(msg)?.[1] ?? msg);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-medium hover:border-accent hover:text-accent disabled:opacity-60"
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={busy ? "animate-pulse" : ""}>
+          <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
+        </svg>
+        {busy ? "Improving…" : text.trim() ? "Improve" : "Suggest a topic"}
+      </button>
+      {previous !== null && !busy && (
+        <button
+          type="button"
+          onClick={() => {
+            onImproved(previous);
+            setPrevious(null);
+          }}
+          className="text-xs text-muted underline-offset-2 hover:text-foreground hover:underline"
+        >
+          Undo
+        </button>
+      )}
+      {error && <span className="text-xs text-accent">{error}</span>}
+    </div>
+  );
+}
+
 const PLACEHOLDER_NOTE: Record<string, string> = {
   image: "Upload — connect Convex to enable",
   images: "Uploads — connect Convex to enable",
@@ -585,6 +671,7 @@ const PLACEHOLDER_NOTE: Record<string, string> = {
   color: "Colour picker",
   avatar: "Roster picker — connect Convex to enable",
   trendingClip: "Clip library — connect Convex to enable",
+  imageSource: "Image sets — connect Convex to enable",
 };
 
 function Placeholder({ kind }: { kind: string }) {

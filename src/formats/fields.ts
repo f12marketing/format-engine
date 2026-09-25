@@ -259,6 +259,17 @@ export const field = {
   }),
 
   /**
+   * The Images popup: a stock image set (Pexels + Pixabay) or the client's own
+   * uploads. Holds `set:<id>` or `uploads:<assetId>,...` -- see
+   * convex/lib/imageSets.ts.
+   */
+  imageSource: (o?: Partial<Omit<SimpleField, "kind">>): SimpleField => ({
+    kind: "imageSource",
+    label: "Images",
+    ...o,
+  }),
+
+  /**
    * "Create new" vs "Remix existing". Present on five formats in the spec.
    * The capability is universal -- every finished job offers Remix and
    * Regenerate copy -- so this field is a shortcut into that flow from the

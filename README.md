@@ -40,12 +40,12 @@ in, uploading, and Generate need the setup below.
 
 ### The formats
 
-All 24 are declared `ready` in the registry (`src/formats/index.ts`). Each has
+All 25 are declared `ready` in the registry (`src/formats/index.ts`). Each has
 its own Convex pipeline file under `convex/`.
 
 | Group | Formats |
 | --- | --- |
-| Decks | Carousel |
+| Decks | Carousel, Image Slideshow |
 | Slides & text | Slideshow, Wall of Text |
 | Trending clips | Video Hook & Demo, Green Screen Meme |
 | Talking avatars | Talking Head UGC, Speaking Hook & Demo, Talking Head Green Screen, Product Spokesperson, Green Screen Mobile with App |
@@ -58,6 +58,24 @@ A few things are worth knowing about before you touch them:
   beats → score → final cut. It is the most expensive format by a wide margin
   (roughly $12–13 for a 45-second episode) and it needs the render service's
   `/render/drama` route.
+- **Image Slideshow** is the TikTok / Instagram photo carousel with text on
+  every slide. Three settings: *Mention your business*, *Images* (a popup:
+  choose one of 51 stock image sets -- Gym, Sunsets, Work/Career... -- or
+  upload your own, up to 20) and the *Prompt*, whose Improve button rewrites
+  it into a sharper brief. The run writes the slides (P1) in the text style
+  the set calls for (`convex/lib/imageSets.ts` maps each set to one of the
+  styles in `convex/lib/imageSlideshowTemplates.ts`) and matches one of the
+  set's photos to each slide from what the photo shows -- no image
+  generation, so a run costs about a cent. It then pauses in an editor on the
+  job page: dimensions (1:1, 4:5, 3:4, 9:16), text boxes you drag, resize,
+  double-click to type in and style (font, weight, size, colour, stroke,
+  background none / white / Snapchat / colour, with *Apply to all text
+  boxes*), swap image, add images, add overlay (built-in tints and grain, or
+  your own image), add / reorder / delete slides; a Generate tab draws a new
+  photo when nothing fits ($0.08). Save exports every slide as a 1080-wide
+  JPEG through the render service's `/render/image-pages` route; preview and
+  export share `convex/lib/imageSlideshowDesign.ts`. The image sets are
+  empty until seeded -- see *Image sets* under Setup.
 - **Wall of Text** lays one paragraph over a casual phone clip for the whole
   video (the confession / "POV:" post). The Video field is the same casting
   popup every person-in-the-video format uses, plus a Videos tab: pick a
@@ -207,6 +225,62 @@ Without it the tab says it isn't switched on, and uploads still work. A
 picked track is copied into `audioTemplates` once (`convex/music.ts`), so a
 job keeps its music even if the track later leaves Freesound.
 
+### Image sets (for Image Slideshow)
+
+The 51 stock photo sets are downloaded once into Convex storage from Pexels
+and Pixabay (both free; Pixabay forbids hotlinking, so the bytes are kept).
+Get a key from [pexels.com/api](https://www.pexels.com/api/) and
+[pixabay.com/api/docs](https://pixabay.com/api/docs/), then:
+
+```bash
+npx convex env set PEXELS_API_KEY <key>
+npx convex env set PIXABAY_API_KEY <key>
+npx convex run imageSets:seed          # ~10 per source per set, about 2 minutes
+npx convex run imageSets:status        # photos per set
+```
+
+Seeding again only tops sets up to 20. Hide a photo that doesn't fit with
+`npx convex run imageSets:archive '{"imageId":"…"}'`. Search terms and the
+popup's categories live in `convex/lib/imageSets.ts`. Uploading your own
+images works without any of this. Sets seeded before thumbnails existed get
+them with `npx convex run imageSets:backfillThumbs`.
+
+The popup also searches both sources live. What their API terms require, and
+where the app does it:
+
+- **Attribution** -- "Photos provided by Pexels and Pixabay" with links under
+  every grid, "from Pexels & Pixabay" on search results, and "Photo by
+  *name* on *source*" linking to each photo's page on hover.
+- **No hotlinking** -- a photo is downloaded into Convex storage before it is
+  used; the sources' URLs are only shown as search thumbnails.
+- **24-hour search cache** -- `stockSearches`, pruned daily by `crons.ts`.
+- **Quotas** -- a deployment-wide budget under each limit (Pexels 200/hour
+  and 20,000/month, Pixabay 100/minute), in `convex/lib/rateLimit.ts`. When
+  one source is out of budget, search uses the other.
+- **No mass downloading** -- 20 photos per set at most; searched photos are
+  stored only when picked.
+
+The licences allow commercial use without credit in the posts themselves, but
+not selling a photo unaltered or implying that people or brands shown endorse
+you; the popup says so.
+
+**Keeping the running cost down:**
+
+- The run matches stock or uploaded photos instead of generating them, and
+  the popup's grids load ~25 KB thumbnails rather than ~130 KB photos.
+- Improve runs on Claude Haiku 4.5 (about $0.002 a click); the slide writer
+  stays on the app's main model.
+- The editor's Generate tab (the only paid image action, $0.08) is capped at
+  20 per client per day (`GENERATED_IMAGES_PER_DAY`).
+- `retention.ts` runs daily: exported slides older than 90 days are deleted
+  (the deck is kept, so "Edit slides again" re-exports them free, and the job
+  page says so), as are photos picked from the photo search that nothing has
+  used in 90 days. Anything a draft, scheduled or publishing post, brand
+  profile, avatar or influencer points at is kept. Preview a run with
+  `npx convex run retention:run '{"dryRun":true}'` (add `"olderThanDays":0`
+  to see what would go if everything were old enough).
+- The render service keeps one Chrome warm between renders -- see its README.
+
 ### 4. Render service
 
 ```bash
@@ -240,6 +314,75 @@ The clip, audio and gallery-face libraries are shared across clients and are
 curated from the CLI through `convex/dev.ts` (`internal*` functions, unreachable
 from the browser) until there's an admin surface worth building. Nothing else
 needs seeding.
+
+## Deployment checklist
+
+Deployment is deliberately the last step. Until then everything runs on the
+anonymous local Convex backend, which has **no separate production
+deployment** -- `--prod` on it silently means the local one. Work through this
+in order when the repo is ready to host.
+
+**1. Convex -- a hosted production deployment**
+
+- [ ] `npx convex login`, link this repo to a Convex cloud project, and
+      `npx convex deploy` to create production. Its URL is
+      `https://<name>.convex.cloud`, which the CSP in `next.config.ts` already
+      allows.
+- [ ] Set every server-side variable on production. Nothing carries over from
+      the local backend:
+
+      | Variable | Value |
+      | --- | --- |
+      | `FAL_API_KEY` | your fal key |
+      | `RENDER_SERVICE_URL` | the Railway URL from step 2 -- **not** `http://localhost:4000` |
+      | `RENDER_SERVICE_API_KEY` | the same long random string Railway is given |
+      | `SUPABASE_JWT_ISSUER`, `SUPABASE_JWKS_URL` | as in Setup §2 |
+      | `FREESOUND_API_KEY` | the key from your Freesound app page (Platform music) |
+      | `ZERNIO_API_KEY`, `ZERNIO_WEBHOOK_SECRET` | posting, calendar, analytics |
+      | `SCRAPECREATORS_API_KEY` | optional: trending-clip ingestion |
+
+      Each one: `npx convex env set --prod <NAME> <value>`.
+- [ ] Re-seed the shared libraries on production -- the local database doesn't
+      move. **Gallery faces need their labels again**
+      (`npx convex run --prod galleryFaces:label '{"faceId":…,"gender":…,"label":…}'`),
+      or "A woman" / "A man" casting has nothing to draw from. Add any house
+      audio tracks the same way they were added locally.
+
+**2. Render service -- Railway**
+
+- [ ] Deploy `format-engine-render-service` `master` (it includes the Wall of
+      Text `layerHtml` renderer and Image Slideshow's `/render/image-pages`
+      route; an older build fails every Wall of Text render and every
+      slideshow export).
+- [ ] Set `RENDER_SERVICE_API_KEY` to the same value as Convex's.
+- [ ] `curl https://<railway-url>/health` returns `"ok":true` and `"voiceover":true`.
+
+**3. App -- Vercel**
+
+- [ ] `NEXT_PUBLIC_CONVEX_URL` (production), `NEXT_PUBLIC_SUPABASE_URL`,
+      `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+- [ ] Build with `npx convex deploy --cmd 'npm run build'` and a
+      `CONVEX_DEPLOY_KEY`, so the functions and the site ship together.
+
+**4. Outside services**
+
+- [ ] Supabase: add `https://<your-domain>/auth/callback` to the redirect-URL
+      allow-list and set the Site URL -- confirmation and reset emails land there.
+- [ ] Zernio: point its webhook at `https://<name>.convex.site/zernio/events`.
+      (fal's training webhook needs nothing -- it's built from `CONVEX_SITE_URL`.)
+- [ ] Freesound: optionally update the app's URL to the production domain.
+
+**5. First run on production**
+
+- [ ] Sign up, confirm, and check `clients:bootstrapFirstClient` admitted you.
+- [ ] The business quiz appears once, and the website analysis works.
+- [ ] Music popup: a Platform search returns tracks and a preview plays.
+- [ ] Wall of Text end to end: film a cast person (~$0.55), style it in the
+      studio, Save, then Schedule.
+- [ ] Seed the image sets on production (`npx convex run --prod imageSets:seed`,
+      after setting both keys with `--prod`).
+- [ ] Image Slideshow end to end (about a cent): pick an image set, Improve a
+      prompt, generate, edit in the editor, Save, then Schedule.
 
 ## Layout
 
@@ -366,4 +509,5 @@ the spend cap stops a run rather than warning about it.
   itself.
 - The clip, audio and gallery libraries have no admin UI; curation is CLI-only.
 - No production deploy yet (Vercel, Railway, a promoted Convex deployment) —
-  deliberately last, per the "deployment at the end" call.
+  deliberately last, per the "deployment at the end" call. Everything it
+  involves is in [Deployment checklist](#deployment-checklist).

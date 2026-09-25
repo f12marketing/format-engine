@@ -31,6 +31,7 @@ export const STARTERS: Record<string, Starter> = {
   custom: internal.custom.start,
   "wall-of-text": internal.wallOfText.start,
   slideshow: internal.slideshow.start,
+  "image-slideshow": internal.imageSlideshow.start,
   "video-animation": internal.videoAnimation.start,
   drama: internal.drama.start,
   "video-hook-demo": internal.videoHookDemo.start,
@@ -58,6 +59,7 @@ export type RunnableFormatId =
   | "custom"
   | "wall-of-text"
   | "slideshow"
+  | "image-slideshow"
   | "video-animation"
   | "drama"
   | "video-hook-demo"
