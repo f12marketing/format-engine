@@ -6,6 +6,7 @@ import { api } from "../../convex/_generated/api";
 import { UploadField } from "./UploadField";
 import { MultiUploadField } from "./MultiUploadField";
 import { TrendingClipField } from "./TrendingClipField";
+import { HookField } from "./HookField";
 import { BusinessProfileCard } from "./BusinessProfileCard";
 import { AvatarField } from "./AvatarField";
 import { AudioClipField } from "./AudioClipField";
@@ -14,6 +15,7 @@ import { AuthorisedBoundary } from "./AuthorisedBoundary";
 import { ImageSetField } from "./slideshow/ImageSetPicker";
 import { convexConfigured } from "@/app/ConvexClientProvider";
 import { fieldApplies } from "@/formats/types";
+import { LANGUAGES } from "@/formats/fields";
 import type { AdvancedCard, AdvancedSection, Field, FormatDefinition } from "@/formats/types";
 
 /**
@@ -44,15 +46,22 @@ export function ConfigPanel({
 
   return (
     <div className="space-y-5">
-      {main.map(([key, field]) => (
-        <FieldControl
-          key={key}
-          id={key}
-          field={field}
-          value={values[key]}
-          values={values}
-          onChange={(v) => onChange(key, v)}
-        />
+      {main.map(([key, field], i) => (
+        <div key={key}>
+          {field.section && field.section !== main[i - 1]?.[1].section && (
+            <h3 className="mb-4 flex items-center gap-3 border-t border-line pt-5 font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">
+              {field.section}
+            </h3>
+          )}
+          <FieldControl
+            id={key}
+            field={field}
+            value={values[key]}
+            values={values}
+            onChange={(v) => onChange(key, v)}
+            setField={onChange}
+          />
+        </div>
       ))}
 
       {hasAdvanced && <AdvancedOptions format={format} values={values} onChange={onChange} />}
@@ -302,6 +311,7 @@ function FieldControl({
   value,
   values,
   onChange,
+  setField,
 }: {
   id: string;
   field: Field;
@@ -309,6 +319,8 @@ function FieldControl({
   /** Every field's value, for the few controls that depend on a sibling (a voice preview reads Delivery and Language). */
   values: Record<string, unknown>;
   onChange: (v: unknown) => void;
+  /** Sets a sibling field -- for the one control that writes into another (a personalizing toggle). */
+  setField?: (key: string, v: unknown) => void;
 }) {
   return (
     <div>
@@ -324,7 +336,7 @@ function FieldControl({
         )}
       </label>
 
-      <Control id={id} field={field} value={value} values={values} onChange={onChange} />
+      <Control id={id} field={field} value={value} values={values} onChange={onChange} setField={setField} />
 
       {field.help && (
         <p className="mt-1 text-xs leading-snug text-muted">{field.help}</p>
@@ -344,12 +356,14 @@ function Control({
   value,
   values,
   onChange,
+  setField,
 }: {
   id: string;
   field: Field;
   value: unknown;
   values: Record<string, unknown>;
   onChange: (v: unknown) => void;
+  setField?: (key: string, v: unknown) => void;
 }) {
   switch (field.kind) {
     case "choice":
@@ -469,6 +483,18 @@ function Control({
 
     case "toggle": {
       const on = Boolean(value ?? field.default);
+      if (field.personalizes && setField && convexConfigured) {
+        return (
+          <PersonalizingToggle
+            id={id}
+            on={on}
+            target={field.personalizes}
+            values={values}
+            onChange={onChange}
+            setField={setField}
+          />
+        );
+      }
       return (
         <>
           <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -500,7 +526,11 @@ function Control({
           value={String(value ?? "en")}
           onChange={(e) => onChange(e.target.value)}
         >
-          <option value="en">English</option>
+          {(field.languages ?? LANGUAGES).map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.label}
+            </option>
+          ))}
         </select>
       );
 
@@ -559,7 +589,16 @@ function Control({
 
     case "trendingClip":
       return convexConfigured ? (
-        <TrendingClipField value={value} onChange={onChange} />
+        <TrendingClipField value={value} onChange={onChange} label={field.label} />
+      ) : (
+        <Placeholder kind={field.kind} />
+      );
+
+    case "hook":
+      return convexConfigured ? (
+        <AuthorisedBoundary>
+          <HookField value={value} onChange={onChange} label={field.label} mode={field.hookMode} />
+        </AuthorisedBoundary>
       ) : (
         <Placeholder kind={field.kind} />
       );
@@ -594,6 +633,114 @@ function Control({
     default:
       return <Placeholder kind={(field as Field).kind} />;
   }
+}
+
+/**
+ * "Mention your business?" on a format whose line is typed in the panel:
+ * switching it on rewrites that line in the business's own voice there and
+ * then -- in the chosen language and delivery -- so the difference it makes
+ * is on screen before anything is generated. Undo puts the old line back;
+ * "Another take" rewrites again, e.g. after changing the language.
+ */
+function PersonalizingToggle({
+  id,
+  on,
+  target,
+  values,
+  onChange,
+  setField,
+}: {
+  id: string;
+  on: boolean;
+  target: string;
+  values: Record<string, unknown>;
+  onChange: (v: unknown) => void;
+  setField: (key: string, v: unknown) => void;
+}) {
+  const personalize = useAction(api.speakingHookDemo.personalizeLine);
+  const [busy, setBusy] = useState(false);
+  const [previous, setPrevious] = useState<string | null>(null);
+  const [business, setBusiness] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function rewrite() {
+    const current = typeof values[target] === "string" ? (values[target] as string) : "";
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await personalize({
+        saying: current || undefined,
+        delivery: typeof values.delivery === "string" ? values.delivery : undefined,
+        language: typeof values.language === "string" ? values.language : undefined,
+      });
+      setPrevious(current);
+      setBusiness(res.business);
+      setField(target, res.saying);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(/Uncaught Error: ([^\n]+)/.exec(msg)?.[1] ?? msg);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <label className="flex cursor-pointer items-center gap-2 text-sm">
+        <input
+          id={id}
+          type="checkbox"
+          checked={on}
+          disabled={busy}
+          onChange={(e) => {
+            onChange(e.target.checked);
+            if (e.target.checked) void rewrite();
+          }}
+          className="size-4 accent-accent"
+        />
+        <span className="text-muted">{on ? "Yes" : "No"}</span>
+      </label>
+      {on && (busy || error || previous !== null) && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-accent-soft px-3 py-2 text-xs">
+          {busy ? (
+            <span className="flex items-center gap-2 text-accent">
+              <span className="size-3 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+              Writing What they say in your business&rsquo;s voice…
+            </span>
+          ) : error ? (
+            <>
+              <span className="text-accent">{error}</span>
+              <button type="button" onClick={rewrite} className="font-medium underline-offset-2 hover:underline">
+                Try again
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="text-accent">✦ What they say is now in {business ?? "your business"}&rsquo;s voice.</span>
+              <button type="button" onClick={rewrite} className="font-medium underline-offset-2 hover:underline">
+                Another take
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setField(target, previous ?? "");
+                  setPrevious(null);
+                }}
+                className="text-muted underline-offset-2 hover:text-foreground hover:underline"
+              >
+                Undo
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {on && (
+        <AuthorisedBoundary>
+          <BusinessProfileCard />
+        </AuthorisedBoundary>
+      )}
+    </>
+  );
 }
 
 /**
@@ -671,6 +818,7 @@ const PLACEHOLDER_NOTE: Record<string, string> = {
   color: "Colour picker",
   avatar: "Roster picker — connect Convex to enable",
   trendingClip: "Clip library — connect Convex to enable",
+  hook: "Hook picker — connect Convex to enable",
   imageSource: "Image sets — connect Convex to enable",
 };
 

@@ -16,6 +16,7 @@
 import {
   frameOf,
   newId,
+  presetOverlay,
   type Frame,
   type OverlayPreset,
   type Slide,
@@ -352,6 +353,30 @@ export function layoutSlide(
   });
 }
 
+/**
+ * An existing slide in another style: every box takes the look of the role it
+ * plays (hook, heading or body) and keeps its words and place, and a preset
+ * overlay follows the style's. An image overlay is the client's own and stays.
+ * The Swap Image dialog's "use this set on every slide" calls this.
+ */
+export function restyleSlide(t: SlideshowTemplate, slide: Slide, isHook: boolean): Slide {
+  const n = slide.texts.length;
+  const roleFor = (j: number): TextRole => {
+    if (t.layout === "paragraph") return isHook ? t.hook : t.body;
+    if (isHook) return j === 0 ? t.hook : (t.hookSub ?? t.body);
+    return j === 0 && n > 1 ? t.heading : t.body;
+  };
+  return {
+    ...slide,
+    texts: slide.texts.map((box, j) => ({ ...box, ...roleFor(j) })),
+    overlay: slide.overlay?.assetId
+      ? slide.overlay
+      : t.overlay
+        ? presetOverlay(t.overlay.preset, t.overlay.opacity)
+        : null,
+  };
+}
+
 /** A whole deck from what the writer wrote and the photos drawn for it. */
 export function buildDeck(
   t: SlideshowTemplate,
@@ -365,7 +390,7 @@ export function buildDeck(
         id: newId("s"),
         imageAssetId: s.imageAssetId,
         imagePrompt: s.imagePrompt,
-        overlay: t.overlay ? { preset: t.overlay.preset, assetId: null, opacity: t.overlay.opacity } : null,
+        overlay: t.overlay ? presetOverlay(t.overlay.preset, t.overlay.opacity) : null,
         pictures: [],
         texts: layoutSlide(t, s, i === 0),
       }),

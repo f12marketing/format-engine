@@ -104,13 +104,13 @@ export function usePersonPreview(ref: string | null) {
   return describe(ref, people, { label: "" });
 }
 
-function usePeople() {
+export function usePeople() {
   const avatars = useQuery(api.avatars.list);
   const influencers = useQuery(api.influencers.list);
   const gallery = useQuery(api.galleryFaces.list);
   return { avatars, influencers, gallery };
 }
-type People = ReturnType<typeof usePeople>;
+export type People = ReturnType<typeof usePeople>;
 
 /** Up to three sample faces from the casting pool, for the stacked previews. */
 function samples(people: People, gender?: "woman" | "man"): string[] {
@@ -120,7 +120,7 @@ function samples(people: People, gender?: "woman" | "man"): string[] {
   return [0, step, step * 2].map((i) => pool[i]?.url).filter((u): u is string => Boolean(u));
 }
 
-function describe(
+export function describe(
   ref: string | null,
   people: People,
   options: PersonFieldOptions,
@@ -286,7 +286,7 @@ function CastingDialog({
 
 // ---------------------------------------------------------------- tabs
 
-function AnyoneTab({
+export function AnyoneTab({
   value,
   options,
   people,
@@ -342,7 +342,7 @@ function AnyoneTab({
   );
 }
 
-function InfluencersTab({
+export function InfluencersTab({
   value,
   people,
   onPick,
@@ -414,7 +414,7 @@ function InfluencersTab({
   );
 }
 
-function PremadeTab({
+export function PremadeTab({
   value,
   people,
   onPick,
@@ -481,7 +481,7 @@ function PremadeTab({
   );
 }
 
-function ImagesTab({ value, onPick }: { value: string | null; onPick: (ref: string) => void }) {
+export function ImagesTab({ value, onPick }: { value: string | null; onPick: (ref: string) => void }) {
   const images = useQuery(api.assets.mediaLibrary, { kind: "image" });
   const generateUploadUrl = useMutation(api.uploads.generateUploadUrl);
   const attach = useMutation(api.uploads.attach);
@@ -664,7 +664,7 @@ function FaceTile({
 }
 
 /** Overlapping round faces -- one for a pick, three for "we'll cast from these". */
-function Faces({ urls, size, icon }: { urls: string[]; size: "md" | "lg"; icon?: React.ReactNode }) {
+export function Faces({ urls, size, icon }: { urls: string[]; size: "md" | "lg"; icon?: React.ReactNode }) {
   const px = size === "lg" ? "size-14" : "size-10";
   const shown = useMemo(() => urls.slice(0, 3), [urls]);
   if (!shown.length) {
@@ -704,7 +704,7 @@ const svg = {
   strokeLinejoin: "round" as const,
   "aria-hidden": true,
 };
-function PeopleIcon() {
+export function PeopleIcon() {
   return (
     <svg {...svg}>
       <circle cx="9" cy="8" r="3" />
@@ -712,7 +712,7 @@ function PeopleIcon() {
     </svg>
   );
 }
-function PersonIcon() {
+export function PersonIcon() {
   return (
     <svg {...svg}>
       <circle cx="12" cy="8" r="3.5" />
@@ -720,14 +720,14 @@ function PersonIcon() {
     </svg>
   );
 }
-function SparkIcon() {
+export function SparkIcon() {
   return (
     <svg {...svg}>
       <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18" />
     </svg>
   );
 }
-function ImageIcon() {
+export function ImageIcon() {
   return (
     <svg {...svg}>
       <rect x="3" y="4" width="18" height="16" rx="2.5" />
@@ -736,7 +736,7 @@ function ImageIcon() {
     </svg>
   );
 }
-function VideoIcon() {
+export function VideoIcon() {
   return (
     <svg {...svg}>
       <rect x="3" y="6" width="13" height="12" rx="2.5" />
@@ -744,7 +744,7 @@ function VideoIcon() {
     </svg>
   );
 }
-function UploadIcon() {
+export function UploadIcon() {
   return (
     <svg {...svg}>
       <path d="M12 16V4M7 9l5-5 5 5M4 20h16" />

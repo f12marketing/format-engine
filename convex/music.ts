@@ -59,6 +59,53 @@ async function requireCaller(ctx: ActionCtx): Promise<Id<"clients">> {
   return client._id;
 }
 
+/**
+ * A Freesound API call, retried. Failures seen in production were dropped
+ * connections ~11s in, not the timeout -- transient, and gone on the next
+ * try -- so quiet retries spare the user a "try again" they'd only have to
+ * click. The real cause is logged, since the message shown can't carry it.
+ *
+ * Each retry waits first (1s, then 2s): a failed DNS lookup fails instantly,
+ * and back-to-back attempts land inside the same blip -- seen on 25 Sept
+ * 2026, both attempts failing within one second. A slow failure has already
+ * cost its 15s, though, so no retry starts past 20s in: a search box stuck
+ * for 45s is worse than one that says try again.
+ */
+const RETRY_DELAYS_MS = [1_000, 2_000];
+const RETRY_BUDGET_MS = 20_000;
+
+async function freesoundFetch(url: string): Promise<Response> {
+  const started = Date.now();
+  let lastError: unknown;
+  for (let attempt = 0; ; attempt++) {
+    let res: Response | undefined;
+    try {
+      res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+      if (res.status < 500) return res;
+      // A 5xx is Freesound having a moment, same as a dropped connection.
+      lastError = new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      lastError = e;
+    }
+    console.warn(`freesound attempt ${attempt + 1} failed:`, lastError instanceof Error ? lastError.message : lastError);
+
+    const delay = RETRY_DELAYS_MS[attempt];
+    if (delay === undefined || Date.now() - started + delay > RETRY_BUDGET_MS) {
+      // Out of tries: a 5xx goes back to the caller, which reports its status.
+      if (res) return res;
+      break;
+    }
+    await new Promise((r) => setTimeout(r, delay));
+  }
+  // AbortSignal.timeout rejects with a DOMException, which isn't always an Error.
+  const timedOut = (lastError as { name?: string } | undefined)?.name === "TimeoutError";
+  throw new Error(
+    timedOut
+      ? "The music library is slow to answer right now. Try again in a moment."
+      : "Couldn't reach the music library right now. Try again in a moment.",
+  );
+}
+
 /** A readable title from a file name: "happy_ukulele-loop_120bpm.wav" -> "Happy ukulele loop 120bpm". */
 function title(name: string): string {
   const t = name.replace(/\.(wav|mp3|flac|ogg|aiff?|m4a)$/i, "").replace(/[_-]+/g, " ").trim();
@@ -107,13 +154,7 @@ export const search = action({
       page: String(Math.max(1, Math.min(20, Math.round(page ?? 1)))),
       token: key,
     });
-    let res: Response;
-    try {
-      // Freesound's search is sometimes slow on a cold query; 20s before giving up.
-      res = await fetch(`${API}/search/text/?${params}`, { signal: AbortSignal.timeout(20_000) });
-    } catch {
-      throw new Error("The music library is slow to answer right now. Try again in a moment.");
-    }
+    const res = await freesoundFetch(`${API}/search/text/?${params}`);
     if (res.status === 401) throw new Error("The Freesound API key was rejected. Check FREESOUND_API_KEY.");
     if (!res.ok) throw new Error(`Music search failed (${res.status}). Try again in a moment.`);
     const body = (await res.json()) as { results?: FreesoundSound[]; next?: string | null };
@@ -151,14 +192,9 @@ export const importTrack = action({
     if (!key) throw new Error("Platform music isn't set up on this deployment yet.");
     await enforceRateLimit(ctx, "searchMusic", clientId);
 
-    let res: Response;
-    try {
-      res = await fetch(`${API}/sounds/${id}/?${new URLSearchParams({ fields: FIELDS, token: key })}`, {
-        signal: AbortSignal.timeout(20_000),
-      });
-    } catch {
-      throw new Error("The music library is slow to answer right now. Try again in a moment.");
-    }
+    const res = await freesoundFetch(
+      `${API}/sounds/${id}/?${new URLSearchParams({ fields: FIELDS, token: key })}`,
+    );
     if (!res.ok) throw new Error("That track isn't available any more.");
     const sound = (await res.json()) as FreesoundSound;
     const track = toTrack(sound);

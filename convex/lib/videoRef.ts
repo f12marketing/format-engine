@@ -33,6 +33,19 @@ export async function resolveVideoUrl(
   ref: VideoRef | undefined | null,
   clientId: Id<"clients">,
 ): Promise<string> {
+  return (await resolveVideo(ctx, ref, clientId)).url;
+}
+
+/**
+ * The same, plus what a hook knows about itself -- whether it speaks, and
+ * what it says -- for the hook + demo formats, which cut a speaking hook
+ * differently from a silent one.
+ */
+export async function resolveVideo(
+  ctx: ActionCtx,
+  ref: VideoRef | undefined | null,
+  clientId: Id<"clients">,
+): Promise<{ url: string; hookKind?: "speaking" | "reaction" | "upload"; hookLine?: string }> {
   if (!ref) throw new Error("Choose a video first.");
 
   if (isClipRef(ref)) {
@@ -42,7 +55,7 @@ export async function resolveVideoUrl(
     if (!clip) throw new Error("The selected library clip no longer exists.");
     const url = await ctx.storage.getUrl(clip.storageId);
     if (!url) throw new Error("The selected library clip could not be read.");
-    return url;
+    return { url };
   }
 
   const asset = await ctx.runQuery(internal.assets.getInternal, {
@@ -54,5 +67,5 @@ export async function resolveVideoUrl(
   }
   const url = await ctx.storage.getUrl(asset.storageId);
   if (!url) throw new Error("That video could not be read.");
-  return url;
+  return { url, hookKind: asset.hookKind, hookLine: asset.hookLine };
 }

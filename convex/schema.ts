@@ -111,8 +111,22 @@ export default defineSchema({
      * runs ffmpeg, so it produces this rather than a CDN doing it on the fly.
      */
     posterStorageId: v.optional(v.id("_storage")),
+    /**
+     * Set on a video that is a hook -- the opening seconds of a hook + demo
+     * ad -- so the hook popup's "My hooks" tab can offer it again. "speaking"
+     * is a speaker saying `hookLine` (Speaking Hook & Demo), "reaction" a
+     * filmed silent reaction (Video Hook & Demo), "upload" one the client
+     * brought themselves.
+     */
+    hookKind: v.optional(
+      v.union(v.literal("speaking"), v.literal("reaction"), v.literal("upload")),
+    ),
+    /** What a speaking hook says, reused as its caption when it's picked again. */
+    hookLine: v.optional(v.string()),
   })
     .index("by_client", ["clientId"])
+    // Absent sorts before every string, so a range over the kinds is exactly the hooks.
+    .index("by_client_hook", ["clientId", "hookKind"])
     .index("by_job", ["producedByJobId"])
     // Several rows can share bytes (a stock photo adopted by many clients);
     // retention.ts needs every row pointing at a file before deleting it.

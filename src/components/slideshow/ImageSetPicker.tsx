@@ -209,6 +209,7 @@ export function SetBrowser({
   selectedSet,
   initialOpen = null,
   onUseSet,
+  useSetLabel = "Use this set",
   onPickImage,
   onUsePhotos,
   onPickPhoto,
@@ -216,6 +217,8 @@ export function SetBrowser({
   selectedSet: string | null;
   initialOpen?: string | null;
   onUseSet?: (id: string) => void;
+  /** The open set's main button, when `onUseSet` is given. */
+  useSetLabel?: string;
   onPickImage?: (img: SetImage) => void;
   /** Several searched photos, in the order picked (the config popup). */
   onUsePhotos?: (photos: PickedPhoto[]) => void;
@@ -323,6 +326,7 @@ export function SetBrowser({
         name={meta?.name ?? open}
         onBack={() => setOpen(null)}
         onUse={onUseSet ? () => onUseSet(open) : undefined}
+        useLabel={useSetLabel}
         onPickImage={onPickImage}
       />
     );
@@ -607,12 +611,14 @@ function SetDetail({
   name,
   onBack,
   onUse,
+  useLabel,
   onPickImage,
 }: {
   id: string;
   name: string;
   onBack: () => void;
   onUse?: () => void;
+  useLabel: string;
   onPickImage?: (img: SetImage) => void;
 }) {
   const images = useQuery(api.imageSets.images, { set: id });
@@ -633,11 +639,15 @@ function SetDetail({
             disabled={!images?.length}
             className="rounded-lg bg-accent px-3.5 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
           >
-            Use this set
+            {useLabel}
           </button>
         )}
       </div>
-      {onPickImage && <p className="px-5 pt-1 text-xs text-muted">Click a photo to use it.</p>}
+      {onPickImage && (
+        <p className="px-5 pt-1 text-xs text-muted">
+          Click a photo to use it{onUse ? ", or use the whole set with the button above" : ""}.
+        </p>
+      )}
       <Scroll className="pt-4">
         {images === undefined ? (
           <p className="py-10 text-center text-xs text-muted">Loading…</p>

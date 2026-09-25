@@ -6,18 +6,31 @@ import {
   frameOf,
   googleFontsHref,
   lineStyle,
+  overlayBoxStyle,
   overlayLayerStyle,
   pictureStyle,
   textBlockStyle,
   textLines,
   textStyle,
   type Slide,
+  type SlideOverlay,
   type SlidePicture,
   type SlideRatio,
   type SlideText,
 } from "../../../convex/lib/imageSlideshowDesign";
 
-export type Selection = { kind: "text" | "picture"; id: string } | null;
+/** An overlay is one per slide, so its `id` is the slide's. */
+export type Selection = { kind: "text" | "picture" | "overlay"; id: string } | null;
+
+type Gesture =
+  | "text-move"
+  | "text-left"
+  | "text-right"
+  | "pic-move"
+  | "pic-resize"
+  | "ov-move"
+  | "ov-resize"
+  | "ov-rotate";
 
 /** Page-wide, so a drag's undo key never repeats even as stages remount slide to slide. */
 let gestureSeq = 0;
@@ -45,8 +58,9 @@ function useSlideFonts(fonts: string[]) {
  * Drawn inside a full-size frame (1080 wide) scaled down with a CSS transform,
  * from the same style functions the export page uses -- so wrapping, line
  * breaks and positions here are the exported image's, not an approximation.
- * Interactive, its text boxes and pictures can be selected, dragged, resized
- * and -- on double-click -- typed into in place.
+ * Interactive, its text boxes, pictures and a placed overlay image can be
+ * selected, dragged and resized (the overlay also rotated), and text boxes
+ * typed into in place on double-click.
  */
 export function SlideStage({
   slide,
@@ -60,6 +74,7 @@ export function SlideStage({
   onSelect,
   onText,
   onPicture,
+  onOverlay,
   onStartEdit,
   onEndEdit,
   className = "",
@@ -79,6 +94,7 @@ export function SlideStage({
   /** `key` names the gesture, so the editor can fold a whole drag into one undo step. */
   onText?: (id: string, patch: Partial<SlideText>, key: string) => void;
   onPicture?: (id: string, patch: Partial<SlidePicture>, key: string) => void;
+  onOverlay?: (patch: Partial<SlideOverlay>, key: string) => void;
   onStartEdit?: (id: string) => void;
   onEndEdit?: () => void;
   className?: string;
@@ -92,23 +108,26 @@ export function SlideStage({
   const photo = slide.imageAssetId ? urls[slide.imageAssetId] : undefined;
   const overlayImage = slide.overlay?.assetId ? urls[slide.overlay.assetId] : undefined;
 
-  function startGesture(
-    e: ReactPointerEvent,
-    kind: "text-move" | "text-left" | "text-right" | "pic-move" | "pic-resize",
-    id: string,
-  ) {
+  function startGesture(e: ReactPointerEvent, kind: Gesture, id: string) {
     if (!interactive) return;
     e.stopPropagation();
     if (editingId === id) return;
     e.preventDefault();
-    onSelect?.({ kind: kind.startsWith("text") ? "text" : "picture", id });
+    onSelect?.({ kind: kind.startsWith("text") ? "text" : kind.startsWith("pic") ? "picture" : "overlay", id });
     const key = `drag-${++gestureSeq}`;
     const t0 = slide.texts.find((t) => t.id === id);
     const p0 = slide.pictures.find((p) => p.id === id);
+    const o0 = kind.startsWith("ov") ? slide.overlay : null;
     const x0 = e.clientX;
     const y0 = e.clientY;
     const target = e.currentTarget as HTMLElement;
     target.setPointerCapture(e.pointerId);
+    // Resizing and turning the overlay work from its centre, which a rotation
+    // doesn't move: the box's on-screen bounds are centred on it either way.
+    const box = (kind === "ov-move" ? target : target.parentElement)?.getBoundingClientRect();
+    const cx = box ? box.left + box.width / 2 : x0;
+    const cy = box ? box.top + box.height / 2 : y0;
+    const d0 = Math.max(4, Math.hypot(x0 - cx, y0 - cy));
 
     const clamp = (n: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, n));
     // Within 1.5% of the centre line it sticks, and a guide shows why.
@@ -133,6 +152,24 @@ export function SlideStage({
         onPicture?.(id, { x, y }, key);
       } else if (kind === "pic-resize" && p0) {
         onPicture?.(id, { w: clamp(p0.w + 2 * dx, 0.05, 1) }, key);
+      } else if (kind === "ov-move" && o0) {
+        const x = snap(clamp(o0.x + dx));
+        const y = snap(clamp(o0.y + dy));
+        setGuides({ v: x === 0.5, h: y === 0.5 });
+        onOverlay?.({ x, y }, key);
+      } else if (kind === "ov-resize" && o0) {
+        const d = Math.hypot(ev.clientX - cx, ev.clientY - cy);
+        onOverlay?.({ w: Math.round(clamp((o0.w * d) / d0, 0.05, 2) * 1000) / 1000 }, key);
+      } else if (kind === "ov-rotate" && o0) {
+        // The handle sits above the box, so pointing straight up is 0 degrees.
+        let deg = (Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180) / Math.PI + 90;
+        if (deg > 180) deg -= 360;
+        // Shift turns in 15-degree steps; otherwise it sticks to square within 4.
+        const step = ev.shiftKey ? 15 : 90;
+        const near = Math.round(deg / step) * step;
+        if (ev.shiftKey || Math.abs(deg - near) < 4) deg = near;
+        if (deg <= -180) deg += 360;
+        onOverlay?.({ rotation: Math.round(deg * 10) / 10 }, key);
       }
     };
     const up = () => {
@@ -155,7 +192,7 @@ export function SlideStage({
       : interactive
         ? { outline: `${px(1)} dashed transparent`, outlineOffset: px(4) }
         : {};
-  const handle = (side: "left" | "right" | "corner"): CSSProperties => ({
+  const handle = (side: "left" | "right" | "corner" | "top"): CSSProperties => ({
     position: "absolute",
     width: px(12),
     height: px(12),
@@ -165,8 +202,11 @@ export function SlideStage({
     boxShadow: `0 0 0 ${px(1)} rgba(0,0,0,.2)`,
     ...(side === "corner"
       ? { right: px(-8), bottom: px(-8), cursor: "nwse-resize" }
-      : { top: "50%", [side]: px(-10), transform: "translateY(-50%)", cursor: "ew-resize" }),
+      : side === "top"
+        ? { left: "50%", top: px(-36), transform: "translateX(-50%)", cursor: "grab" }
+        : { top: "50%", [side]: px(-10), transform: "translateY(-50%)", cursor: "ew-resize" }),
   });
+  const overlayOn = interactive && selected?.kind === "overlay";
 
   return (
     <div
@@ -189,7 +229,40 @@ export function SlideStage({
         )}
 
         {slide.overlay &&
-          (overlayImage ? (
+          (overlayImage && !slide.overlay.fill ? (
+            <div
+              style={{
+                ...(overlayBoxStyle(slide.overlay, frame) as CSSProperties),
+                ...ring(overlayOn),
+                pointerEvents: interactive ? "auto" : "none",
+                cursor: interactive ? "move" : undefined,
+              }}
+              onPointerDown={(e) => startGesture(e, "ov-move", slide.id)}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={overlayImage}
+                alt=""
+                draggable={false}
+                className="block h-auto w-full"
+                style={{ opacity: slide.overlay.opacity }}
+              />
+              {overlayOn && (
+                <>
+                  <span
+                    className="pointer-events-none absolute left-1/2 bg-[var(--accent)]"
+                    style={{ top: px(-26), width: px(2), height: px(24), transform: "translateX(-50%)" }}
+                  />
+                  <span
+                    title="Drag to rotate (Shift: 15-degree steps)"
+                    style={handle("top")}
+                    onPointerDown={(e) => startGesture(e, "ov-rotate", slide.id)}
+                  />
+                  <span style={handle("corner")} onPointerDown={(e) => startGesture(e, "ov-resize", slide.id)} />
+                </>
+              )}
+            </div>
+          ) : overlayImage ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={overlayImage}

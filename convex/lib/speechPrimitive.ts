@@ -6,6 +6,7 @@ import type { ActionCtx } from "../_generated/server";
 import type { VOICES } from "../../src/formats/fields";
 import { callSync } from "./fal";
 import { resolveRosterPersona, type SpeakerGender } from "./roster";
+import { isVideoRef } from "./videoRef";
 
 /**
  * P4, shared by all five avatar formats. Every one of them either generated
@@ -52,6 +53,27 @@ async function voiceForSpeaker(
   }
 }
 
+/**
+ * A "How they say it" choice, as eleven-v3 audio tags: bracketed directions
+ * the model performs rather than reads ("[annoyed] This is hard."). They go
+ * on the text sent to TTS only -- never into the job's copy output, which is
+ * also the burned-in subtitle.
+ *
+ * With a direction, stability drops to v3's "Creative" (0): its "Natural"
+ * (0.5) and "Robust" (1) settings are documented as increasingly deaf to
+ * tags, which would make the choice do nothing audible.
+ */
+const DELIVERY_TAGS: Record<string, string> = {
+  Shocked: "[shocked] [gasps]",
+  Outraged: "[outraged]",
+  Realising: "[realizing] [slowly]",
+  Relieved: "[sighs] [relieved]",
+  Deadpan: "[deadpan] [flat]",
+  Excited: "[excited]",
+  Confused: "[confused] [curious]",
+  Smug: "[mischievously] [smug]",
+};
+
 export const generateSpeech = internalAction({
   args: {
     jobId: v.id("jobs"),
@@ -62,8 +84,13 @@ export const generateSpeech = internalAction({
     voice: v.optional(v.string()),
     /** Config field holding the on-screen speaker's roster ref, to match the voice to. */
     speakerConfigField: v.optional(v.string()),
+    /** Config field holding a "How they say it" choice (see DELIVERY_TAGS). */
+    deliveryConfigField: v.optional(v.string()),
   },
-  handler: async (ctx, { jobId, clientId, textConfigField, voice, speakerConfigField }): Promise<null> => {
+  handler: async (
+    ctx,
+    { jobId, clientId, textConfigField, voice, speakerConfigField, deliveryConfigField },
+  ): Promise<null> => {
     await ctx.runMutation(internal.jobs.patchStep, { jobId, stepId: "speech", state: "running" });
 
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
@@ -78,7 +105,9 @@ export const generateSpeech = internalAction({
     const speaker = speakerConfigField ? config[speakerConfigField] : undefined;
     const chosenVoice =
       voice ??
-      (typeof speaker === "string" && speaker
+      // A finished clip ("video:", "clip:") is nobody to match -- and never
+      // reaches here, since reusing one skips the speech step altogether.
+      (typeof speaker === "string" && speaker && !isVideoRef(speaker)
         ? await voiceForSpeaker(ctx, speaker, { clientId, jobId })
         : DEFAULT_VOICE);
 
@@ -94,10 +123,13 @@ export const generateSpeech = internalAction({
     // do not exist on v3 and were dropped rather than sent and ignored.
     // Twice the price ($0.10 vs $0.05 per 1k chars), which the rate constant
     // above reflects.
+    const direction = deliveryConfigField
+      ? DELIVERY_TAGS[String(config[deliveryConfigField] ?? "")]
+      : undefined;
     const result = (await callSync("fal-ai/elevenlabs/tts/eleven-v3", {
-      text,
+      text: direction ? `${direction} ${text}` : text,
       voice: chosenVoice,
-      stability: 0.5,
+      stability: direction ? 0 : 0.5,
       language_code: (config.language as string | undefined) ?? "en",
       apply_text_normalization: "auto",
     })) as { audio?: { url?: string } };

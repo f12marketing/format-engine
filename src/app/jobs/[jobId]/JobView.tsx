@@ -179,6 +179,10 @@ export function JobView({ jobId }: { jobId: string }) {
         </>
       )}
 
+      {job.status === "failed" && job.formatId === "image-slideshow" && (
+        <EditSlidesAgain job={job} failed />
+      )}
+
       {/* Only once there's something to post: the composer's whole job is to
           attach finished files to an account. */}
       {job.status === "done" && postableAssets.length > 0 && (
@@ -410,13 +414,19 @@ function EditWallAgain({
  */
 function EditSlidesAgain({
   job,
+  failed = false,
 }: {
   job: { _id: Id<"jobs">; config: unknown; steps: { id: string; primitive: string; label: string; output?: unknown }[] };
+  /** The export failed: reopen the deck that was saved, so the edits aren't lost. */
+  failed?: boolean;
 }) {
   const router = useRouter();
   const generate = useMutation(api.run.generate);
   const [busy, setBusy] = useState(false);
-  const deck = (job.steps.find((s) => s.id === "render")?.output as { deck?: unknown } | undefined)?.deck;
+  const deckOf = (id: string) => (job.steps.find((s) => s.id === id)?.output as { deck?: unknown } | undefined)?.deck;
+  // A finished export records the deck it drew; a failed one never got that
+  // far, but Save left the deck on the editor step.
+  const deck = deckOf("render") ?? deckOf("edit");
   if (!deck) return null;
 
   async function onClick() {
@@ -442,7 +452,7 @@ function EditSlidesAgain({
       disabled={busy}
       className="mt-4 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent-soft disabled:opacity-60"
     >
-      {busy ? "Opening the editor…" : "Edit slides again"}
+      {busy ? "Opening the editor…" : failed ? "Open your slides and save again" : "Edit slides again"}
     </button>
   );
 }
