@@ -7,15 +7,19 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import {
+  hasText,
   LOOKS,
+  MAX_TEXT_BOXES,
   MAX_TEXT_CHARS,
   SWATCHES,
   snapWeight,
   WALL_FONTS,
   type TextBackground,
   type WallDesign,
+  type WallOverlay,
+  type WallText,
 } from "../../../convex/lib/wallOfTextDesign";
-import { WallStage, type Selection } from "./WallStage";
+import { patchText, textAt, WallStage, type Selection, type TextTarget } from "./WallStage";
 import { ImagePickerDialog } from "./ImagePickerDialog";
 import { useGoogleFont } from "./useGoogleFont";
 
@@ -147,6 +151,48 @@ export function WallStudio({
   );
   const overlayUrl = overlayId ? (pickedUrls[overlayId] ?? resolved?.[0]?.url ?? null) : null;
 
+  // ---- text boxes: more text over the video, each styled and placed on its own
+  const boxes = design.boxes ?? [];
+
+  /** A box in the look of the selected text (or the main one), below the last text, ready to type in. */
+  function addTextBox() {
+    const d = current.current;
+    const list = d.boxes ?? [];
+    if (list.length >= MAX_TEXT_BOXES) return;
+    const like = (typeof selected === "number" && list[selected]) || d;
+    const last = list[list.length - 1] ?? d;
+    const box: WallText = {
+      text: "",
+      font: like.font,
+      weight: like.weight,
+      size: like.size,
+      color: like.color,
+      stroke: like.stroke,
+      strokeColor: like.strokeColor,
+      background: like.background,
+      align: like.align,
+      x: 0.5,
+      y: last.y + 0.12 > 0.9 ? 0.15 : last.y + 0.12,
+      width: like.width,
+    };
+    update({ boxes: [...list, box] }, `box-add-${Date.now()}`);
+    setSelected(list.length);
+    requestAnimationFrame(() => textRef.current?.focus());
+  }
+
+  const removeBox = useCallback(
+    (i: number) => {
+      update({ boxes: (current.current.boxes ?? []).filter((_, j) => j !== i) }, `box-remove-${Date.now()}`);
+      setSelected("text");
+    },
+    [update],
+  );
+
+  function editText(t: TextTarget) {
+    setSelected(t);
+    requestAnimationFrame(() => textRef.current?.focus());
+  }
+
   // ---- keyboard: undo/redo, nudge, delete, deselect -- never while typing
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -171,6 +217,10 @@ export function WallStudio({
         update({ overlay: null }, "overlay-remove");
         setSelected("text");
       }
+      if ((e.key === "Delete" || e.key === "Backspace") && typeof selected === "number") {
+        e.preventDefault();
+        removeBox(selected);
+      }
       const step = e.shiftKey ? 0.02 : 0.005;
       const arrows: Record<string, [number, number]> = {
         ArrowLeft: [-step, 0],
@@ -179,12 +229,13 @@ export function WallStudio({
         ArrowDown: [0, step],
       };
       const delta = arrows[e.key];
-      if (delta && selected) {
+      if (delta && selected !== null) {
         e.preventDefault();
         const clamp = (n: number) => Math.min(1, Math.max(0, n));
-        if (selected === "text") {
-          update({ x: clamp(d.x + delta[0]), y: clamp(d.y + delta[1]) }, "nudge");
-        } else if (d.overlay) {
+        const t = selected === "overlay" ? undefined : textAt(d, selected);
+        if (t && selected !== "overlay") {
+          update(patchText(d, selected, { x: clamp(t.x + delta[0]), y: clamp(t.y + delta[1]) }), "nudge");
+        } else if (selected === "overlay" && d.overlay) {
           update(
             { overlay: { ...d.overlay, x: clamp(d.overlay.x + delta[0]), y: clamp(d.overlay.y + delta[1]) } },
             "nudge",
@@ -194,7 +245,7 @@ export function WallStudio({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [redo, undo, update, selected]);
+  }, [redo, undo, update, removeBox, selected]);
 
   async function anotherTake() {
     setRewriting(true);
@@ -213,7 +264,7 @@ export function WallStudio({
   }
 
   async function save(schedule: boolean) {
-    if (!design.text.trim() && !variant?.allowEmpty) {
+    if (!hasText(design) && !variant?.allowEmpty) {
       setError("Add some text before saving.");
       setSelected("text");
       return;
@@ -316,6 +367,13 @@ export function WallStudio({
             >
               <ShuffleIcon spinning={rewriting} />
             </ToolButton>
+            <ToolButton
+              label={boxes.length >= MAX_TEXT_BOXES ? `Up to ${MAX_TEXT_BOXES} text boxes` : "Add a text box"}
+              onClick={addTextBox}
+              disabled={boxes.length >= MAX_TEXT_BOXES}
+            >
+              <TextIcon />
+            </ToolButton>
             {overlays && (
               <ToolButton label="Add an overlay image" onClick={() => setPicking(true)}>
                 <ImageIcon />
@@ -337,10 +395,7 @@ export function WallStudio({
               selected={selected}
               onSelect={setSelected}
               onChange={update}
-              onEditText={() => {
-                setSelected("text");
-                requestAnimationFrame(() => textRef.current?.focus());
-              }}
+              onEditText={editText}
             />
           </div>
         </section>
@@ -355,25 +410,48 @@ export function WallStudio({
               onReplace={() => setPicking(true)}
               onDone={() => setSelected("text")}
             />
+          ) : typeof selected === "number" && boxes[selected] ? (
+            <TextInspector
+              key={`box-${selected}`}
+              title={`Text box ${selected + 1}`}
+              design={boxes[selected]}
+              update={(patch, key) => update(patchText(current.current, selected, patch), `box${selected}-${key}`)}
+              palette={palette}
+              textRef={textRef}
+              onRemove={() => removeBox(selected)}
+              onBack={() => setSelected("text")}
+            />
           ) : selected === "text" ? (
             <TextInspector
+              key="text"
+              title="Text"
               design={design}
               update={update}
               palette={palette}
               textRef={textRef}
-              rewriting={rewriting}
-              onRewrite={anotherTake}
-              rewriteLabel={variant?.rewriteLabel ?? "Another take"}
+              rewrite={{
+                busy: rewriting,
+                run: anotherTake,
+                label: variant?.rewriteLabel ?? "Another take",
+              }}
               words={variant?.words}
-              overlays={overlays}
-              overlayUrl={overlayUrl}
-              onPickOverlay={() => setPicking(true)}
-              onSelectOverlay={() => setSelected("overlay")}
+              boxes={{ list: boxes, onSelect: setSelected, onAdd: addTextBox }}
+              overlay={
+                overlays
+                  ? {
+                      value: design.overlay,
+                      url: overlayUrl,
+                      onPick: () => setPicking(true),
+                      onSelect: () => setSelected("overlay"),
+                      onRemove: () => update({ overlay: null }, `overlay-${Date.now()}`),
+                    }
+                  : undefined
+              }
             />
           ) : (
             <div className="p-5 text-center">
               <p className="text-sm font-medium">Nothing selected</p>
-              <p className="mt-1 text-xs text-muted">Click the text or an overlay on the video to style it.</p>
+              <p className="mt-1 text-xs text-muted">Click a text or an overlay on the video to style it.</p>
               <button
                 type="button"
                 onClick={() => setSelected("text")}
@@ -476,6 +554,7 @@ export function Row({ label, children }: { label: string; children: React.ReactN
 // ---------------------------------------------------------------- inspectors
 
 type Update = (patch: Partial<WallDesign>, key: string) => void;
+type TextUpdate = (patch: Partial<WallText>, key: string) => void;
 
 export const WEIGHT_NAMES: Record<number, string> = {
   300: "Light",
@@ -492,7 +571,7 @@ export const WEIGHT_NAMES: Record<number, string> = {
  * highlight is invisible, and a Snapchat bar wants no outline. Only a colour
  * still at the other background's default is changed -- a chosen one stays.
  */
-function withBackground(d: WallDesign, bg: TextBackground): Partial<WallDesign> {
+function withBackground(d: WallText, bg: TextBackground): Partial<WallText> {
   if (bg === "white") {
     return { background: bg, stroke: 0, color: d.color === "#FFFFFF" ? "#111111" : d.color };
   }
@@ -504,57 +583,75 @@ function withBackground(d: WallDesign, bg: TextBackground): Partial<WallDesign> 
     : { background: bg };
 }
 
+/**
+ * The main text's inspector, or an added text box's. The main text carries
+ * the rewrite button, the list of text boxes and the overlay; a box has a
+ * delete and a way back instead.
+ */
 function TextInspector({
+  title,
   design,
   update,
   palette,
   textRef,
-  rewriting,
-  onRewrite,
-  rewriteLabel,
+  rewrite,
   words,
-  overlays,
-  overlayUrl,
-  onPickOverlay,
-  onSelectOverlay,
+  boxes,
+  overlay,
+  onRemove,
+  onBack,
 }: {
-  design: WallDesign;
-  update: Update;
+  title: string;
+  design: WallText;
+  update: TextUpdate;
   palette: string[];
   textRef: React.RefObject<HTMLTextAreaElement | null>;
-  rewriting: boolean;
-  onRewrite: () => void;
-  rewriteLabel: string;
+  rewrite?: { busy: boolean; run: () => void; label: string };
   words?: { min: number; max: number };
-  overlays: boolean;
-  overlayUrl: string | null;
-  onPickOverlay: () => void;
-  onSelectOverlay: () => void;
+  boxes?: { list: WallText[]; onSelect: (i: number) => void; onAdd: () => void };
+  overlay?: {
+    value: WallOverlay | null;
+    url: string | null;
+    onPick: () => void;
+    onSelect: () => void;
+    onRemove: () => void;
+  };
+  onRemove?: () => void;
+  onBack?: () => void;
 }) {
   const weights = WALL_FONTS.find((f) => f.name === design.font)?.weights ?? [400];
   const weightIndex = Math.max(0, weights.indexOf(design.weight));
 
   return (
     <div className="divide-y divide-line">
-      <Section title="Text">
+      <Section title={title}>
         <textarea
           ref={textRef}
           value={design.text}
           maxLength={MAX_TEXT_CHARS}
-          rows={5}
+          rows={rewrite ? 5 : 3}
+          placeholder={rewrite ? undefined : "Type your text"}
           onChange={(e) => update({ text: e.target.value }, "text")}
           className="w-full resize-y rounded-lg border border-line bg-surface-sub px-3 py-2 text-sm leading-snug outline-none focus:border-accent"
         />
         <div className="mt-1.5 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={onRewrite}
-            disabled={rewriting}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-accent hover:underline disabled:opacity-60"
-          >
-            <ShuffleIcon spinning={rewriting} small />
-            {rewriting ? "Writing…" : rewriteLabel}
-          </button>
+          {rewrite ? (
+            <button
+              type="button"
+              onClick={rewrite.run}
+              disabled={rewrite.busy}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-accent hover:underline disabled:opacity-60"
+            >
+              <ShuffleIcon spinning={rewrite.busy} small />
+              {rewrite.busy ? "Writing…" : rewrite.label}
+            </button>
+          ) : onRemove ? (
+            <button type="button" onClick={onRemove} className="text-xs text-accent hover:underline">
+              Delete text box
+            </button>
+          ) : (
+            <span />
+          )}
           {words ? (
             <WordCount text={design.text} {...words} />
           ) : (
@@ -721,38 +818,75 @@ function TextInspector({
         />
       </Section>
 
-      {overlays && (
+      {boxes && (
+        <Section title="Text boxes">
+          {boxes.list.map((b, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => boxes.onSelect(i)}
+              className="flex w-full items-center gap-2 rounded-lg border border-line px-3 py-2 text-left text-xs hover:border-accent"
+            >
+              <span className="font-mono text-[0.65rem] text-muted">{i + 1}</span>
+              <span className="min-w-0 flex-1 truncate">{b.text || <em className="text-muted">Empty</em>}</span>
+            </button>
+          ))}
+          {boxes.list.length < MAX_TEXT_BOXES ? (
+            <button
+              type="button"
+              onClick={boxes.onAdd}
+              className="w-full rounded-lg border border-dashed border-line py-2 text-xs text-muted hover:border-accent hover:text-foreground"
+            >
+              + Add a text box
+            </button>
+          ) : (
+            <p className="text-xs text-muted">Up to {MAX_TEXT_BOXES} text boxes.</p>
+          )}
+        </Section>
+      )}
+
+      {overlay && (
       <Section title="Overlay image">
-        {design.overlay ? (
+        {overlay.value ? (
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={onSelectOverlay}
+              onClick={overlay.onSelect}
               className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-lg border border-line bg-surface-sub hover:border-accent"
             >
-              {overlayUrl ? (
+              {overlay.url ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={overlayUrl} alt="" className="size-full object-contain" />
+                <img src={overlay.url} alt="" className="size-full object-contain" />
               ) : null}
             </button>
             <div className="flex flex-1 flex-wrap gap-2">
-              <SmallButton onClick={onSelectOverlay}>Adjust</SmallButton>
-              <SmallButton onClick={onPickOverlay}>Replace</SmallButton>
-              <SmallButton onClick={() => update({ overlay: null }, `overlay-${Date.now()}`)}>
-                Remove
-              </SmallButton>
+              <SmallButton onClick={overlay.onSelect}>Adjust</SmallButton>
+              <SmallButton onClick={overlay.onPick}>Replace</SmallButton>
+              <SmallButton onClick={overlay.onRemove}>Remove</SmallButton>
             </div>
           </div>
         ) : (
           <button
             type="button"
-            onClick={onPickOverlay}
+            onClick={overlay.onPick}
             className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-line py-3 text-xs text-muted hover:border-accent hover:text-foreground"
           >
             <ImageIcon /> Choose from library or upload
           </button>
         )}
       </Section>
+      )}
+
+      {onBack && (
+        <div className="p-4">
+          <button
+            type="button"
+            onClick={onBack}
+            className="w-full rounded-lg border border-line py-2 text-xs hover:border-accent"
+          >
+            ← Back to the main text
+          </button>
+        </div>
       )}
     </div>
   );
@@ -1028,7 +1162,7 @@ export function FontPicker({ value, onChange }: { value: string; onChange: (font
   );
 }
 
-function LookSwatch({ d }: { d: WallDesign }) {
+function LookSwatch({ d }: { d: WallText }) {
   const text = (
     <span
       style={{
@@ -1161,6 +1295,13 @@ export function ImageIcon() {
       <rect x="3" y="4" width="18" height="16" rx="2.5" />
       <path d="m3.5 15.5 4.2-4.2a2 2 0 0 1 2.8 0l5 5" />
       <circle cx="15.5" cy="9" r="1.5" />
+    </svg>
+  );
+}
+function TextIcon() {
+  return (
+    <svg {...svg}>
+      <path d="M4 7V5h16v2M12 5v14M9 19h6" />
     </svg>
   );
 }

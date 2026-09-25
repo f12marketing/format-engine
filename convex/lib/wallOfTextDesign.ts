@@ -32,7 +32,11 @@ export interface WallOverlay {
   w: number;
 }
 
-export interface WallDesign {
+/**
+ * One block of text and its look. The design's own fields are the main text;
+ * each added text box is another of these, styled and placed on its own.
+ */
+export interface WallText {
   text: string;
   font: string;
   weight: number;
@@ -49,7 +53,20 @@ export interface WallDesign {
   y: number;
   /** Wrap width as a fraction of the frame width. */
   width: number;
+}
+
+/** How many text boxes can be added on top of the main text. */
+export const MAX_TEXT_BOXES = 4;
+
+export interface WallDesign extends WallText {
   overlay: WallOverlay | null;
+  /** Added text boxes, drawn over the main text. Missing on designs from before they existed. */
+  boxes?: WallText[];
+}
+
+/** Whether there is any text to burn in: the main text or an added box. */
+export function hasText(d: WallDesign): boolean {
+  return Boolean(d.text.trim()) || (d.boxes ?? []).some((b) => b.text.trim());
 }
 
 /**
@@ -83,17 +100,28 @@ const FONT_BY_NAME = new Map(WALL_FONTS.map((f) => [f.name, f]));
 
 /** The stylesheet URL that loads one font at every weight the studio offers for it. */
 export function googleFontsHref(font: string): string {
-  const f = FONT_BY_NAME.get(font) ?? WALL_FONTS[0];
-  const family = f.name.replace(/ /g, "+");
-  const ws = f.weights;
-  const axis =
-    ws.length === 1
-      ? ""
-      : f.variable
-        ? `:wght@${ws[0]}..${ws[ws.length - 1]}`
-        : `:wght@${ws.join(";")}`;
+  return fontsHref([font]);
+}
+
+/** One stylesheet URL for several fonts -- every face a design with text boxes uses. */
+export function fontsHref(fonts: string[]): string {
+  const families = [...new Set(fonts.map((font) => FONT_BY_NAME.get(font) ?? WALL_FONTS[0]))].map((f) => {
+    const ws = f.weights;
+    const axis =
+      ws.length === 1
+        ? ""
+        : f.variable
+          ? `:wght@${ws[0]}..${ws[ws.length - 1]}`
+          : `:wght@${ws.join(";")}`;
+    return `family=${f.name.replace(/ /g, "+")}${axis}`;
+  });
   // display=block: a render must never screenshot the fallback face.
-  return `https://fonts.googleapis.com/css2?family=${family}${axis}&display=block`;
+  return `https://fonts.googleapis.com/css2?${families.join("&")}&display=block`;
+}
+
+/** Every font a design draws with, main text first. */
+export function designFonts(d: WallDesign): string[] {
+  return [d.font, ...(d.boxes ?? []).map((b) => b.font)];
 }
 
 /** The nearest weight the font really has. */
@@ -123,6 +151,7 @@ export function defaultDesign(text: string): WallDesign {
     y: 0.42,
     width: 0.84,
     overlay: null,
+    boxes: [],
   };
 }
 
@@ -143,7 +172,7 @@ export function hookCaptionDesign(text: string): WallDesign {
 }
 
 /** One-click looks: the "Colours" row. Each is a partial design laid over the current one. */
-export const LOOKS: { id: string; label: string; patch: Partial<WallDesign> }[] = [
+export const LOOKS: { id: string; label: string; patch: Partial<WallText> }[] = [
   {
     id: "tiktok",
     label: "Classic",
@@ -212,9 +241,6 @@ function hex(c: unknown, fallback: string): string {
  */
 export function sanitizeDesign(raw: unknown): WallDesign {
   const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const text = typeof d.text === "string" ? d.text.slice(0, MAX_TEXT_CHARS) : "";
-  const base = defaultDesign(text);
-  const font = typeof d.font === "string" && FONT_BY_NAME.has(d.font) ? d.font : base.font;
 
   const o = d.overlay as Record<string, unknown> | null | undefined;
   const overlay =
@@ -227,6 +253,21 @@ export function sanitizeDesign(raw: unknown): WallDesign {
         }
       : null;
 
+  // Empty boxes are dropped: there is nothing of them to draw.
+  const boxes = (Array.isArray(d.boxes) ? d.boxes : [])
+    .slice(0, MAX_TEXT_BOXES)
+    .map(sanitizeText)
+    .filter((b) => b.text.trim());
+
+  return { ...sanitizeText(d), overlay, boxes };
+}
+
+/** The main text, or one added text box, each value checked as above. */
+function sanitizeText(raw: unknown): WallText {
+  const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const text = typeof d.text === "string" ? d.text.slice(0, MAX_TEXT_CHARS) : "";
+  const base = defaultDesign(text);
+  const font = typeof d.font === "string" && FONT_BY_NAME.has(d.font) ? d.font : base.font;
   return {
     text,
     font,
@@ -244,7 +285,6 @@ export function sanitizeDesign(raw: unknown): WallDesign {
     x: clamp(d.x, 0, 1, base.x),
     y: clamp(d.y, 0, 1, base.y),
     width: clamp(d.width, 0.3, 1, base.width),
-    overlay,
   };
 }
 
@@ -258,7 +298,7 @@ export function sanitizeDesign(raw: unknown): WallDesign {
 export type Style = Record<string, string | number>;
 
 /** The positioned box. Snapchat's bar spans the whole frame; everything else wraps at `width`. */
-export function blockStyle(d: WallDesign): Style {
+export function blockStyle(d: WallText): Style {
   const bar = d.background === "snapchat";
   const w = FRAME.width * (bar ? 1 : d.width);
   return {
@@ -278,7 +318,7 @@ export function blockStyle(d: WallDesign): Style {
 }
 
 /** The paragraph: face, size, colour, outline, alignment. */
-export function textStyle(d: WallDesign): Style {
+export function textStyle(d: WallText): Style {
   return {
     margin: 0,
     fontFamily: `"${d.font}", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`,
@@ -304,7 +344,7 @@ export function textStyle(d: WallDesign): Style {
 }
 
 /** The per-line span. Only the white background styles it: a rounded box behind each line, as TikTok draws it. */
-export function lineStyle(d: WallDesign): Style {
+export function lineStyle(d: WallText): Style {
   if (d.background !== "white") return {};
   return {
     background: "#FFFFFF",
@@ -363,14 +403,17 @@ export function wallLayerHtml(d: WallDesign, overlayUrl: string | null): string 
     d.overlay && overlayUrl
       ? `<img src="${escapeHtml(overlayUrl)}" style="${attr(overlayStyle(d.overlay))}" alt="">`
       : "";
-  const lines = textLines(d.text)
-    .map((line) => (line ? `<span style="${attr(lineStyle(d))}">${escapeHtml(line)}</span>` : ""))
-    .join("\n");
+  const block = (t: WallText) => {
+    const lines = textLines(t.text)
+      .map((line) => (line ? `<span style="${attr(lineStyle(t))}">${escapeHtml(line)}</span>` : ""))
+      .join("\n");
+    return `<div style="${attr(blockStyle(t))}"><p style="${attr(textStyle(t))}">${lines}</p></div>`;
+  };
+  // The main text, then each added box over it -- the order the studio stacks them in.
+  const texts = [d, ...(d.boxes ?? []).filter((b) => b.text.trim())].map(block).join("");
   return `<!doctype html><html><head><meta charset="utf-8">
-<link rel="stylesheet" href="${escapeHtml(googleFontsHref(d.font))}">
+<link rel="stylesheet" href="${escapeHtml(fontsHref(designFonts(d)))}">
 <style>html,body{margin:0;padding:0;background:transparent}
 .frame{position:relative;width:${FRAME.width}px;height:${FRAME.height}px;overflow:hidden}</style>
-</head><body><div class="frame">${overlay}<div style="${attr(blockStyle(d))}"><p style="${attr(
-    textStyle(d),
-  )}">${lines}</p></div></div></body></html>`;
+</head><body><div class="frame">${overlay}${texts}</div></body></html>`;
 }

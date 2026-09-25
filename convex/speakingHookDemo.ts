@@ -11,7 +11,7 @@ import { businessContext } from "./lib/businessContext";
 import { isVideoRef, resolveVideo } from "./lib/videoRef";
 import { enforceRateLimit } from "./lib/rateLimit";
 import { languageName } from "./lib/voiceLanguages";
-import { hookCaptionDesign, sanitizeDesign } from "./lib/wallOfTextDesign";
+import { hasText, hookCaptionDesign, sanitizeDesign } from "./lib/wallOfTextDesign";
 import { captionHook } from "./lib/hookCaption";
 
 /**
@@ -378,7 +378,7 @@ export const stitch = internalAction({
     const approved = (job.steps.find((s) => s.id === "style")?.output as { design?: unknown } | undefined)
       ?.design;
     const design = approved ? sanitizeDesign(approved) : null;
-    const captioned = design?.text.trim() ? await captionHook(ctx, hookUrl, design, MAX_HOOK_SECONDS) : null;
+    const captioned = design && hasText(design) ? await captionHook(ctx, hookUrl, design, MAX_HOOK_SECONDS) : null;
     const captionText =
       approved || config.captionStyle === "None"
         ? ""

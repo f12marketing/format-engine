@@ -15,6 +15,7 @@ import { resolveAudioUrl } from "./lib/audioRef";
 import { isVideoRef, resolveVideoUrl } from "./lib/videoRef";
 import {
   defaultDesign,
+  hasText,
   MAX_TEXT_CHARS,
   sanitizeDesign,
   wallLayerHtml,
@@ -496,7 +497,7 @@ export const render = internalAction({
       | { design?: unknown }
       | undefined;
     const design = sanitizeDesign(approved?.design);
-    if (!design.text.trim()) throw new Error("There is no text to put on the video.");
+    if (!hasText(design)) throw new Error("There is no text to put on the video.");
 
     const videoUrl = await clipUrl(ctx, job, clientId);
     // No audio chosen means the clip keeps its own sound, as every reference does.

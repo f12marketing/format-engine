@@ -4,17 +4,30 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import {
   blockStyle,
+  designFonts,
   FRAME,
-  googleFontsHref,
+  fontsHref,
   lineStyle,
   overlayStyle,
   textLines,
   textStyle,
   type WallDesign,
+  type WallText,
 } from "../../../convex/lib/wallOfTextDesign";
 import { useGoogleFont } from "./useGoogleFont";
 
-export type Selection = "text" | "overlay" | null;
+/** A text on the stage: the main one, or an added text box by its index. */
+export type TextTarget = "text" | number;
+export type Selection = TextTarget | "overlay" | null;
+
+export function textAt(d: WallDesign, t: TextTarget): WallText | undefined {
+  return t === "text" ? d : d.boxes?.[t];
+}
+
+/** A change to one text, as a change to the design. */
+export function patchText(d: WallDesign, t: TextTarget, patch: Partial<WallText>): Partial<WallDesign> {
+  return t === "text" ? patch : { boxes: (d.boxes ?? []).map((b, i) => (i === t ? { ...b, ...patch } : b)) };
+}
 
 /**
  * The video with its text on top, at phone size.
@@ -22,8 +35,9 @@ export type Selection = "text" | "overlay" | null;
  * The text and overlay are drawn inside a full 1080x1920 frame scaled down
  * with a CSS transform, from the same style functions the render page uses --
  * so positions, wrapping and line breaks here are the render's, not an
- * approximation of them. Interactive, it lets the text and the overlay be
- * dragged into place and resized; otherwise it's a plain preview.
+ * approximation of them. Interactive, it lets the text, any added text boxes
+ * and the overlay be dragged into place and resized; otherwise it's a plain
+ * preview.
  */
 export function WallStage({
   design,
@@ -54,12 +68,12 @@ export function WallStage({
   onSelect?: (s: Selection) => void;
   /** `key` names the gesture or control, so the studio can fold a drag into one undo step. */
   onChange?: (patch: Partial<WallDesign>, key: string) => void;
-  onEditText?: () => void;
+  onEditText?: (t: TextTarget) => void;
   placeholder?: string;
   /** Loop only the first this-many seconds -- all of the clip that makes the video. */
   maxSeconds?: number | null;
 }) {
-  useGoogleFont(googleFontsHref(design.font));
+  useGoogleFont(fontsHref(designFonts(design)));
   const height = (width * FRAME.height) / FRAME.width;
   const k = width / FRAME.width;
 
@@ -132,12 +146,13 @@ export function WallStage({
   function startGesture(
     e: ReactPointerEvent,
     kind: "text-move" | "text-left" | "text-right" | "ov-move" | "ov-resize",
+    which: TextTarget = "text",
   ) {
     if (!interactive) return;
     e.stopPropagation();
     e.preventDefault();
-    onSelect?.(kind.startsWith("text") ? "text" : "overlay");
-    const key = `drag-${Date.now()}-${++gesture}`;
+    onSelect?.(kind.startsWith("text") ? which : "overlay");
+    const key = `drag-${e.timeStamp}-${++gesture}`;
     const d0 = design;
     const x0 = e.clientX;
     const y0 = e.clientY;
@@ -148,17 +163,18 @@ export function WallStage({
     // Within 1.5% of the centre line it sticks, and a guide shows why.
     const snap = (n: number) => (Math.abs(n - 0.5) < 0.015 ? 0.5 : n);
 
+    const t0 = textAt(d0, which);
     const move = (ev: PointerEvent) => {
       const dx = (ev.clientX - x0) / width;
       const dy = (ev.clientY - y0) / height;
-      if (kind === "text-move") {
-        const x = d0.background === "snapchat" ? d0.x : snap(clamp(d0.x + dx));
-        const y = snap(clamp(d0.y + dy, 0.03, 0.97));
-        setGuides({ v: x === 0.5 && d0.background !== "snapchat", h: y === 0.5 });
-        onChange?.({ x, y }, key);
-      } else if (kind === "text-right" || kind === "text-left") {
+      if (kind === "text-move" && t0) {
+        const x = t0.background === "snapchat" ? t0.x : snap(clamp(t0.x + dx));
+        const y = snap(clamp(t0.y + dy, 0.03, 0.97));
+        setGuides({ v: x === 0.5 && t0.background !== "snapchat", h: y === 0.5 });
+        onChange?.(patchText(d0, which, { x, y }), key);
+      } else if ((kind === "text-right" || kind === "text-left") && t0) {
         const grow = kind === "text-right" ? dx : -dx;
-        onChange?.({ width: clamp(d0.width + 2 * grow, 0.3, 1) }, key);
+        onChange?.(patchText(d0, which, { width: clamp(t0.width + 2 * grow, 0.3, 1) }), key);
       } else if (kind === "ov-move" && d0.overlay) {
         const x = snap(clamp(d0.overlay.x + dx));
         const y = snap(clamp(d0.overlay.y + dy));
@@ -201,8 +217,43 @@ export function WallStage({
       : { top: "50%", [side]: px(-10), transform: "translateY(-50%)", cursor: "ew-resize" }),
   });
 
-  const textSelected = interactive && selected === "text";
   const overlaySelected = interactive && selected === "overlay";
+
+  function textBlock(t: WallText, target: TextTarget, emptyText: string) {
+    const on = interactive && selected === target;
+    return (
+      <div
+        key={target}
+        style={{
+          ...(blockStyle(t) as CSSProperties),
+          ...ring(on),
+          pointerEvents: interactive ? "auto" : "none",
+          cursor: interactive ? "move" : undefined,
+        }}
+        onPointerDown={(e) => startGesture(e, "text-move", target)}
+        onDoubleClick={() => onEditText?.(target)}
+      >
+        <p style={textStyle(t) as CSSProperties}>
+          {t.text ? (
+            textLines(t.text).map((line, i) => (
+              <Fragment key={i}>
+                {i > 0 && "\n"}
+                {line && <span style={lineStyle(t) as CSSProperties}>{line}</span>}
+              </Fragment>
+            ))
+          ) : (
+            <span style={{ ...(lineStyle(t) as CSSProperties), opacity: 0.55 }}>{emptyText}</span>
+          )}
+        </p>
+        {on && t.background !== "snapchat" && (
+          <>
+            <span style={handle("left")} onPointerDown={(e) => startGesture(e, "text-left", target)} />
+            <span style={handle("right")} onPointerDown={(e) => startGesture(e, "text-right", target)} />
+          </>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -256,35 +307,8 @@ export function WallStage({
           </div>
         )}
 
-        <div
-          style={{
-            ...(blockStyle(design) as CSSProperties),
-            ...ring(textSelected),
-            pointerEvents: interactive ? "auto" : "none",
-            cursor: interactive ? "move" : undefined,
-          }}
-          onPointerDown={(e) => startGesture(e, "text-move")}
-          onDoubleClick={onEditText}
-        >
-          <p style={textStyle(design) as CSSProperties}>
-            {design.text ? (
-              textLines(design.text).map((line, i) => (
-                <Fragment key={i}>
-                  {i > 0 && "\n"}
-                  {line && <span style={lineStyle(design) as CSSProperties}>{line}</span>}
-                </Fragment>
-              ))
-            ) : (
-              <span style={{ ...(lineStyle(design) as CSSProperties), opacity: 0.55 }}>{placeholder}</span>
-            )}
-          </p>
-          {textSelected && design.background !== "snapchat" && (
-            <>
-              <span style={handle("left")} onPointerDown={(e) => startGesture(e, "text-left")} />
-              <span style={handle("right")} onPointerDown={(e) => startGesture(e, "text-right")} />
-            </>
-          )}
-        </div>
+        {textBlock(design, "text", placeholder)}
+        {(design.boxes ?? []).map((b, i) => textBlock(b, i, "Type your text"))}
       </div>
 
       {guides?.v && <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-accent/80" />}
