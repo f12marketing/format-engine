@@ -4,6 +4,7 @@ import { sendEvent } from "@convex-dev/workflow";
 import type { WorkflowId } from "@convex-dev/workflow";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { components } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { requireClient } from "./clients";
 
 /**
@@ -201,6 +202,23 @@ export const finish = internalMutation({
 export const getInternal = internalMutation({
   args: { jobId: v.id("jobs") },
   handler: async (ctx, { jobId }) => ctx.db.get(jobId),
+});
+
+/**
+ * Pins the face a "cast:" ref drew for this job and returns the pinned one:
+ * the first caller's pick wins, and every later caller -- another step, or a
+ * retry of the same one -- gets that face back instead of its own draw.
+ */
+export const pinCastFace = internalMutation({
+  args: { jobId: v.id("jobs"), ref: v.string(), faceId: v.id("galleryFaces") },
+  handler: async (ctx, { jobId, ref, faceId }): Promise<Id<"galleryFaces">> => {
+    const job = await ctx.db.get(jobId);
+    if (!job) throw new Error("unknown job");
+    const pinned = job.castFaces?.find((c) => c.ref === ref);
+    if (pinned) return pinned.faceId;
+    await ctx.db.patch(jobId, { castFaces: [...(job.castFaces ?? []), { ref, faceId }] });
+    return faceId;
+  },
 });
 
 /**

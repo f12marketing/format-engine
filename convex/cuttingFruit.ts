@@ -28,7 +28,7 @@ export const run = workflow
         // Cutting Fruit's copy step is unconditional (no `when`), so this
         // fallback field is never actually read -- required by the shared
         // primitive's signature regardless.
-        { ...args, textConfigField: "prompt" },
+        { ...args, textConfigField: "prompt", speakerConfigField: "whosCutting" },
         { retry: true },
       );
       await step.runAction(internal.cuttingFruit.composeKitchenScene, args, { retry: true });

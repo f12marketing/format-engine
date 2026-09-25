@@ -1,7 +1,11 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
+import type { ActionCtx } from "../_generated/server";
+import type { VOICES } from "../../src/formats/fields";
 import { callSync } from "./fal";
+import { resolveRosterPersona, type SpeakerGender } from "./roster";
 
 /**
  * P4, shared by all five avatar formats. Every one of them either generated
@@ -13,15 +17,53 @@ import { callSync } from "./fal";
 const TTS_PRICE_PER_1000_CHARS = 0.1; // fal-ai/elevenlabs/tts/eleven-v3
 const AVG_SPEECH_CHARS_PER_SEC = 15;
 
+/**
+ * The voice when nobody chose one: matched to whoever is on screen, so a man
+ * cast as the speaker doesn't open his mouth and sound like Sarah. The same
+ * picks Drama falls back to per gender. Sarah stays the default for a speaker
+ * whose gender isn't known -- an uploaded photo, say -- as it always was.
+ */
+type Voice = (typeof VOICES)[number];
+const DEFAULT_VOICE: Voice = "Sarah";
+const VOICE_BY_GENDER: Record<SpeakerGender, Voice> = {
+  woman: "Sarah",
+  man: "Roger",
+  nonbinary: "River",
+};
+
+/**
+ * Resolves the on-screen speaker the same way the avatar step will -- the
+ * same function, and for "cast:" the same face, pinned on the job by
+ * whichever step drew it first. Best-effort: a voice is not worth failing
+ * the run over, and a speaker that can't be resolved fails the avatar step
+ * with its own, better message moments later.
+ */
+async function voiceForSpeaker(
+  ctx: ActionCtx,
+  ref: string,
+  who: { clientId: Id<"clients">; jobId: Id<"jobs"> },
+): Promise<Voice> {
+  try {
+    const { gender } = await resolveRosterPersona(ctx, ref, who);
+    return gender ? VOICE_BY_GENDER[gender] : DEFAULT_VOICE;
+  } catch (e) {
+    console.warn(`couldn't resolve the speaker for a voice (job ${who.jobId}):`, e instanceof Error ? e.message : e);
+    return DEFAULT_VOICE;
+  }
+}
+
 export const generateSpeech = internalAction({
   args: {
     jobId: v.id("jobs"),
     clientId: v.id("clients"),
     /** Which config field holds the text when the copy step didn't run. */
     textConfigField: v.string(),
+    /** A voice the user chose; wins over anything picked from the speaker. */
     voice: v.optional(v.string()),
+    /** Config field holding the on-screen speaker's roster ref, to match the voice to. */
+    speakerConfigField: v.optional(v.string()),
   },
-  handler: async (ctx, { jobId, clientId, textConfigField, voice }): Promise<null> => {
+  handler: async (ctx, { jobId, clientId, textConfigField, voice, speakerConfigField }): Promise<null> => {
     await ctx.runMutation(internal.jobs.patchStep, { jobId, stepId: "speech", state: "running" });
 
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
@@ -32,6 +74,13 @@ export const generateSpeech = internalAction({
     const config = job.config as Record<string, unknown>;
     const text = (written ?? (config[textConfigField] as string | undefined) ?? "").trim();
     if (!text) throw new Error("no script to speak");
+
+    const speaker = speakerConfigField ? config[speakerConfigField] : undefined;
+    const chosenVoice =
+      voice ??
+      (typeof speaker === "string" && speaker
+        ? await voiceForSpeaker(ctx, speaker, { clientId, jobId })
+        : DEFAULT_VOICE);
 
     const estimatedSeconds = text.length / AVG_SPEECH_CHARS_PER_SEC;
     await ctx.runMutation(internal.ledger.assertUnderCap, {
@@ -47,7 +96,7 @@ export const generateSpeech = internalAction({
     // above reflects.
     const result = (await callSync("fal-ai/elevenlabs/tts/eleven-v3", {
       text,
-      voice: voice ?? "Sarah",
+      voice: chosenVoice,
       stability: 0.5,
       language_code: (config.language as string | undefined) ?? "en",
       apply_text_normalization: "auto",
@@ -69,7 +118,7 @@ export const generateSpeech = internalAction({
       jobId,
       stepId: "speech",
       state: "done",
-      output: { audioUrl, estimatedSeconds },
+      output: { audioUrl, estimatedSeconds, voice: chosenVoice },
     });
     return null;
   },

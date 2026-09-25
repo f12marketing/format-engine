@@ -171,6 +171,14 @@ export default defineSchema({
      * to export them again.
      */
     outputsPurgedAt: v.optional(v.number()),
+    /**
+     * The gallery face each "cast:" roster ref drew for this job, pinned by
+     * whichever step resolved it first (see lib/roster.ts). Several steps
+     * resolve the same ref -- the voice before the face it has to match --
+     * and a re-draw between them would cast a different person mid-video
+     * if the gallery changed in the meantime.
+     */
+    castFaces: v.optional(v.array(v.object({ ref: v.string(), faceId: v.id("galleryFaces") }))),
   })
     .index("by_client", ["clientId"])
     .index("by_client_and_format", ["clientId", "formatId"])

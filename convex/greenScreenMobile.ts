@@ -28,7 +28,7 @@ export const run = workflow
       }
       await step.runAction(
         internal.lib.speechPrimitive.generateSpeech,
-        { ...args, textConfigField: "script" },
+        { ...args, textConfigField: "script", speakerConfigField: "presenter" },
         { retry: true },
       );
       await step.runAction(internal.greenScreenMobile.animateAvatar, args, { retry: true });
