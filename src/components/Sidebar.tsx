@@ -17,6 +17,7 @@ import { authConfigured } from "@/app/ConvexClientProvider";
 const NAV = [
   { href: "/", label: "Content", icon: ClapperIcon },
   { href: "/influencers", label: "Influencers", icon: PersonIcon },
+  { href: "/business", label: "Business", icon: StoreIcon },
   { href: "/library", label: "Library", icon: LibraryIcon },
   { href: "/calendar", label: "Calendar", icon: CalendarIcon },
   { href: "/analytics", label: "Analytics", icon: ChartIcon },
@@ -89,6 +90,16 @@ function ClapperIcon({ className }: { className?: string }) {
       <path d="M3 9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z" />
       <path d="m3.5 9 1.2-3.6 16 1.2L19.5 9" />
       <path d="m9 5.6-1 3.2M14.5 6l-1 3" />
+    </svg>
+  );
+}
+
+function StoreIcon({ className }: { className?: string }) {
+  return (
+    <svg {...iconProps(className)}>
+      <path d="M4 10v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-9" />
+      <path d="M3 10 5 4h14l2 6a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0Z" />
+      <path d="M10 20v-5h4v5" />
     </svg>
   );
 }

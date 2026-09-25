@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "convex/react";
+import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { getFormat } from "@/formats";
@@ -10,6 +11,7 @@ import { ApprovalGate } from "@/components/ApprovalGate";
 import { RemixActions } from "@/components/RemixActions";
 import { DeckEditor } from "@/components/DeckEditor";
 import { PostComposer, type ComposerMedia } from "@/components/PostComposer";
+import { WallStudio } from "@/components/wall/WallStudio";
 import { carouselSlides } from "../../../../convex/lib/carouselPrompt";
 import { DEFAULT_CAROUSEL_TEMPLATE } from "../../../../convex/lib/carouselTemplates";
 
@@ -27,6 +29,25 @@ export function JobView({ jobId }: { jobId: string }) {
   const remixes = useQuery(api.jobs.remixesOf, { jobId: jobId as Id<"jobs"> });
   const [composing, setComposing] = useState(false);
 
+  // Wall of Text's Schedule button saves, then lands here with ?schedule=1:
+  // the composer opens by itself the moment the render is ready to attach.
+  // Read once on the client; it is never rendered, so the server's `false`
+  // can't cause a hydration mismatch.
+  const [scheduleWhenDone, setScheduleWhenDone] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("schedule") === "1",
+  );
+  const ready = job?.status === "done" && Boolean(assets?.some((a) => a.url));
+  const showComposer = composing || (scheduleWhenDone && ready);
+  function closeComposer() {
+    setComposing(false);
+    if (scheduleWhenDone) {
+      setScheduleWhenDone(false);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }
+
   if (job === undefined) {
     return <Shell><p className="text-sm text-muted">Loading…</p></Shell>;
   }
@@ -35,6 +56,31 @@ export function JobView({ jobId }: { jobId: string }) {
   }
 
   const format = getFormat(job.formatId);
+
+  // Wall of Text parked at its studio gate gets the whole page: the studio is
+  // the review, and it needs more room than the job column has.
+  const studioStep =
+    job.formatId === "wall-of-text" && job.status === "awaiting_approval"
+      ? job.steps.find((s) => s.id === "style" && s.state === "awaiting_approval")
+      : undefined;
+  if (studioStep) {
+    return (
+      <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6">
+        <Link href="/" className="font-mono text-xs text-muted hover:text-accent">
+          ← Dashboard
+        </Link>
+        <div className="mt-3">
+          <WallStudio
+            key={job._id}
+            jobId={job._id}
+            config={job.config as Record<string, never>}
+            output={studioStep.output as never}
+            onSaved={(schedule) => schedule && setScheduleWhenDone(true)}
+          />
+        </div>
+      </main>
+    );
+  }
   // Written by the copy step, or supplied up front when that step was skipped
   // (a hand-written deck, or a re-render of edited copy).
   const deckSource =
@@ -102,6 +148,10 @@ export function JobView({ jobId }: { jobId: string }) {
         <RemixActions jobId={job._id} formatId={job.formatId} steps={job.steps} />
       )}
 
+      {job.status === "done" && job.formatId === "wall-of-text" && (
+        <EditWallAgain job={job} />
+      )}
+
       {/* Only once there's something to post: the composer's whole job is to
           attach finished files to an account. */}
       {job.status === "done" && postableAssets.length > 0 && (
@@ -113,7 +163,7 @@ export function JobView({ jobId }: { jobId: string }) {
         </button>
       )}
 
-      {composing && postableAssets.length > 0 && (
+      {showComposer && postableAssets.length > 0 && (
         <PostComposer
           jobId={job._id}
           media={postableAssets.map(
@@ -129,7 +179,7 @@ export function JobView({ jobId }: { jobId: string }) {
               },
             }),
           )}
-          onClose={() => setComposing(false)}
+          onClose={closeComposer}
         />
       )}
 
@@ -269,6 +319,60 @@ export function JobView({ jobId }: { jobId: string }) {
       ) : null}
 
     </Shell>
+  );
+}
+
+/**
+ * Reopens a finished Wall of Text in the studio with the design it was
+ * rendered from -- a new job, so the video already made stays as it is. The
+ * text travels inside the design, so the copy step is skipped.
+ */
+function EditWallAgain({
+  job,
+}: {
+  job: { _id: Id<"jobs">; config: unknown; steps: { id: string; primitive: string; label: string; output?: unknown }[] };
+}) {
+  const router = useRouter();
+  const generate = useMutation(api.run.generate);
+  const [busy, setBusy] = useState(false);
+  const design = (job.steps.find((s) => s.id === "render")?.output as { design?: unknown } | undefined)
+    ?.design;
+  if (!design) return null;
+
+  // A clip this job filmed is one of the client's videos now: the reopened
+  // job points at it, so editing the text again never pays to film again.
+  const filmed = (job.steps.find((s) => s.id === "film")?.output as { assetId?: string } | undefined)
+    ?.assetId;
+
+  async function onClick() {
+    setBusy(true);
+    try {
+      const jobId = await generate({
+        formatId: "wall-of-text",
+        config: {
+          ...(job.config as object),
+          design,
+          ...(filmed ? { video: `video:${filmed}` } : {}),
+        },
+        steps: job.steps
+          .filter((s) => !["copy", "scene", "film"].includes(s.id))
+          .map((s) => ({ id: s.id, primitive: s.primitive, label: s.label })),
+        remixedFromJobId: job._id,
+      });
+      router.push(`/jobs/${jobId}`);
+    } catch {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      className="mt-4 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent-soft disabled:opacity-60"
+    >
+      {busy ? "Opening the studio…" : "Edit text & style again"}
+    </button>
   );
 }
 

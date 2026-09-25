@@ -15,6 +15,19 @@ import type { NextConfig } from "next";
 const CONVEX_ORIGINS = "https://*.convex.cloud http://127.0.0.1:3210";
 const CONVEX_WS_ORIGINS = "wss://*.convex.cloud ws://127.0.0.1:3210";
 const SUPABASE_ORIGINS = "https://*.supabase.co";
+// Where fal serves the files its models return. Media only, and only for the
+// voice preview's <audio>, which plays the sample straight from the URL fal
+// hands back rather than copying it into Convex storage -- a copy per click
+// would be a file that is never cleaned up. Sharded (v3.fal.media,
+// v3b.fal.media, ...), hence the wildcard.
+const FAL_MEDIA_ORIGINS = "https://*.fal.media";
+// The music popup previews Platform tracks straight from Freesound's CDN --
+// the file is only copied into Convex storage once a track is picked.
+const FREESOUND_MEDIA_ORIGINS = "https://cdn.freesound.org";
+// Wall of Text's studio previews text in the Google Font the render will use:
+// the stylesheet from fonts.googleapis.com, the font files from gstatic.
+const GOOGLE_FONTS_CSS = "https://fonts.googleapis.com";
+const GOOGLE_FONTS_FILES = "https://fonts.gstatic.com";
 
 // React's dev-mode debugging (reconstructing stack traces across Turbopack's
 // eval-based module wrapping) calls eval() -- "React will never use eval()
@@ -31,10 +44,10 @@ const CSP = [
   // infrastructure in this app, so 'unsafe-inline' is the pragmatic floor --
   // still blocks the common case of a remote <script src> being injected.
   SCRIPT_SRC,
-  "style-src 'self' 'unsafe-inline'",
+  `style-src 'self' 'unsafe-inline' ${GOOGLE_FONTS_CSS}`,
   `img-src 'self' data: blob: ${CONVEX_ORIGINS}`,
-  `media-src 'self' blob: ${CONVEX_ORIGINS}`,
-  "font-src 'self' data:",
+  `media-src 'self' blob: ${CONVEX_ORIGINS} ${FAL_MEDIA_ORIGINS} ${FREESOUND_MEDIA_ORIGINS}`,
+  `font-src 'self' data: ${GOOGLE_FONTS_FILES}`,
   `connect-src 'self' ${CONVEX_ORIGINS} ${CONVEX_WS_ORIGINS} ${SUPABASE_ORIGINS}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",

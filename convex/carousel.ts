@@ -16,6 +16,7 @@ import {
   type CarouselSlide,
 } from "./lib/carouselPrompt";
 import { CAROUSEL_TEMPLATE_IDS, DEFAULT_CAROUSEL_TEMPLATE } from "./lib/carouselTemplates";
+import { businessContext } from "./lib/businessContext";
 
 export const workflow = new WorkflowManager(components.workflow);
 
@@ -83,7 +84,7 @@ export const writeDeck = internalAction({
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
 
-    const config = job.config as { logline?: string; slideCount?: number };
+    const config = job.config as { logline?: string; slideCount?: number; mentionBusiness?: boolean };
     const logline = (config.logline ?? "").trim();
     const slideCount = config.slideCount ?? 7;
     if (!logline) throw new Error("A logline or script is required.");
@@ -94,6 +95,13 @@ export const writeDeck = internalAction({
       aboutToSpendUsd: 0.1, // generous ceiling for one deck
     });
 
+    const business = await businessContext(
+      ctx,
+      clientId,
+      config.mentionBusiness,
+      "Where it fits the deck, work the business in by name -- a slide's example, the closing slide -- never as a sales pitch.",
+    );
+
     let slides: CarouselSlide[] = [];
     let result: unknown;
     let inputTokens = 0;
@@ -102,7 +110,7 @@ export const writeDeck = internalAction({
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       const call = await callTool(
         CAROUSEL_SYSTEM,
-        carouselUserPrompt(logline, slideCount),
+        carouselUserPrompt(logline, slideCount) + business,
         CAROUSEL_TOOL as never,
       );
       inputTokens += call.inputTokens;

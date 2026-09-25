@@ -2,6 +2,12 @@
 
 import { useState } from "react";
 import type { FormatDefinition } from "@/formats/types";
+import { convexConfigured } from "@/app/ConvexClientProvider";
+import { AuthorisedBoundary } from "./AuthorisedBoundary";
+import { WallStage } from "./wall/WallStage";
+import { useVideoRefUrl } from "@/hooks/useVideoRefUrl";
+import { usePersonPreview } from "./AvatarField";
+import { defaultDesign } from "../../convex/lib/wallOfTextDesign";
 
 /**
  * The right-hand panel.
@@ -20,6 +26,14 @@ export function PreviewPanel({
   running: boolean;
 }) {
   if (running) return <StepList format={format} />;
+
+  if (format.id === "wall-of-text" && convexConfigured) {
+    return (
+      <AuthorisedBoundary>
+        <WallPreview videoRef={typeof values.video === "string" ? values.video : null} />
+      </AuthorisedBoundary>
+    );
+  }
 
   switch (format.preview) {
     case "deck":
@@ -68,6 +82,37 @@ function DeckPreview({ slideCount }: { slideCount: number }) {
           →
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The chosen clip with sample text in the format's default look -- the same
+ * stage the studio edits on, so the first thing the studio shows is what this
+ * promised.
+ */
+const SAMPLE =
+  "pov: you finally stop doing it the hard way and wonder why nobody told you sooner. mine's in the comments <3";
+
+function WallPreview({ videoRef }: { videoRef: string | null }) {
+  const videoUrl = useVideoRefUrl(videoRef);
+  const person = usePersonPreview(videoRef);
+  const filming = Boolean(videoRef) && !/^(clip|video):/.test(videoRef ?? "");
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <WallStage
+        design={defaultDesign(SAMPLE)}
+        videoUrl={videoUrl}
+        posterUrl={filming ? person.faces[0] ?? null : null}
+        width={260}
+      />
+      <p className="max-w-[260px] text-center text-xs leading-snug text-muted">
+        {!filming
+          ? "Sample text. Yours is written from your prompt, and you style it on the video before it renders."
+          : videoRef?.startsWith("cast:")
+            ? "We'll cast someone new and film them in a casual phone selfie. You style the text on it next."
+            : "We'll film them in a casual phone selfie. You style the text on it next."}
+      </p>
     </div>
   );
 }

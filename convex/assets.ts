@@ -18,7 +18,11 @@ import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 const KIND_BY_MIME: Record<string, "image" | "video" | "audio" | "pdf" | "text"> = {
   "image/png": "image",
   "image/jpeg": "image",
+  "image/webp": "image",
   "video/mp4": "video",
+  // Phones record .mov; a picker filtering on "video" must still see it.
+  "video/quicktime": "video",
+  "video/webm": "video",
   // The browser reports a different type per container, and anything not
   // listed here falls through to "text" -- which means the file uploads fine
   // and then never appears in a picker that filters on kind.
@@ -161,6 +165,39 @@ export const audioLibrary = query({
         durationSec: a.durationSec,
         createdAt: a._creationTime,
         url: await ctx.storage.getUrl(a.storageId),
+      })),
+    );
+  },
+});
+
+/**
+ * The client's own videos or images, for a "choose from library" picker --
+ * Wall of Text's background video and its overlay image. Uploads and
+ * generated outputs together, newest first: a finished render is as
+ * reasonable a thing to reuse as a fresh upload. Same "short list, no
+ * pagination" reasoning as `audioLibrary`.
+ */
+export const mediaLibrary = query({
+  args: { kind: v.union(v.literal("video"), v.literal("image")) },
+  handler: async (ctx, { kind }) => {
+    const client = await requireClient(ctx);
+    const rows = await ctx.db
+      .query("assets")
+      .withIndex("by_client", (q) => q.eq("clientId", client._id))
+      .order("desc")
+      .filter((q) => q.eq(q.field("kind"), kind))
+      .take(60);
+
+    return Promise.all(
+      rows.map(async (a) => ({
+        id: a._id,
+        uploaded: a.producedByJobId === undefined,
+        width: a.width,
+        height: a.height,
+        durationSec: a.durationSec,
+        createdAt: a._creationTime,
+        url: await ctx.storage.getUrl(a.storageId),
+        posterUrl: a.posterStorageId ? await ctx.storage.getUrl(a.posterStorageId) : null,
       })),
     );
   },

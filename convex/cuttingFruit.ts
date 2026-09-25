@@ -60,7 +60,7 @@ export const composeKitchenScene = internalAction({
     const config = job.config as { whosCutting?: string; prompt?: string; style?: string };
     if (!config.whosCutting) throw new Error("Choose who's cutting.");
 
-    const { imageUrl: avatarUrl, description } = await resolveRosterPersona(ctx, config.whosCutting);
+    const { imageUrl: avatarUrl, description } = await resolveRosterPersona(ctx, config.whosCutting, { clientId, jobId });
 
     await ctx.runMutation(internal.ledger.assertUnderCap, {
       clientId,

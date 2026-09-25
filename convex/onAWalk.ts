@@ -59,10 +59,7 @@ export const composeWalkingScene = internalAction({
     const config = job.config as { whosWalking?: string; prompt?: string; style?: string };
     if (!config.whosWalking) throw new Error("Choose who's walking.");
 
-    const { imageUrl: avatarUrl, description } = await resolveRosterPersona(
-      ctx,
-      config.whosWalking,
-    );
+    const { imageUrl: avatarUrl, description } = await resolveRosterPersona(ctx, config.whosWalking, { clientId, jobId });
 
     await ctx.runMutation(internal.ledger.assertUnderCap, {
       clientId,

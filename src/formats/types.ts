@@ -55,6 +55,17 @@ export interface FieldBase {
   help?: string;
   optional?: boolean;
   /**
+   * Generate stays disabled while this is blank (and the field is showing).
+   *
+   * Opt-in, and deliberately separate from `optional`, which only controls
+   * the "optional" tag on the label. A field with no tag is not necessarily
+   * one the run cannot do without: Carousel's logline can be blank because a
+   * hand-written deck stands in for it. So nothing is blocked unless its
+   * format says so -- Slideshow and Video Animation's Script, which has no
+   * fallback, are the ones that do.
+   */
+  required?: boolean;
+  /**
    * Which primitive fills this in when the user leaves it blank. A Script
    * field with generatedBy "P1" is the difference between "required" and
    * "we'll write it for you".
@@ -97,6 +108,13 @@ export interface ChoiceField extends FieldBase {
   kind: ChoiceLikeKind;
   options: readonly string[];
   default?: string;
+  /**
+   * Puts a "play a sample" button beside the select. `"voice"` speaks one
+   * short line in the chosen voice, using the sibling `voiceStability` and
+   * `language` fields when the format declares them -- the same keys the run
+   * reads, so the sample is what the run will generate.
+   */
+  preview?: "voice";
 }
 
 export interface SecondsField extends FieldBase {
@@ -116,7 +134,10 @@ export interface CountField extends FieldBase {
 export interface TextField extends FieldBase {
   kind: "shortText" | "longText";
   placeholder?: string;
+  /** Enforced by the control, and shown as a counter under a long text. The server checks it again -- the form is not the boundary. */
   maxLength?: number;
+  /** Visible lines of a long text. Defaults to 4; a script wants more. */
+  rows?: number;
 }
 
 export interface SimpleField extends FieldBase {
@@ -137,6 +158,25 @@ export interface SimpleField extends FieldBase {
    * letting a deck of twenty be pasted in.
    */
   maxItems?: number;
+  /**
+   * For "audioClip": what choosing nothing means, as the picker labels it.
+   * "Silent" on the generated-scene formats, where there is no other sound;
+   * Wall of Text lays text over a real clip, so nothing there means the
+   * clip keeps its own sound.
+   */
+  emptyLabel?: string;
+  /**
+   * For "avatar": whether the casting popup offers "A woman" / "A man" --
+   * a fresh pre-made face per run. Default true; off where a stranger's face
+   * makes no sense as the character (Skeleton).
+   */
+  casting?: boolean;
+  /**
+   * For "avatar": adds a Videos tab (trending library, your videos, upload),
+   * so the field can hold either someone to film or a finished clip. Wall of
+   * Text is the one format where both are the same question.
+   */
+  videos?: boolean;
 }
 
 export type Field = ChoiceField | SecondsField | CountField | TextField | SimpleField;
@@ -157,7 +197,14 @@ export type Field = ChoiceField | SecondsField | CountField | TextField | Simple
 export type StepCondition =
   | { field: string; is: "empty" | "present" }
   | { field: string; equals: string }
-  | { field: string; notEquals: string };
+  | { field: string; notEquals: string }
+  /**
+   * A regular expression, as a string so it stays data. For a field whose
+   * value is a tagged reference: Wall of Text films someone only when its
+   * Video field is NOT a "clip:" or "video:" ref.
+   */
+  | { field: string; matches: string }
+  | { field: string; notMatches: string };
 
 export interface Step {
   /** Stable id -- this is what the job's steps[] and the ledger key off. */
@@ -246,6 +293,8 @@ export function conditionHolds(
   const value = config[c.field];
   if ("equals" in c) return value === c.equals;
   if ("notEquals" in c) return value !== c.notEquals;
+  if ("matches" in c) return typeof value === "string" && new RegExp(c.matches).test(value);
+  if ("notMatches" in c) return !(typeof value === "string" && new RegExp(c.notMatches).test(value));
   const empty = value === undefined || value === null || value === "" || value === false;
   return c.is === "empty" ? empty : !empty;
 }
@@ -258,6 +307,24 @@ export function stepApplies(step: Step, config: Record<string, unknown>): boolea
 /** Whether a field's control should be on screen at all, given what's set so far. */
 export function fieldApplies(field: Field, config: Record<string, unknown>): boolean {
   return conditionHolds(field.showWhen, config);
+}
+
+/**
+ * The fields a format marks `required` that are showing and still blank -- what
+ * keeps Generate off. A field the panel is hiding is never required.
+ */
+export function missingRequired(
+  format: FormatDefinition,
+  values: Record<string, unknown>,
+): Field[] {
+  const blank = (v: unknown) =>
+    v === undefined ||
+    v === null ||
+    (typeof v === "string" && v.trim() === "") ||
+    (Array.isArray(v) && v.length === 0);
+  return Object.entries(format.config)
+    .filter(([key, field]) => field.required && fieldApplies(field, values) && blank(values[key]))
+    .map(([, field]) => field);
 }
 
 /**

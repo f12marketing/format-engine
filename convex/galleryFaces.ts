@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireClient } from "./clients";
@@ -34,6 +34,8 @@ export const list = query({
           id: f._id,
           width: f.width,
           height: f.height,
+          gender: f.gender ?? null,
+          label: f.label ?? null,
           url: await ctx.storage.getUrl(f.storageId),
         })),
     );
@@ -82,4 +84,58 @@ export const archiveFace = internalMutation({
   handler: async (ctx, { faceId }) => {
     await ctx.db.patch(faceId, { archived: true });
   },
+});
+
+/**
+ * Curation: tag a face for the person picker's casting pools.
+ *
+ *   npx convex run galleryFaces:label '{"faceId":"…","gender":"woman","label":"Warm, 30s"}'
+ */
+export const label = internalMutation({
+  args: {
+    faceId: v.id("galleryFaces"),
+    gender: v.optional(v.union(v.literal("woman"), v.literal("man"))),
+    label: v.optional(v.string()),
+  },
+  handler: async (ctx, { faceId, gender, label }) => {
+    await ctx.db.patch(faceId, { gender, label: label?.trim().slice(0, 40) || undefined });
+  },
+});
+
+/** Every live face with a URL, for curating from the CLI. */
+export const curationList = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("galleryFaces").withIndex("by_added_at").collect();
+    return Promise.all(
+      rows
+        .filter((f) => !f.archived)
+        .map(async (f) => ({
+          id: f._id,
+          gender: f.gender ?? null,
+          label: f.label ?? null,
+          url: await ctx.storage.getUrl(f.storageId),
+        })),
+    );
+  },
+});
+
+/**
+ * The casting pool behind "Anyone" / "A woman" / "A man": live faces, in a
+ * stable order so the same job always draws the same face from it.
+ */
+export const castingPool = internalQuery({
+  args: { gender: v.optional(v.union(v.literal("woman"), v.literal("man"))) },
+  handler: async (ctx, { gender }) => {
+    const rows = await ctx.db.query("galleryFaces").withIndex("by_added_at").collect();
+    return rows
+      .filter((f) => !f.archived && (!gender || f.gender === gender))
+      .map((f) => ({ id: f._id, storageId: f.storageId, label: f.label ?? null, gender: f.gender ?? null }));
+  },
+});
+
+/** One face, for resolving a picked "gallery:<id>". */
+export const getInternal = internalQuery({
+  args: { faceId: v.id("galleryFaces") },
+  handler: async (ctx, { faceId }) => ctx.db.get(faceId),
 });

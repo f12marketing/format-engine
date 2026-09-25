@@ -37,10 +37,40 @@ export default defineSchema({
   brands: defineTable({
     clientId: v.id("clients"),
     name: v.string(),
+    /** What the business does, in the client's own words -- the line copy is written around. */
+    description: v.optional(v.string()),
+    /** Who it's for. Steers voice more than any tone label does. */
+    audience: v.optional(v.string()),
+    website: v.optional(v.string()),
     tone: v.optional(v.string()),
     palette: v.optional(v.array(v.string())),
     logoAssetId: v.optional(v.id("assets")),
     productShotAssetIds: v.optional(v.array(v.id("assets"))),
+
+    // The rest is the sign-up quiz (convex/lib/businessQuiz.ts has the
+    // closed answer sets). The business half feeds every "Mention your
+    // business" prompt; the "about you" half tells the writer who is posting,
+    // which is what makes first-person copy sound like them.
+    /** The person, not the company: "posting as". */
+    contactName: v.optional(v.string()),
+    /** The problem the business solves, in the client's words. */
+    problem: v.optional(v.string()),
+    /** Why customers pick it. */
+    benefits: v.optional(v.string()),
+    businessModel: v.optional(v.string()),
+    categories: v.optional(v.array(v.string())),
+    role: v.optional(v.string()),
+    teamSize: v.optional(v.string()),
+    monthlyRevenue: v.optional(v.string()),
+    signupIntent: v.optional(v.string()),
+    goals: v.optional(v.array(v.string())),
+    heardFrom: v.optional(v.array(v.string())),
+    /** The furthest quiz step reached, so a half-finished quiz resumes there. */
+    quizStep: v.optional(v.string()),
+    /** Set when the quiz is finished; until then the app sends the client to it. */
+    onboardedAt: v.optional(v.number()),
+    /** "Skip for now": stops the automatic redirect without pretending it was answered. */
+    onboardingSkippedAt: v.optional(v.number()),
   }).index("by_client", ["clientId"]),
 
   /**
@@ -368,7 +398,22 @@ export default defineSchema({
     /** Retired templates stay readable, so a job that used one still resolves. */
     archived: v.optional(v.boolean()),
     addedAt: v.number(),
-  }).index("by_added_at", ["addedAt"]),
+    /**
+     * Set on a track imported from an outside library the first time any
+     * client picks it (so far only "freesound", CC0 only). Kept here rather
+     * than per client for the same reason as everything else in this table,
+     * and deduped on (source, sourceId). Imported rows stay out of the
+     * curated list; they're found through the search that imported them.
+     */
+    source: v.optional(v.string()),
+    sourceId: v.optional(v.string()),
+    creator: v.optional(v.string()),
+    /** The licence URL exactly as the source reported it at import. */
+    license: v.optional(v.string()),
+    sourceUrl: v.optional(v.string()),
+  })
+    .index("by_added_at", ["addedAt"])
+    .index("by_source", ["source", "sourceId"]),
 
   /**
    * The curated influencer gallery -- ready-made base faces the New
@@ -389,6 +434,14 @@ export default defineSchema({
     /** Retired faces stay readable, so an influencer that used one still resolves. */
     archived: v.optional(v.boolean()),
     addedAt: v.number(),
+    /**
+     * Which casting pool the face belongs to: "A woman" / "A man" in the
+     * person picker draws from these. Curated by hand (`galleryFaces.label`);
+     * an unlabelled face is only ever cast for "Anyone".
+     */
+    gender: v.optional(v.union(v.literal("woman"), v.literal("man"))),
+    /** A short caption for the picker tile, e.g. "Warm, 30s". */
+    label: v.optional(v.string()),
   }).index("by_added_at", ["addedAt"]),
 
   /**

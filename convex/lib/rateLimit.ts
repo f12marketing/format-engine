@@ -24,9 +24,29 @@ const rateLimiter = new RateLimiter(components.rateLimiter, {
   // one $0.05 portrait outside of any job" entry points, sharing a limit
   // since they're the same pattern and the same race against the cap check.
   generateFaceImage: { kind: "token bucket", rate: 10, period: MINUTE },
+  // voicePreview.preview: under half a cent a call, but the point is to click
+  // through voices one after another, so the bucket is roomy.
+  previewVoice: { kind: "token bucket", rate: 30, period: MINUTE },
+  // wallOfText.rewrite: the studio's "another take" button. A cent or so a
+  // click, and nobody needs more than a handful in a row.
+  rewriteText: { kind: "token bucket", rate: 20, period: MINUTE },
+  // onboarding.analyze: fetches a site the client names and makes one LLM
+  // call. A handful of retries while typing a URL, never a crawler.
+  analyzeBusiness: { kind: "token bucket", rate: 8, period: MINUTE },
+  // music.search / music.importTrack: typing in the music popup's search box
+  // and flicking through moods. Each call is one request to Freesound, whose
+  // own free tier allows 60 a minute for the whole deployment.
+  searchMusic: { kind: "token bucket", rate: 40, period: MINUTE },
 });
 
-type LimitName = "generateJob" | "generateUploadUrl" | "generateFaceImage";
+type LimitName =
+  | "generateJob"
+  | "generateUploadUrl"
+  | "generateFaceImage"
+  | "previewVoice"
+  | "rewriteText"
+  | "analyzeBusiness"
+  | "searchMusic";
 
 /** Throws the same plain, human-readable Error style as ledger.assertUnderCap. */
 export async function enforceRateLimit(

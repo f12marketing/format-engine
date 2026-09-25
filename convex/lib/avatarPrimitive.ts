@@ -52,7 +52,7 @@ export const renderAvatarClip = internalAction({
     let imageUrl = compositeUrl;
     if (!imageUrl) {
       if (!rosterRef) throw new Error("No avatar selected, and no composite step produced an image.");
-      imageUrl = (await resolveRosterPersona(ctx, rosterRef)).imageUrl;
+      imageUrl = (await resolveRosterPersona(ctx, rosterRef, { clientId, jobId })).imageUrl;
     }
 
     const speech = job.steps.find((s) => s.id === "speech")?.output as

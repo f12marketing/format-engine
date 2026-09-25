@@ -1,5 +1,11 @@
 import { stepApplies } from "@/formats/types";
 import type { FormatDefinition, Primitive } from "@/formats/types";
+import {
+  DEFAULT_SCRIPT_SECONDS,
+  estimatedSceneCount,
+  SCENE_SECONDS,
+  SPEECH_CHARS_PER_SEC,
+} from "../../convex/lib/scriptTiming";
 
 /**
  * The pre-flight cost estimate, driven by a format's pipeline rather than
@@ -82,7 +88,7 @@ export interface Estimate {
 }
 
 const TOKENS_PER_WORD = 1.35;
-const AVG_SPEECH_CHARS_PER_SEC = 15;
+const AVG_SPEECH_CHARS_PER_SEC = SPEECH_CHARS_PER_SEC;
 /** Mirrors DEFAULT_CLIP_MODEL in convex/lib/klingClip.ts and field.videoModel(). */
 const DEFAULT_KLING_TIER = "Kling 3 Standard";
 /** The formats whose scene step is convex/lib/clayScenePrimitive.ts. */
@@ -240,10 +246,29 @@ function costForStep(
  * P4 is TTS in one step and a music model in the next, and its P3 is Topaz
  * rather than vidu. Those formats price themselves by step id instead.
  */
+/**
+ * Wall of Text: a short copy call, and -- only when someone is filmed -- one
+ * qwen edit for the selfie frame and Kling Standard for the clip. Mirrors
+ * SCENE_PRICE and filmClip in convex/wallOfText.ts.
+ */
+function wallOfTextStepCost(stepId: string, values: Record<string, unknown>): number {
+  switch (stepId) {
+    case "copy":
+      return llmUsd(1400 + words(values.prompt) * TOKENS_PER_WORD, 250);
+    case "scene":
+      return RATES.compositePerUnit;
+    case "film":
+      return num(values.duration, 6) * RATES.klingPerSec[DEFAULT_KLING_TIER];
+    default:
+      return 0;
+  }
+}
+
 const PER_STEP_COST: Record<
   string,
   (stepId: string, values: Record<string, unknown>) => number
 > = {
+  "wall-of-text": wallOfTextStepCost,
   drama: dramaStepCost,
   slideshow: slideshowStepCost,
   "video-animation": videoAnimationStepCost,
@@ -259,30 +284,61 @@ const PER_STEP_COST: Record<
  * story is written and the characters extracted -- and so is how much of the
  * runtime is someone speaking. Rates mirror convex/videoAnimation.ts.
  */
-const VA_SHOT_SECONDS = 5;
 const VA_TYPICAL_CHARACTERS = 4;
 const VA_TYPICAL_BACKGROUNDS = 3;
-/** Roughly how many shots carry a line of dialogue, and how long a line runs. */
-const VA_SPEAKING_SHARE = 0.6;
-const VA_DIALOGUE_CHARS = 70;
+
+// ---- script-driven formats: Slideshow and Video Animation
+//
+// Neither asks how long the video is. The script is recorded first, X seconds
+// of it becomes X / 3 scenes, and every scene is a paid image or clip -- so the
+// script's length is what the whole estimate hangs on. Until one is typed the
+// estimate assumes a typical DEFAULT_SCRIPT_SECONDS one.
+// See convex/lib/scriptTiming.ts, which this mirrors.
+
+function scriptChars(values: Record<string, unknown>): number {
+  return typeof values.script === "string" ? values.script.trim().length : 0;
+}
+
+/** What the voice will say, in characters: the script, or the app's own default-length one. */
+function spokenChars(values: Record<string, unknown>): number {
+  const chars = scriptChars(values);
+  return chars > 0 ? chars : DEFAULT_SCRIPT_SECONDS * AVG_SPEECH_CHARS_PER_SEC;
+}
+
+function spokenSeconds(values: Record<string, unknown>): number {
+  return spokenChars(values) / AVG_SPEECH_CHARS_PER_SEC;
+}
+
+/** X / 3, rounded up -- how many slides or shots this script becomes. */
+function scenesOf(values: Record<string, unknown>): number {
+  return estimatedSceneCount(scriptChars(values));
+}
+
+function llmUsd(inputTokens: number, outputTokens: number): number {
+  return (inputTokens / 1e6) * RATES.llmInputPer1M + (outputTokens / 1e6) * RATES.llmOutputPer1M;
+}
+
+/** CassetteAI only accepts 10-180 seconds; the renderer loops or trims the bed to fit. */
+function musicCost(seconds: number): number {
+  const bed = Math.min(180, Math.max(10, Math.round(seconds)));
+  return (bed / 60) * RATES.cassettePerMinute;
+}
 
 function videoAnimationStepCost(stepId: string, values: Record<string, unknown>): number {
-  const shots = Math.max(1, Math.round(num(values.durationSec, 30) / VA_SHOT_SECONDS));
-  const seconds = shots * VA_SHOT_SECONDS;
-  const llm = (inputTokens: number, outputTokens: number) =>
-    (inputTokens / 1e6) * RATES.llmInputPer1M + (outputTokens / 1e6) * RATES.llmOutputPer1M;
+  const shots = scenesOf(values);
+  const seconds = shots * SCENE_SECONDS;
 
   switch (stepId) {
-    case "story":
-      return llm(700 + words(values.logline) * TOKENS_PER_WORD, 1200 + shots * 200);
+    case "voice":
+      return (spokenChars(values) / 1000) * RATES.ttsPer1000Chars;
     case "characters":
       // One extraction call, then a sheet per character and a plate per set.
       return (
-        llm(1500 + shots * 250, 1200) +
+        llmUsd(1500 + shots * 250, 1200) +
         (VA_TYPICAL_CHARACTERS + VA_TYPICAL_BACKGROUNDS) * RATES.imagePerUnit
       );
     case "shots":
-      return llm(2500 + shots * 100, 300 + shots * 250);
+      return llmUsd(2500 + shots * 100, 300 + shots * 250);
     case "scenes":
       // qwen-image-3/edit, a composite per shot.
       return shots * RATES.compositePerUnit;
@@ -291,13 +347,8 @@ function videoAnimationStepCost(stepId: string, values: Record<string, unknown>)
         seconds *
         (RATES.klingPerSec[String(values.videoModel)] ?? RATES.klingPerSec[DEFAULT_KLING_TIER])
       );
-    case "voice":
-      return ((shots * VA_SPEAKING_SHARE * VA_DIALOGUE_CHARS) / 1000) * RATES.ttsPer1000Chars;
-    case "music": {
-      // CassetteAI only accepts 10-180 seconds; the renderer loops or trims it.
-      const bed = Math.min(180, Math.max(10, seconds));
-      return (bed / 60) * RATES.cassettePerMinute;
-    }
+    case "music":
+      return musicCost(spokenSeconds(values));
     case "upscale":
       return seconds * topazPerSecond(values);
     case "subtitles":
@@ -306,24 +357,6 @@ function videoAnimationStepCost(stepId: string, values: Record<string, unknown>)
     default:
       return 0;
   }
-}
-
-/**
- * Slideshow, step by step. Every optional stage is already filtered out by
- * `stepApplies` before this is called, so a step reaching here is one that
- * will actually run and be billed.
- *
- * Rates mirror convex/slideshow.ts.
- */
-/** A slide's floor. With a voiceover it stretches to however long the line takes. */
-const SLIDE_SECONDS = 3;
-const SLIDE_SECONDS_SPOKEN = 5;
-/** A caption is capped at 90 characters; they land nearer 75 in practice. */
-const CAPTION_CHARS = 75;
-
-function slideshowSeconds(values: Record<string, unknown>): number {
-  const slides = num(values.images, 10);
-  return slides * (values.voiceover ? SLIDE_SECONDS_SPOKEN : SLIDE_SECONDS);
 }
 
 /**
@@ -355,24 +388,32 @@ function topazPerSecond(values: Record<string, unknown>): number {
   return values.upscaleModel === "Gaia 2" ? rate / 2 : rate;
 }
 
+/**
+ * Slideshow, step by step. Every optional stage is already filtered out by
+ * `stepApplies` before this is called, so a step reaching here is one that
+ * will actually run and be billed.
+ *
+ * Priced from the scene count the script gives (see the note above
+ * scriptChars). Rates mirror convex/slideshow.ts.
+ */
 function slideshowStepCost(stepId: string, values: Record<string, unknown>): number {
-  const slides = num(values.images, 10);
-  const seconds = slideshowSeconds(values);
+  const slides = scenesOf(values);
+  const seconds = slides * SCENE_SECONDS;
 
   switch (stepId) {
+    case "voice":
+      return (spokenChars(values) / 1000) * RATES.ttsPer1000Chars;
     case "copy": {
-      // One image prompt and one caption per slide, plus the system prompt.
-      const inputTokens = 1250 + words(values.prompt) * TOKENS_PER_WORD;
+      // The prompt, plus every slide's share of the script, plus the system prompt.
+      const inputTokens =
+        1250 + (words(values.prompt) + spokenChars(values) / 6) * TOKENS_PER_WORD;
       // A designed cast adds a name and a reference-image prompt each.
       const castTokens =
         values.compositeScenes && slideshowDesignsCast(values)
           ? SLIDESHOW_DESIGNED_CAST * 150
           : 0;
-      const outputTokens = 200 + slides * 120 + castTokens;
-      return (
-        (inputTokens / 1e6) * RATES.llmInputPer1M +
-        (outputTokens / 1e6) * RATES.llmOutputPer1M
-      );
+      const outputTokens = 200 + slides * 90 + castTokens;
+      return llmUsd(inputTokens, outputTokens);
     }
     case "images":
       return slides * RATES.imagePerUnit;
@@ -384,18 +425,8 @@ function slideshowStepCost(stepId: string, values: Record<string, unknown>): num
         (slideshowDesignsCast(values) ? SLIDESHOW_DESIGNED_CAST : 0) * RATES.imagePerUnit +
         slides * RATES.imagePerUnit
       );
-    case "voice":
-      return ((slides * CAPTION_CHARS) / 1000) * RATES.ttsPer1000Chars;
-    case "music": {
-      // Mirrors convex/slideshow.ts's scoreMusic: the bed is requested before
-      // the cut exists, at 6s a spoken slide (the cut itself stretches to fit
-      // the voice), and CassetteAI only accepts 10-180 seconds.
-      const bed = Math.min(
-        180,
-        Math.max(10, Math.round(slides * (values.voiceover ? 6 : SLIDE_SECONDS))),
-      );
-      return (bed / 60) * RATES.cassettePerMinute;
-    }
+    case "music":
+      return musicCost(spokenSeconds(values));
     case "upscale":
       return seconds * topazPerSecond(values);
     case "subtitles":

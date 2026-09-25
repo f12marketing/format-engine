@@ -80,7 +80,9 @@ export default defineFormat({
     lead: field.avatar({
       label: "Lead actor",
       optional: true,
-      help: "Cast one of your AI influencers as the lead. Leave empty to cast everyone fresh.",
+      help: "Cast one of your AI influencers as the lead, or leave it to us.",
+      default: undefined,
+      emptyLabel: "Cast everyone fresh",
     }),
     videoModel: field.choice({
       label: "Video model",

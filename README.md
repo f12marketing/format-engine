@@ -52,14 +52,59 @@ its own Convex pipeline file under `convex/`.
 | Generated scenes | Video Animation, Drama, Cutting Fruit, On a Walk, Netflix Documentary, Claymation, Lego, Felt, Skeleton, Talking Objects, Street Interview, AI News Anchor |
 | Swap & custom | Character Swap, Custom |
 
-Two of them are worth knowing about before you touch them:
+A few things are worth knowing about before you touch them:
 
 - **Drama** runs premise → episode → cast → storyboard → dialogue → filmed
   beats → score → final cut. It is the most expensive format by a wide margin
   (roughly $12–13 for a 45-second episode) and it needs the render service's
   `/render/drama` route.
-- **Slideshow** and **Video Animation** offer the optional production extras —
-  music, upscale, subtitles, branding — from `convex/lib/extras.ts`.
+- **Wall of Text** lays one paragraph over a casual phone clip for the whole
+  video (the confession / "POV:" post). The Video field is the same casting
+  popup every person-in-the-video format uses, plus a Videos tab: pick a
+  person and the run stages them in a front-camera selfie (qwen edit) and
+  films a 4-10s handheld clip (Kling Standard, ~$0.55 at 6s), saved to the
+  client's videos for reuse; pick a clip and it is used as-is. The text is written from the Prompt
+  and, with *Mention your business* on, from the client's business profile. The run then pauses in a
+  studio on the job page where the text is styled and dragged into place;
+  Save renders it, Schedule renders and opens the post composer. Preview and
+  render share one style module (`convex/lib/wallOfTextDesign.ts`): the render
+  service screenshots the page that module builds, so the video matches the
+  studio. It needs the render service's `/render/wall-of-text` route with
+  `layerHtml` support.
+- **The business profile** is collected by a quiz every new client is sent
+  to once after sign-up (`/onboarding`): name and logo (brand colours are read
+  out of the logo), their website -- read server-side and drafted into a
+  profile by the LLM (`convex/onboarding.ts`), or described by hand when the
+  site blocks readers -- then role, team, business type, goals and how they
+  heard about us. Progress saves per screen. It lives on the `brands` row and
+  is editable on the **Business** page. Every format's *Mention your
+  business* toggle writes from it through `convex/lib/businessContext.ts`, and
+  Generate waits for a profile when the toggle is on.
+- **Slideshow** and **Video Animation** are cut to their voiceover, so neither
+  asks how long the video is. The **Script** is recorded first, in one take; if
+  it runs X seconds, the video gets X ÷ 3 (rounded up) slides or shots, each on
+  screen for exactly 3 seconds. A 60-second script is 20 scenes. Each scene is
+  planned around the words actually being spoken during its 3 seconds, taken
+  from the speech model's word timings (`convex/lib/scriptTiming.ts`,
+  `convex/lib/scriptVoice.ts`), and the music, if on, is generated at the
+  voiceover's length. The Script is required in both (there is nothing else to
+  size the video by), and Generate stays disabled until it has text -- a field
+  opts in with `required: true`, which is separate from `optional` (only the
+  label's tag) so no other format is blocked by it. Scripts are capped
+  at 1,500 characters (about 100 seconds, 34 scenes) and a video at 40 scenes,
+  because every 3 seconds is a paid image or clip: a 60-second Slideshow is
+  around $1.75, and a 60-second Video Animation (Kling Standard) about $6.50.
+- The rest of the production extras — music, upscale, subtitles, branding — come
+  from `convex/lib/extras.ts`, and the voiceover is always on for those two
+  formats (it is what they are cut to), so it has no switch. Subtitles — the
+  word-by-word text burned in from the voiceover — are the only text on those
+  two videos (there are no separate per-slide or per-shot captions) and start
+  switched on.
+  The Voiceover **Voice** select has a **Preview** button that plays one short
+  line in the chosen voice and Delivery (about $0.004 a listen, counted against
+  the spend cap; a voice you've already heard this session replays free). Any
+  format that spreads `extrasFields` gets it; a choice field opts in with
+  `preview: "voice"`.
 
 Every finished job offers **Remix only** (regenerate the visual steps, keep the
 copy) and **Regenerate copy only** (the reverse). `convex/remix.ts` does this
@@ -148,6 +193,20 @@ only matter where Convex is reachable from the internet. Locally, two crons —
 one for influencer training, one for in-flight posts — poll for the same
 results instead.
 
+### Background music (optional)
+
+The audio popup's **Platform** tab searches public-domain (CC0) music on
+Freesound -- Pexels and Pixabay have no audio API. Get a free key at
+https://freesound.org/apiv2/apply, then:
+
+```bash
+npx convex env set FREESOUND_API_KEY <your key>
+```
+
+Without it the tab says it isn't switched on, and uploads still work. A
+picked track is copied into `audioTemplates` once (`convex/music.ts`), so a
+job keeps its music even if the track later leaves Freesound.
+
 ### 4. Render service
 
 ```bash
@@ -157,7 +216,7 @@ RENDER_SERVICE_API_KEY=<the same string> npm start
 ```
 
 Needs Chrome/Edge and ffmpeg; set `CHROME_BIN` / `FFMPEG_BIN` if either isn't
-found automatically. It serves the routes the formats call: `/render/carousel`,
+found automatically. **Restart it whenever this repo's Slideshow or Video Animation change:** they send a `voiceoverUrl` that an older service would silently ignore, leaving the video with no voice. So both formats check `/health` (which reports `voiceover: true` from current code) before spending anything, and stop with a message telling you to restart it. It serves the routes the formats call: `/render/carousel`,
 `/render/wall-of-text`, `/render/slideshow`, `/render/video-animation`,
 `/render/drama`, `/render/video-hook-demo`, `/render/green-screen-meme`,
 `/render/picture-in-picture`, `/render/custom`, plus helpers for inspecting
@@ -200,6 +259,7 @@ convex/
                          videoAnimation, claymation, skeleton, characterSwap ...
   influencers.ts         roster, LoRA training, the fal callback
   galleryFaces.ts        the curated base faces the New Influencer popup offers
+  voicePreview.ts        the Preview button's action: one short TTS line
   audio.ts, clips.ts     the shared audio and trending-clip libraries
   social.ts, socialPosts.ts, analytics.ts
                          Zernio: connected accounts, posting, performance
@@ -212,6 +272,8 @@ convex/
   lib/grounding.ts       makes a topic true to the real world before any image
                          model draws it
   lib/extras.ts          music, upscale, subtitles, branding
+  lib/scriptTiming.ts    script -> scene count (X / 3) and the words in each scene
+  lib/scriptVoice.ts     writes a script from an idea; records it with word timings
   lib/carouselPrompt.ts  the tuned prompt, ported unchanged — three eval rounds
                          went into these numbers
   lib/renderService.ts   base URL + auth headers for every render-service call
@@ -232,6 +294,7 @@ src/
                          the editable carousel/slideshow deck
     UploadField.tsx, MultiUploadField.tsx
                          signed-URL upload straight to Convex storage
+    VoicePreview.tsx     the Preview button beside a voice select
     AvatarField.tsx, NewInfluencerModal.tsx, InfluencerRoster.tsx
     TrendingClipField.tsx, AudioClipField.tsx
     PostComposer.tsx     scheduling and posting through Zernio

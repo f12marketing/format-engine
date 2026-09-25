@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import {
   authConfigured,
@@ -13,7 +13,7 @@ import {
 import { ConfigPanel } from "@/components/ConfigPanel";
 import { PreviewPanel } from "@/components/PreviewPanel";
 import { estimateCost } from "@/lib/estimate";
-import { effectiveConfig, stepApplies } from "@/formats/types";
+import { effectiveConfig, missingRequired, stepApplies } from "@/formats/types";
 import type { Field, FormatDefinition } from "@/formats/types";
 
 /** Seed from each field's declared default, so the panel opens usable. */
@@ -38,8 +38,20 @@ export function Editor({ format }: { format: FormatDefinition }) {
   // still bill a subtitle pass for a card the user can no longer see.
   const effective = effectiveConfig(format, values);
   const estimate = estimateCost(format, effective);
+  // A field the format marks `required` (Script, for the two formats that are
+  // cut to it) keeps Generate off until it has text -- a job started without
+  // it would only fail on its first step.
+  const missing = missingRequired(format, values);
+  // "Mention your business" writes from the saved profile in every format, so
+  // with no profile there is nothing for it to mention -- the card under the
+  // toggle asks for one, and Generate waits for it.
+  const brand = useQuery(api.brands.mine, convexConfigured ? {} : "skip");
+  const needsProfile =
+    Boolean(effective.mentionBusiness) && brand !== undefined && !brand?.description;
+  const blocked = missing.length > 0 || needsProfile;
 
   async function onGenerate() {
+    if (blocked) return;
     setError(null);
     setRunning(true);
     try {
@@ -109,12 +121,22 @@ export function Editor({ format }: { format: FormatDefinition }) {
 
           <button
             onClick={onGenerate}
-            disabled={!backendConfigured || running}
+            disabled={!backendConfigured || running || blocked}
             title={backendConfigured ? undefined : "Needs Convex and Supabase Auth — see README"}
             className="mt-4 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {running ? "Starting…" : `Generate · $${estimate.totalUsd.toFixed(2)}`}
           </button>
+          {missing.length > 0 && (
+            <p className="mt-2 text-center text-xs text-muted">
+              Add {missing.map((m) => m.label).join(" and ")} to generate.
+            </p>
+          )}
+          {missing.length === 0 && needsProfile && (
+            <p className="mt-2 text-center text-xs text-muted">
+              Take the business quiz above, or switch Mention your business off.
+            </p>
+          )}
           {error && <p className="mt-2 text-sm text-accent">{error}</p>}
           {!backendConfigured && (
             <p className="mt-2 text-center text-xs text-muted">

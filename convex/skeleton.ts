@@ -17,6 +17,7 @@ import { resolveRosterPersona } from "./lib/roster";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 import { countWords } from "./lib/wordBudget";
 import { GROUNDING_RULES } from "./lib/grounding";
+import { businessContext } from "./lib/businessContext";
 
 /**
  * Skeleton: a photoreal skeleton is the main character and acts the topic
@@ -200,7 +201,7 @@ async function characterReference(
   clientId: Id<"clients">,
   character: string | undefined,
 ): Promise<{ imageUrl: string; description: string }> {
-  if (character) return resolveRosterPersona(ctx, character);
+  if (character) return resolveRosterPersona(ctx, character, { clientId, jobId });
 
   const existing = await ctx.runQuery(internal.skeleton.houseImage, { key: DEFAULT_CHARACTER_KEY });
   const existingUrl = existing ? await ctx.storage.getUrl(existing.storageId) : null;
@@ -370,7 +371,7 @@ export const planShots = internalAction({
     const lengths = shotLengths(cfg.duration ?? 30);
     const limits = lengths.map((s) => Math.max(3, Math.floor(s * WORDS_PER_SEC)));
     const character = cfg.character
-      ? (await resolveRosterPersona(ctx, cfg.character)).description
+      ? (await resolveRosterPersona(ctx, cfg.character, { clientId, jobId })).description
       : DEFAULT_CHARACTER_DESCRIPTION;
 
     const userPrompt = [
@@ -384,7 +385,7 @@ export const planShots = internalAction({
       cfg.productImage && "A product image is supplied: feature it as a prop where it fits.",
     ]
       .filter(Boolean)
-      .join("\n");
+      .join("\n") + (await businessContext(ctx, clientId, cfg.mentionBusiness));
 
     const read = (value: unknown): PlanResult => (value as PlanResult | null) ?? {};
     const readShots = (plan: PlanResult): PlannedShot[] =>
