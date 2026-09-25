@@ -23,6 +23,27 @@ interface StudioOutput {
   design: WallDesign;
   videoUrl: string | null;
   audioUrl: string | null;
+  /** Loop the preview at this many seconds: the part of the clip the video uses. */
+  previewSeconds?: number | null;
+}
+
+/**
+ * What makes this studio another format's -- Video Hook & Demo edits its
+ * hook caption here. Omitted, it is Wall of Text's own.
+ */
+export interface StudioVariant {
+  icon: string;
+  title: string;
+  hint: string;
+  /** The left-hand column. */
+  summary: React.ReactNode;
+  /** The rewrite button's name and what it does to the text as it stands. */
+  rewriteLabel: string;
+  rewrite: (current: string) => Promise<string>;
+  /** A word count to aim for, counted under the text box instead of characters. */
+  words?: { min: number; max: number };
+  /** Whether an overlay image can be added. */
+  overlays: boolean;
 }
 
 interface WallConfig {
@@ -34,6 +55,7 @@ interface WallConfig {
 
 /**
  * Wall of Text's studio: the job page while the run waits at its "style" gate.
+ * Video Hook & Demo's caption editor is the same studio, as a `variant`.
  *
  * Everything here is local until Save. Save approves the gate with the design
  * on screen, and the render burns in exactly that -- drawn by the same style
@@ -45,16 +67,19 @@ export function WallStudio({
   config,
   output,
   onSaved,
+  variant,
 }: {
   jobId: Id<"jobs">;
   config: WallConfig;
   output: StudioOutput;
   /** Told whether the save was a Schedule, so the job view can open the composer when the render lands. */
   onSaved?: (schedule: boolean) => void;
+  variant?: StudioVariant;
 }) {
   const router = useRouter();
   const approve = useMutation(api.jobs.approveStep);
-  const rewrite = useAction(api.wallOfText.rewrite);
+  const wallRewrite = useAction(api.wallOfText.rewrite);
+  const overlays = variant?.overlays ?? true;
   const brand = useQuery(api.brands.mine);
 
   const [design, setDesign] = useState<WallDesign>(output.design);
@@ -173,7 +198,9 @@ export function WallStudio({
     setRewriting(true);
     setError(null);
     try {
-      const { text } = await rewrite({ jobId, current: current.current.text });
+      const text = variant
+        ? await variant.rewrite(current.current.text)
+        : (await wallRewrite({ jobId, current: current.current.text })).text;
       update({ text }, `rewrite-${Date.now()}`);
       setSelected("text");
     } catch (e) {
@@ -192,11 +219,7 @@ export function WallStudio({
     setSaving(schedule ? "schedule" : "save");
     setError(null);
     try {
-      await approve({
-        jobId,
-        stepId: "style",
-        edits: { design: current.current, videoUrl: output.videoUrl, audioUrl: output.audioUrl },
-      });
+      await approve({ jobId, stepId: "style", edits: { ...output, design: current.current } });
       // The job view opens the composer by itself once the render lands. The
       // URL carries the intent too, so a reload while rendering keeps it.
       onSaved?.(schedule);
@@ -230,10 +253,10 @@ export function WallStudio({
     <div>
       {/* ---- header: where you are, and the two ways out */}
       <header className="flex flex-wrap items-center gap-3">
-        <span className="text-2xl leading-none">🔠</span>
+        <span className="text-2xl leading-none">{variant?.icon ?? "🔠"}</span>
         <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-semibold tracking-tight">Wall of Text</h1>
-          <p className="text-xs text-muted">Style and place your text, then save to render.</p>
+          <h1 className="text-lg font-semibold tracking-tight">{variant?.title ?? "Wall of Text"}</h1>
+          <p className="text-xs text-muted">{variant?.hint ?? "Style and place your text, then save to render."}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -264,12 +287,14 @@ export function WallStudio({
       )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[250px_minmax(0,1fr)_300px]">
-        <Summary
-          config={config}
-          brandName={brand?.name ?? null}
-          audioUrl={output.audioUrl}
-          videoUrl={output.videoUrl}
-        />
+        {variant?.summary ?? (
+          <Summary
+            config={config}
+            brandName={brand?.name ?? null}
+            audioUrl={output.audioUrl}
+            videoUrl={output.videoUrl}
+          />
+        )}
 
         {/* ---- stage */}
         <section className="rounded-2xl border border-line bg-surface p-3">
@@ -282,16 +307,18 @@ export function WallStudio({
             </ToolButton>
             <span className="mx-1 h-5 w-px bg-line" />
             <ToolButton
-              label="Another take on the text"
+              label={variant ? variant.rewriteLabel : "Another take on the text"}
               onClick={anotherTake}
               disabled={rewriting}
               active={rewriting}
             >
               <ShuffleIcon spinning={rewriting} />
             </ToolButton>
-            <ToolButton label="Add an overlay image" onClick={() => setPicking(true)}>
-              <ImageIcon />
-            </ToolButton>
+            {overlays && (
+              <ToolButton label="Add an overlay image" onClick={() => setPicking(true)}>
+                <ImageIcon />
+              </ToolButton>
+            )}
             <span className="ml-auto hidden font-mono text-[0.6rem] uppercase tracking-[0.1em] text-muted sm:block">
               Drag to move · double-click to edit
             </span>
@@ -302,6 +329,7 @@ export function WallStudio({
               videoUrl={output.videoUrl}
               audioUrl={output.audioUrl}
               overlayUrl={overlayUrl}
+              maxSeconds={output.previewSeconds}
               width={stageWidth}
               interactive
               selected={selected}
@@ -333,6 +361,9 @@ export function WallStudio({
               textRef={textRef}
               rewriting={rewriting}
               onRewrite={anotherTake}
+              rewriteLabel={variant?.rewriteLabel ?? "Another take"}
+              words={variant?.words}
+              overlays={overlays}
               overlayUrl={overlayUrl}
               onPickOverlay={() => setPicking(true)}
               onSelectOverlay={() => setSelected("overlay")}
@@ -431,7 +462,7 @@ function Summary({
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+export function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 px-4 py-2.5">
       <dt className="text-xs font-medium text-muted">{label}</dt>
@@ -478,6 +509,9 @@ function TextInspector({
   textRef,
   rewriting,
   onRewrite,
+  rewriteLabel,
+  words,
+  overlays,
   overlayUrl,
   onPickOverlay,
   onSelectOverlay,
@@ -488,6 +522,9 @@ function TextInspector({
   textRef: React.RefObject<HTMLTextAreaElement | null>;
   rewriting: boolean;
   onRewrite: () => void;
+  rewriteLabel: string;
+  words?: { min: number; max: number };
+  overlays: boolean;
   overlayUrl: string | null;
   onPickOverlay: () => void;
   onSelectOverlay: () => void;
@@ -514,11 +551,15 @@ function TextInspector({
             className="inline-flex items-center gap-1.5 text-xs font-medium text-accent hover:underline disabled:opacity-60"
           >
             <ShuffleIcon spinning={rewriting} small />
-            {rewriting ? "Writing…" : "Another take"}
+            {rewriting ? "Writing…" : rewriteLabel}
           </button>
-          <span className="font-mono text-[0.65rem] tabular-nums text-muted">
-            {design.text.length} / {MAX_TEXT_CHARS}
-          </span>
+          {words ? (
+            <WordCount text={design.text} {...words} />
+          ) : (
+            <span className="font-mono text-[0.65rem] tabular-nums text-muted">
+              {design.text.length} / {MAX_TEXT_CHARS}
+            </span>
+          )}
         </div>
       </Section>
 
@@ -678,6 +719,7 @@ function TextInspector({
         />
       </Section>
 
+      {overlays && (
       <Section title="Overlay image">
         {design.overlay ? (
           <div className="flex items-center gap-3">
@@ -709,7 +751,22 @@ function TextInspector({
           </button>
         )}
       </Section>
+      )}
     </div>
+  );
+}
+
+/** "11 words · 10–12", in the accent colour once it's outside the range. */
+function WordCount({ text, min, max }: { text: string; min: number; max: number }) {
+  const n = text.trim().match(/\S+/g)?.length ?? 0;
+  const off = n > 0 && (n < min || n > max);
+  return (
+    <span
+      className={`font-mono text-[0.65rem] tabular-nums ${off ? "text-accent" : "text-muted"}`}
+      title={`Aim for ${min}–${max} words`}
+    >
+      {n} {n === 1 ? "word" : "words"} · {min}–{max}
+    </span>
   );
 }
 

@@ -38,6 +38,7 @@ export function WallStage({
   onChange,
   onEditText,
   placeholder = "Your text appears here",
+  maxSeconds = null,
 }: {
   design: WallDesign;
   videoUrl: string | null;
@@ -55,6 +56,8 @@ export function WallStage({
   onChange?: (patch: Partial<WallDesign>, key: string) => void;
   onEditText?: () => void;
   placeholder?: string;
+  /** Loop only the first this-many seconds -- all of the clip that makes the video. */
+  maxSeconds?: number | null;
 }) {
   useGoogleFont(googleFontsHref(design.font));
   const height = (width * FRAME.height) / FRAME.width;
@@ -88,6 +91,17 @@ export function WallStage({
       v.removeEventListener("pause", onPause);
     };
   }, [audioUrl, videoUrl]);
+
+  // Back to the top at the cut, which the audio effect above reads as a loop.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !maxSeconds) return;
+    const onTime = () => {
+      if (v.currentTime >= maxSeconds) v.currentTime = 0;
+    };
+    v.addEventListener("timeupdate", onTime);
+    return () => v.removeEventListener("timeupdate", onTime);
+  }, [maxSeconds, videoUrl]);
 
   function togglePlay() {
     const v = videoRef.current;

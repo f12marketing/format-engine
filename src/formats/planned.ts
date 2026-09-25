@@ -79,8 +79,9 @@ export const custom = defineFormat({
 // ---------------------------------------------------------------- Phase 3
 
 /**
- * The hook popup holds a finished clip ("clip:" trending, "video:" My hooks)
- * or a person. The two hook + demo formats branch on which.
+ * The hook popup holds a finished clip ("video:" from My hooks or My videos;
+ * "clip:" from the trending library, which older jobs picked) or a person.
+ * The two hook + demo formats branch on which.
  */
 const pickedHook = { field: "hook", matches: "^(clip|video):" } as const;
 // `matches` on a lookahead rather than `notMatches`: nothing picked yet is
@@ -99,10 +100,10 @@ export const videoHookDemo = defineFormat({
   phase: 3,
   /**
    * In the order the user works: pick a hook in the hook popup, upload the
-   * demo, choose the sound, then brief the caption -- which P1 always
-   * writes. Hook length and caption styling are fixed at the reference ads'
-   * look (a ~4s hook, outlined text mid-frame, on the hook only) rather than
-   * offered as settings. Reaction and setting only appear, under the hook,
+   * demo, choose the sound, then the caption -- typed, improvised, or left
+   * for P1 to write. The hook length is fixed at the reference ads' ~4s; the
+   * caption's look is set afterwards, in the studio the run stops at once
+   * the hook is ready. Reaction and setting only appear, under the hook,
    * when a person is picked to be filmed.
    */
   config: {
@@ -110,7 +111,7 @@ export const videoHookDemo = defineFormat({
       label: "Hook video",
       required: true,
       hookMode: "reaction",
-      help: "A trending clip, one of your hooks, or someone we film reacting.",
+      help: "One of your hooks or videos, or someone we film reacting.",
     }),
     reaction: field.choice({
       label: "Their reaction",
@@ -131,27 +132,38 @@ export const videoHookDemo = defineFormat({
       emptyLabel: "Original sound",
       help: "Keep the clips' own sound, or lay a track over the whole video.",
     }),
-    prompt: {
-      ...field.prompt(),
-      placeholder: "What's the demo showing? We write the hook caption from this.",
-    },
+    captions: field.captionOverlay({
+      label: "Add captions",
+      help: "A line of text over the hook. You edit and style it on the video once the hook is ready.",
+    }),
+    caption: field.longText({
+      label: "Captions",
+      optional: true,
+      rows: 2,
+      improvable: "hookCaption",
+      words: { min: 10, max: 12 },
+      placeholder: "wait since WHEN could an app turn my receipts into a tax return??",
+      help: "What the hook says on screen. Improvise sharpens it; left blank, it's written from your business.",
+      showWhen: { field: "captions", is: "present" },
+    }),
     mentionBusiness: field.mentionBusiness(),
   },
   /**
-   * "Stitch" absorbs the caption burn-in -- same reasoning as Video
-   * Animation's "stitch" step: both happen in one ffmpeg encode, so a second
-   * declared step would describe two things happening when only one render
-   * actually runs.
+   * "Stitch" absorbs the caption burn-in: the approved caption goes onto the
+   * hook, and the hook onto the demo, in the one step that renders.
    *
-   * The caption is written first: it's the step that fails on a missing
-   * brief, and it should fail before a reaction has been paid for.
+   * The caption is settled first: it's the step that fails on a missing
+   * brief, and it should fail before a reaction has been paid for. The
+   * studio waits until the hook exists, so the caption is styled on it.
    */
   pipeline: [
-    { id: "copy", primitive: "P1", label: "Write the hook caption" },
+    { id: "copy", primitive: "P1", label: "Write the hook caption", when: { field: "captions", is: "present" } },
     { id: "clip", primitive: "P9", label: "Fetch the hook clip", when: pickedHook },
     { id: "scene", primitive: "P2", label: "Stage the reaction", when: filmingHook },
     { id: "film", primitive: "P3", label: "Film the reaction", when: filmingHook },
-    { id: "stitch", primitive: "P7", label: "Stitch hook onto demo and caption" },
+    // The studio: the run waits here while the caption is edited on the hook.
+    { id: "style", primitive: "P8", label: "Edit the captions", gate: true, when: { field: "captions", is: "present" } },
+    { id: "stitch", primitive: "P7", label: "Stitch the hook onto the demo" },
   ],
 });
 

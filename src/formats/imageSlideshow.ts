@@ -33,7 +33,7 @@ export default defineFormat({
     prompt: field.longText({
       label: "Prompt",
       required: true,
-      improvable: true,
+      improvable: "slideshowPrompt",
       rows: 4,
       maxLength: 1000,
       placeholder: "What should the slideshow be about? e.g. how I stopped overthinking every post",

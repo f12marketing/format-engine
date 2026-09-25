@@ -7,14 +7,24 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { getFormat } from "@/formats";
+import { stepApplies } from "@/formats/types";
 import { ApprovalGate } from "@/components/ApprovalGate";
 import { RemixActions } from "@/components/RemixActions";
 import { DeckEditor } from "@/components/DeckEditor";
 import { PostComposer, type ComposerMedia } from "@/components/PostComposer";
 import { WallStudio } from "@/components/wall/WallStudio";
+import { HookCaptionStudio } from "@/components/wall/HookCaptionStudio";
 import { SlideshowStudio } from "@/components/slideshow/SlideshowStudio";
 import { carouselSlides } from "../../../../convex/lib/carouselPrompt";
 import { DEFAULT_CAROUSEL_TEMPLATE } from "../../../../convex/lib/carouselTemplates";
+import { hookCaptionDesign } from "../../../../convex/lib/wallOfTextDesign";
+
+/** The formats whose gate is a full-page studio, and that gate's step. */
+const STUDIO_STEP: Record<string, string> = {
+  "wall-of-text": "style",
+  "video-hook-demo": "style",
+  "image-slideshow": "edit",
+};
 
 /**
  * The run, watched live.
@@ -59,10 +69,10 @@ export function JobView({ jobId }: { jobId: string }) {
   const format = getFormat(job.formatId);
 
   // Wall of Text parked at its studio gate gets the whole page: the studio is
-  // the review, and it needs more room than the job column has.
-  // Image Slideshow's editor gets the same treatment, at its "edit" gate.
-  const studioStepId =
-    job.formatId === "wall-of-text" ? "style" : job.formatId === "image-slideshow" ? "edit" : null;
+  // the review, and it needs more room than the job column has. Video Hook &
+  // Demo's caption editor (the same studio) and Image Slideshow's editor get
+  // the same treatment.
+  const studioStepId = STUDIO_STEP[job.formatId] ?? null;
   const studioStep =
     studioStepId && job.status === "awaiting_approval"
       ? job.steps.find((s) => s.id === studioStepId && s.state === "awaiting_approval")
@@ -77,6 +87,14 @@ export function JobView({ jobId }: { jobId: string }) {
         <div className="mt-3">
           {job.formatId === "image-slideshow" ? (
             <SlideshowStudio
+              key={job._id}
+              jobId={job._id}
+              config={job.config as Record<string, never>}
+              output={studioStep.output as never}
+              onSaved={onSaved}
+            />
+          ) : job.formatId === "video-hook-demo" ? (
+            <HookCaptionStudio
               key={job._id}
               jobId={job._id}
               config={job.config as Record<string, never>}
@@ -165,6 +183,10 @@ export function JobView({ jobId }: { jobId: string }) {
 
       {job.status === "done" && job.formatId === "wall-of-text" && (
         <EditWallAgain job={job} />
+      )}
+
+      {job.status === "done" && job.formatId === "video-hook-demo" && (
+        <EditCaptionsAgain job={job} />
       )}
 
       {job.status === "done" && job.formatId === "image-slideshow" && (
@@ -403,6 +425,66 @@ function EditWallAgain({
       className="mt-4 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent-soft disabled:opacity-60"
     >
       {busy ? "Opening the studio…" : "Edit text & style again"}
+    </button>
+  );
+}
+
+/**
+ * Reopens a finished Video Hook & Demo in the caption studio, on the same
+ * hook -- a new job, so the video already made stays as it is. The caption
+ * travels inside the design, so nothing is written again; a hook this job
+ * filmed is one of the client's videos now, so nothing is filmed again either.
+ * A job from before the studio opens its caption in the default look, and one
+ * made without captions opens with none, to add one.
+ */
+function EditCaptionsAgain({
+  job,
+}: {
+  job: { _id: Id<"jobs">; config: unknown; steps: { id: string; output?: unknown }[] };
+}) {
+  const router = useRouter();
+  const generate = useMutation(api.run.generate);
+  const [busy, setBusy] = useState(false);
+  const format = getFormat("video-hook-demo");
+  if (!format) return null;
+
+  const outputOf = (id: string) => job.steps.find((s) => s.id === id)?.output as Record<string, unknown> | undefined;
+  const caption = typeof outputOf("copy")?.caption === "string" ? (outputOf("copy")!.caption as string) : "";
+  const design = outputOf("stitch")?.design ?? hookCaptionDesign(caption);
+  const hasCaption = Boolean(outputOf("stitch")?.design || caption);
+  const filmed = outputOf("film")?.assetId;
+  const config = job.config as Record<string, unknown>;
+
+  async function onClick() {
+    setBusy(true);
+    try {
+      // Jobs from before the hook popup kept their clip as a bare `trendingClip`.
+      const hook =
+        typeof filmed === "string"
+          ? `video:${filmed}`
+          : (config.hook ?? (config.trendingClip ? `clip:${String(config.trendingClip)}` : undefined));
+      const next = { ...config, design, captions: true, hook };
+      const jobId = await generate({
+        formatId: "video-hook-demo",
+        config: next,
+        steps: format!.pipeline
+          .filter((s) => stepApplies(s, next) && !["copy", "scene", "film"].includes(s.id))
+          .map((s) => ({ id: s.id, primitive: s.primitive, label: s.label })),
+        remixedFromJobId: job._id,
+      });
+      router.push(`/jobs/${jobId}`);
+    } catch {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      className="mt-4 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent-soft disabled:opacity-60"
+    >
+      {busy ? "Opening the editor…" : hasCaption ? "Edit captions again" : "Add captions"}
     </button>
   );
 }

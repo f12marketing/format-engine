@@ -1,7 +1,9 @@
 import { v } from "convex/values";
+import type { WorkflowCtx } from "@convex-dev/workflow";
 import { internal } from "./_generated/api";
-import { internalAction, internalMutation, internalQuery } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import type { ActionCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import { callTool, LLM_MODEL, submitWithContentPolicyFallback } from "./lib/fal";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
@@ -10,22 +12,29 @@ import { animateClip, clipModelFor, clipRate, MAX_CLIP_SECONDS, MIN_CLIP_SECONDS
 import { resolveRosterPersona } from "./lib/roster";
 import { resolveAudioUrl } from "./lib/audioRef";
 import { isClipRef, isVideoRef, resolveVideo } from "./lib/videoRef";
+import { enforceRateLimit } from "./lib/rateLimit";
+import { hookCaptionDesign, sanitizeDesign, wallLayerHtml, type WallDesign } from "./lib/wallOfTextDesign";
 
 /**
  * Video Hook & Demo: a few seconds of hook, then a hard cut to the user's own
- * demo video, with a caption burned on.
+ * demo video, with an optional caption over the hook.
  *
  * The hook comes from the hook popup, in one of two ways:
- *   - a finished clip: "clip:<id>" from the trending library, or
- *     "video:<assetId>" from My hooks. P9 just resolves it -- free, and
- *     ingestion into the shared `clips` table is a separate, standalone step
- *     (see `lib/clipIngest.ts`), so a run never waits on ScrapeCreators.
+ *   - a finished clip: "video:<assetId>" from My hooks or My videos. P9 just
+ *     resolves it, free. ("clip:<id>", the trending library, is no longer
+ *     offered by the popup but still resolves, for jobs that picked one.)
  *   - a person: P2 stages them in a casual front-camera selfie and P3 films
  *     a few seconds of them reacting, silently, to what's about to be shown
  *     -- kept in My hooks, so it can front the next demo too.
  *
+ * With captions on, the run then parks at the "style" gate: Wall of Text's
+ * studio, over the hook, where the caption is edited and styled. The
+ * approved design is burned onto the hook alone before the demo is joined on
+ * (see `stitch`).
+ *
  * Jobs made before the popup stored their clip as a bare `trendingClip` id,
- * which `hookRef` still reads.
+ * which `hookRef` still reads; jobs made before the studio have no "style"
+ * step and are captioned in the old fixed look.
  */
 interface HookDemoConfig {
   hook?: string;
@@ -35,6 +44,15 @@ interface HookDemoConfig {
   demoVideo?: Id<"assets">;
   aspectRatio?: string;
   audio?: string | null;
+  /** The "Add captions" switch. */
+  captions?: boolean;
+  /** The Captions box: the caption itself, word for word. Blank asks P1 to write one. */
+  caption?: string;
+  /** Before the Captions box, a brief P1 wrote the caption from. Still read for older jobs. */
+  prompt?: string;
+  mentionBusiness?: boolean;
+  /** Set by "Edit captions again": a finished job's design, reopened in the studio. */
+  design?: unknown;
 }
 
 /**
@@ -43,7 +61,10 @@ interface HookDemoConfig {
  * mid-frame over the hook only.
  */
 const HOOK_SECONDS = 4;
+/** The old fixed look, for jobs from before the studio. */
 const CAPTION_STYLE = "Outline";
+/** A speaking hook plays in full; this caps what one caption pass may encode. */
+const MAX_SPEAKING_HOOK_SECONDS = 60;
 
 function hookRef(config: HookDemoConfig): string | undefined {
   return config.hook ?? (config.trendingClip ? `clip:${config.trendingClip}` : undefined);
@@ -73,6 +94,10 @@ export const run = workflow
       if (planned.includes("film")) {
         await step.runAction(internal.videoHookDemo.filmReaction, args, { retry: true });
       }
+      if (planned.includes("style")) {
+        await step.runAction(internal.videoHookDemo.openStudio, args, { retry: true });
+        await passGate(step, args.jobId, "style");
+      }
       await step.runAction(internal.videoHookDemo.stitch, args, { retry: true });
       await step.runMutation(internal.jobs.finish, { jobId: args.jobId, status: "done" });
     } catch (e) {
@@ -84,6 +109,12 @@ export const run = workflow
     }
     return null;
   });
+
+async function passGate(step: WorkflowCtx, jobId: Id<"jobs">, stepId: string): Promise<void> {
+  await step.awaitEvent({ name: `approve:${jobId}:${stepId}` });
+  await step.runMutation(internal.jobs.patchStep, { jobId, stepId, state: "done" });
+  await step.runMutation(internal.jobs.setRunning, { jobId });
+}
 
 /** P9. Resolves the picked clip -- trending or one of My hooks -- to a fetchable URL. Free. */
 export const fetchClip = internalAction({
@@ -307,9 +338,9 @@ export const clipRow = internalQuery({
   handler: async (ctx, { clipId }) => ctx.db.get(clipId),
 });
 
-const CAPTION_SYSTEM = `You write the on-screen caption (at most 100 characters) for a TikTok-style
-"hook + demo" ad: a few seconds of a creator reacting to camera, then a hard
-cut to a screen recording of the product.
+const CAPTION_SYSTEM = `You write the on-screen caption for a TikTok-style "hook + demo" ad: a
+few seconds of a creator reacting to camera, then a hard cut to a screen
+recording of the product.
 
 The caption is what the creator is reacting TO, written in their voice, as if
 they just discovered the product and can't believe it exists. It should read
@@ -321,20 +352,23 @@ like a real post, not an ad. Patterns that work:
 - A relatable pain, then the twist: "me pretending I didn't just find an app
   that [solves the pain]"
 
+- 10 to 12 words. Never fewer than 10, never more than 12.
 - Casual, lowercase-leaning, with CAPS on the one or two words that carry the
   surprise. Question marks and "?!" are fine.
 - No hashtags, no quotation marks, no markdown. At most one emoji.
 - Say what the product actually does -- the demo that follows has to pay off
   the caption, so it must be specific and true to the brief.
-- If told to mention a business, weave its name in naturally -- don't append it.`;
+- If told to mention a business, weave its name in naturally -- don't append it.
+- Asked to improve a caption: keep what it's getting at -- the product, the
+  claim -- and make it hit harder. Don't swap in a different idea.`;
 
 const CAPTION_TOOL = {
   name: "save_caption",
-  description: "Save the generated hook caption.",
+  description: "Save the hook caption.",
   input_schema: {
     type: "object",
     properties: {
-      caption: { type: "string", description: "At most 100 characters." },
+      caption: { type: "string", description: "10 to 12 words." },
     },
     required: ["caption"],
   },
@@ -342,12 +376,58 @@ const CAPTION_TOOL = {
 
 const LLM_INPUT_PER_1M = 2.0;
 const LLM_OUTPUT_PER_1M = 10.0;
-const MAX_CHARS = 100;
+/** The Captions box and the studio both hold one line; this is only a runaway guard. */
+const MAX_CAPTION_CHARS = 200;
+const CAPTION_WORDS = { min: 10, max: 12 } as const;
+
+function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
 
 /**
- * P1. Only planned when Hook caption was left blank. With no prompt either,
- * the business profile is the brief; with neither, this fails loudly rather
- * than rendering a hook with nothing on it.
+ * One caption from the writer: fresh from a brief, or a sharper take on one
+ * already typed (`current`). Models count words loosely, so a line outside
+ * 10-12 words gets one more try with its count pointed out -- and is kept
+ * either way rather than failing over a word.
+ */
+async function writeHookLine(
+  ctx: ActionCtx,
+  clientId: Id<"clients">,
+  { current, brief, mentionBusiness }: { current?: string; brief: string; mentionBusiness?: boolean },
+): Promise<{ caption: string; tokens: number; costUsd: number }> {
+  const ask =
+    (current ? `Improve this hook caption:\n${current}` : brief) +
+    (await businessContext(ctx, clientId, mentionBusiness));
+
+  let caption = "";
+  let tokens = 0;
+  let costUsd = 0;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const prompt =
+      attempt === 0
+        ? ask
+        : `${ask}\n\nYour last caption was ${wordCount(caption)} words: ${caption}\nWrite it again in 10 to 12 words.`;
+    const call = await callTool(CAPTION_SYSTEM, prompt, CAPTION_TOOL as never);
+    tokens += call.inputTokens + call.outputTokens;
+    costUsd += (call.inputTokens / 1e6) * LLM_INPUT_PER_1M + (call.outputTokens / 1e6) * LLM_OUTPUT_PER_1M;
+    const line = String((call.value as { caption?: string })?.caption ?? "")
+      .trim()
+      .replace(/^["“]+|["”]+$/g, "")
+      .slice(0, MAX_CAPTION_CHARS);
+    if (line) caption = line;
+    const words = wordCount(caption);
+    if (words >= CAPTION_WORDS.min && words <= CAPTION_WORDS.max) break;
+  }
+  if (!caption) throw new Error("model returned no caption");
+  return { caption, tokens, costUsd };
+}
+
+/**
+ * P1, planned whenever captions are on. What's typed in the Captions box is
+ * the caption, word for word -- free. Left blank, a speaking hook from My
+ * hooks is captioned with what it says; otherwise the writer writes one from
+ * the business profile (or, for older jobs, their brief). With nothing to
+ * write from, this fails first thing, before a reaction has been paid for.
  */
 export const writeCaption = internalAction({
   args: { jobId: v.id("jobs"), clientId: v.id("clients") },
@@ -356,63 +436,195 @@ export const writeCaption = internalAction({
 
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job) throw new Error("unknown job");
-    const config = job.config as HookDemoConfig & { prompt?: string; mentionBusiness?: boolean };
+    const config = job.config as HookDemoConfig;
+    const done = (caption: string) =>
+      ctx.runMutation(internal.jobs.patchStep, { jobId, stepId: "copy", state: "done", output: { caption } });
+
+    const typed = (config.caption ?? "").trim().slice(0, MAX_CAPTION_CHARS);
+    if (typed) {
+      await done(typed);
+      return null;
+    }
 
     // A speaking hook from My hooks already has its caption: what it says.
     const ref = hookRef(config);
     if (ref?.startsWith("video:")) {
       const { hookLine } = await resolveVideo(ctx, ref, clientId);
       if (hookLine) {
-        await ctx.runMutation(internal.jobs.patchStep, {
-          jobId,
-          stepId: "copy",
-          state: "done",
-          output: { caption: hookLine },
-        });
+        await done(hookLine);
         return null;
       }
     }
 
-    const brief =
-      (config.prompt ?? "").trim() ||
-      (config.mentionBusiness ? "Write the hook for a demo of this business's product." : "");
+    const brief = (config.prompt ?? "").trim()
+      ? `Write the hook caption for a demo showing: ${(config.prompt ?? "").trim()}`
+      : config.mentionBusiness
+        ? "Write the hook caption for a demo of this business's product."
+        : "";
     if (!brief) {
       throw new Error(
-        "Give a prompt saying what the demo shows (or switch on Mention your business) so we can write the hook caption.",
+        "Type a caption in the Captions box (or switch on Mention your business so we can write one).",
       );
     }
 
-    await ctx.runMutation(internal.ledger.assertUnderCap, { clientId, aboutToSpendUsd: 0.02 });
-
-    const userPrompt = brief + (await businessContext(ctx, clientId, config.mentionBusiness));
-    const call = await callTool(CAPTION_SYSTEM, userPrompt, CAPTION_TOOL as never);
-    const caption = String((call.value as { caption?: string })?.caption ?? "").trim();
-    if (!caption) throw new Error("model returned no caption");
-    if (caption.length > MAX_CHARS) {
-      throw new Error(`caption is ${caption.length} chars, over the ${MAX_CHARS} limit`);
-    }
-
-    const costUsd =
-      (call.inputTokens / 1e6) * LLM_INPUT_PER_1M + (call.outputTokens / 1e6) * LLM_OUTPUT_PER_1M;
+    await ctx.runMutation(internal.ledger.assertUnderCap, { clientId, aboutToSpendUsd: 0.03 });
+    const { caption, tokens, costUsd } = await writeHookLine(ctx, clientId, {
+      brief,
+      mentionBusiness: config.mentionBusiness,
+    });
     await ctx.runMutation(internal.ledger.record, {
       clientId,
       jobId,
       stepId: "copy",
       primitive: "P1",
       model: LLM_MODEL,
-      units: call.inputTokens + call.outputTokens,
+      units: tokens,
       unitLabel: "tokens",
       costUsd,
     });
-    await ctx.runMutation(internal.jobs.patchStep, {
+    await done(caption);
+    return null;
+  },
+});
+
+/**
+ * The Improvise button, under the config panel's Captions box and in the
+ * studio: the caption as typed, made into a sharper 10-12 word hook -- or,
+ * with nothing typed, a fresh one from the business profile. Returned to the
+ * browser, which keeps it or undoes it; nothing is saved here.
+ */
+export const improveCaption = action({
+  args: { caption: v.optional(v.string()), mentionBusiness: v.optional(v.boolean()) },
+  handler: async (ctx, { caption, mentionBusiness }): Promise<{ caption: string }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    const client = await ctx.runQuery(internal.clients.getByAuthUserId, { authUserId: identity.subject });
+    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+
+    const current = (caption ?? "").trim().slice(0, MAX_CAPTION_CHARS);
+    // The panel checks both of these before calling; these are the boundary.
+    if (!current && !mentionBusiness) {
+      throw new Error("Type a caption to improvise on, or switch on Mention your business so we can write one.");
+    }
+    if (!current) {
+      const brand = await ctx.runQuery(internal.brands.forClientInternal, { clientId: client._id });
+      if (!brand?.description) throw new Error("Add your business details first — they're what it's written from.");
+    }
+    await enforceRateLimit(ctx, "rewriteText", client._id);
+    await ctx.runMutation(internal.ledger.assertUnderCap, { clientId: client._id, aboutToSpendUsd: 0.03 });
+
+    const written = await writeHookLine(ctx, client._id, {
+      current: current || undefined,
+      brief: "Write the hook caption for a demo of this business's product.",
+      mentionBusiness,
+    });
+    await ctx.runMutation(internal.ledger.record, {
+      clientId: client._id,
+      stepId: "improvise",
+      primitive: "P1",
+      model: LLM_MODEL,
+      units: written.tokens,
+      unitLabel: "tokens",
+      costUsd: written.costUsd,
+    });
+    return { caption: written.caption };
+  },
+});
+
+// ---------------------------------------------------------------- the caption studio
+
+/** The hook as a playable video: filmed by this run, or picked in the popup. */
+async function hookVideo(
+  ctx: ActionCtx,
+  job: Doc<"jobs">,
+  clientId: Id<"clients">,
+): Promise<{ url: string; hookKind?: string }> {
+  const filmed = (job.steps.find((s) => s.id === "film")?.output as { assetId?: string } | undefined)
+    ?.assetId;
+  if (filmed) return resolveVideo(ctx, `video:${filmed}`, clientId);
+  const picked = job.steps.find((s) => s.id === "clip")?.output as
+    | { url?: string; hookKind?: string }
+    | undefined;
+  if (picked?.url) return { url: picked.url, hookKind: picked.hookKind };
+  throw new Error("The hook clip has not been fetched or filmed yet.");
+}
+
+/**
+ * Parks the run in the studio with a starting design: the caption P1 wrote
+ * (or that was typed) in the hook look, or -- for "Edit captions again" --
+ * the design the last render was made from. The URLs are for the preview
+ * only; the stitch re-resolves the hook, since an approved output is
+ * whatever the browser sent back.
+ */
+export const openStudio = internalAction({
+  args: { jobId: v.id("jobs"), clientId: v.id("clients") },
+  handler: async (ctx, { jobId, clientId }): Promise<null> => {
+    await ctx.runMutation(internal.jobs.patchStep, { jobId, stepId: "style", state: "running" });
+    const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
+    if (!job) throw new Error("unknown job");
+    const config = job.config as HookDemoConfig;
+
+    const written = (job.steps.find((s) => s.id === "copy")?.output as { caption?: string } | undefined)
+      ?.caption;
+    const design = config.design
+      ? sanitizeDesign(config.design)
+      : hookCaptionDesign((written ?? "").trim());
+
+    const hook = await hookVideo(ctx, job, clientId);
+    const speaks = hook.hookKind === "speaking";
+
+    await ctx.runMutation(internal.jobs.setAwaitingApproval, {
       jobId,
-      stepId: "copy",
-      state: "done",
-      output: { caption },
+      stepId: "style",
+      output: {
+        design,
+        videoUrl: hook.url,
+        // A speaking hook keeps its own voice in the preview, as in the video.
+        audioUrl: speaks ? null : await resolveAudioUrl(ctx, config.audio ?? null, clientId),
+        // Only the first few seconds of a silent hook make the video.
+        previewSeconds: speaks ? null : HOOK_SECONDS,
+      },
     });
     return null;
   },
 });
+
+/**
+ * Pass one of a captioned stitch: the approved caption burned onto the hook
+ * alone, by Wall of Text's renderer -- so it is drawn from the very HTML the
+ * studio previewed -- and cut to the hook's length there, so a long clip
+ * isn't encoded for nothing. The stitch then joins the demo on uncaptioned.
+ */
+async function captionHook(
+  ctx: ActionCtx,
+  hookUrl: string,
+  design: WallDesign,
+  seconds: number,
+): Promise<{ url: string; storageId: Id<"_storage"> }> {
+  const uploadUrl = await ctx.storage.generateUploadUrl();
+  const res = await fetch(`${renderServiceBase()}/render/wall-of-text`, {
+    method: "POST",
+    headers: renderServiceHeaders(),
+    body: JSON.stringify({
+      layerHtml: wallLayerHtml(design, null),
+      videoUrl: hookUrl,
+      // The hook keeps its own sound here; music, if any, is laid on in the stitch.
+      audioUrl: null,
+      maxDurationSec: seconds,
+      uploadUrl,
+    }),
+  });
+  if (!res.ok) throw new Error(`render service failed captioning the hook: ${res.status} ${await res.text()}`);
+  const out = (await res.json()) as { storageId?: Id<"_storage"> };
+  if (!out.storageId) {
+    throw new Error(
+      "The render service is running old code that can't put text on a video. Restart it (cd ../render-service && npm start) and save again.",
+    );
+  }
+  const url = await ctx.storage.getUrl(out.storageId);
+  if (!url) throw new Error("could not read back the captioned hook");
+  return { url, storageId: out.storageId };
+}
 
 /** P7 + P8 in one hop -- same reasoning as Custom and Video Animation's merged stitch. */
 export const stitch = internalAction({
@@ -429,17 +641,7 @@ export const stitch = internalAction({
     if (!config.demoVideo) throw new Error("A demo video upload is required.");
 
     // Filmed this run, or picked: either way one video, resolved the same way.
-    const filmed = (job.steps.find((s) => s.id === "film")?.output as { assetId?: string } | undefined)
-      ?.assetId;
-    const picked = job.steps.find((s) => s.id === "clip")?.output as
-      | { url?: string; hookKind?: string }
-      | undefined;
-    const hook = filmed
-      ? await resolveVideo(ctx, `video:${filmed}`, clientId)
-      : picked?.url
-        ? { url: picked.url, hookKind: picked.hookKind }
-        : null;
-    if (!hook) throw new Error("The hook clip has not been fetched or filmed yet.");
+    const hook = await hookVideo(ctx, job, clientId);
     // A hook someone speaks in plays in full -- cutting it at the hook length
     // would cut them off mid-sentence -- and keeps its voice under any music.
     const speaks = hook.hookKind === "speaking";
@@ -452,15 +654,26 @@ export const stitch = internalAction({
     const demoUrl = await ctx.storage.getUrl(demoAsset.storageId);
     if (!demoUrl) throw new Error("The demo video upload could not be read.");
 
-    const captionText =
-      (job.steps.find((s) => s.id === "copy")?.output as { caption?: string } | undefined)?.caption ?? "";
+    // The studio's design, when this run went through it: burned onto the
+    // hook first, in a pass of its own. A job from before the studio has no
+    // "style" step, and its caption goes on here in the old fixed look.
+    const approved = (job.steps.find((s) => s.id === "style")?.output as { design?: unknown } | undefined)
+      ?.design;
+    const design = approved ? sanitizeDesign(approved) : null;
+    const captioned =
+      design && design.text.trim()
+        ? await captionHook(ctx, hook.url, design, speaks ? MAX_SPEAKING_HOOK_SECONDS : HOOK_SECONDS)
+        : null;
+    const captionText = approved
+      ? ""
+      : ((job.steps.find((s) => s.id === "copy")?.output as { caption?: string } | undefined)?.caption ?? "");
 
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const res = await fetch(`${base}/render/video-hook-demo`, {
       method: "POST",
       headers: renderServiceHeaders(),
       body: JSON.stringify({
-        hookUrl: hook.url,
+        hookUrl: captioned?.url ?? hook.url,
         demoUrl,
         dimensions: config.aspectRatio ?? "9:16",
         captionText,
@@ -472,6 +685,8 @@ export const stitch = internalAction({
         uploadUrl,
       }),
     });
+    // The captioned hook was only ever an input to this render.
+    if (captioned) await ctx.storage.delete(captioned.storageId);
     if (!res.ok) throw new Error(`render service failed: ${res.status} ${await res.text()}`);
 
     const out = (await res.json()) as {
@@ -506,7 +721,8 @@ export const stitch = internalAction({
       jobId,
       stepId: "stitch",
       state: "done",
-      output: { files: [{ name: "output.mp4" }] },
+      // The design travels with the render, so "Edit captions again" reopens it.
+      output: { files: [{ name: "output.mp4" }], ...(design ? { design } : {}) },
     });
     await ctx.runMutation(internal.jobs.setOutputs, { jobId, assetIds: [assetId] });
     return null;
