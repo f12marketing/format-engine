@@ -9,6 +9,7 @@ import { useVideoRefUrl } from "@/hooks/useVideoRefUrl";
 import { usePersonPreview } from "./AvatarField";
 import { defaultDesign } from "../../convex/lib/wallOfTextDesign";
 import { SlideshowPreview } from "./slideshow/ImageSetPicker";
+import { MemePreview } from "./meme/MemePreview";
 
 /**
  * The right-hand panel.
@@ -32,6 +33,14 @@ export function PreviewPanel({
     return (
       <AuthorisedBoundary>
         <WallPreview videoRef={typeof values.video === "string" ? values.video : null} />
+      </AuthorisedBoundary>
+    );
+  }
+
+  if (format.id === "green-screen-meme" && convexConfigured) {
+    return (
+      <AuthorisedBoundary>
+        <MemePreview values={values} />
       </AuthorisedBoundary>
     );
   }

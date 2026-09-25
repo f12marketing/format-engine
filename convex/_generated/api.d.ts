@@ -55,6 +55,7 @@ import type * as lib_imageSets from "../lib/imageSets.js";
 import type * as lib_imageSlideshowDesign from "../lib/imageSlideshowDesign.js";
 import type * as lib_imageSlideshowTemplates from "../lib/imageSlideshowTemplates.js";
 import type * as lib_klingClip from "../lib/klingClip.js";
+import type * as lib_memeDesign from "../lib/memeDesign.js";
 import type * as lib_musicMoods from "../lib/musicMoods.js";
 import type * as lib_narratedClipPrimitive from "../lib/narratedClipPrimitive.js";
 import type * as lib_narrationPrimitive from "../lib/narrationPrimitive.js";
@@ -150,6 +151,7 @@ declare const fullApi: ApiFromModules<{
   "lib/imageSlideshowDesign": typeof lib_imageSlideshowDesign;
   "lib/imageSlideshowTemplates": typeof lib_imageSlideshowTemplates;
   "lib/klingClip": typeof lib_klingClip;
+  "lib/memeDesign": typeof lib_memeDesign;
   "lib/musicMoods": typeof lib_musicMoods;
   "lib/narratedClipPrimitive": typeof lib_narratedClipPrimitive;
   "lib/narrationPrimitive": typeof lib_narrationPrimitive;

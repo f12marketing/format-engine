@@ -8,6 +8,9 @@ import { MultiUploadField } from "./MultiUploadField";
 import { TrendingClipField } from "./TrendingClipField";
 import { HookField } from "./HookField";
 import { DemoVideoField } from "./DemoVideoField";
+import { BackgroundField } from "./meme/BackgroundField";
+import { MemeField } from "./meme/MemeField";
+import { parseMemePick } from "../../convex/lib/memeDesign";
 import { BusinessProfileCard } from "./BusinessProfileCard";
 import { AvatarField } from "./AvatarField";
 import { AudioClipField } from "./AudioClipField";
@@ -263,6 +266,8 @@ function spansRow(field: Field): boolean {
     field.kind === "image" ||
     field.kind === "images" ||
     field.kind === "video" ||
+    field.kind === "media" ||
+    field.kind === "meme" ||
     field.kind === "audioClip"
   );
 }
@@ -606,6 +611,24 @@ function Control({
         <Placeholder kind={field.kind} />
       );
 
+    case "media":
+      return convexConfigured ? (
+        <AuthorisedBoundary>
+          <BackgroundField value={value} onChange={onChange} />
+        </AuthorisedBoundary>
+      ) : (
+        <Placeholder kind={field.kind} />
+      );
+
+    case "meme":
+      return convexConfigured ? (
+        <AuthorisedBoundary>
+          <MemeField value={value} onChange={onChange} />
+        </AuthorisedBoundary>
+      ) : (
+        <Placeholder kind={field.kind} />
+      );
+
     case "hook":
       return convexConfigured ? (
         <AuthorisedBoundary>
@@ -781,24 +804,42 @@ function ImproveButton({
   values,
   onImproved,
 }: {
-  kind: "slideshowPrompt" | "hookCaption";
+  kind: "slideshowPrompt" | "hookCaption" | "memeCaption";
   text: string;
   values: Record<string, unknown>;
   onImproved: (text: string) => void;
 }) {
   const improvePrompt = useAction(api.imageSlideshow.improvePrompt);
   const improveCaption = useAction(api.videoHookDemo.improveCaption);
+  const improveMemeCaption = useAction(api.greenScreenMeme.improveCaption);
   const brand = useQuery(api.brands.mine);
   const [busy, setBusy] = useState(false);
   const [previous, setPrevious] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const hook = kind === "hookCaption";
+  const meme = kind === "memeCaption";
+  const hook = kind === "hookCaption" || meme;
+  // A meme caption is written to the meme picked above it: its title is the joke to play off.
+  const pick = meme ? parseMemePick(values.meme) : null;
+  const memeTitle = pick?.source === "klipy" ? pick.title : "";
 
   async function onClick() {
     const mentionBusiness = Boolean(values.mentionBusiness);
+    if (meme && mentionBusiness && brand !== undefined && !brand?.description) {
+      setError(NEEDS_BUSINESS);
+      return;
+    }
     // A caption from nothing is written from the business, so it needs one --
-    // said here rather than by a call that can only refuse.
-    if (hook && !text.trim()) {
+    // said here rather than by a call that can only refuse. A meme's own title
+    // is enough to write from.
+    if (meme && !text.trim() && !memeTitle && !mentionBusiness) {
+      setError(
+        pick
+          ? "Type a caption first, or switch on Mention your business so we can write one."
+          : "Choose a meme first, or type a caption to improvise on.",
+      );
+      return;
+    }
+    if (hook && !meme && !text.trim()) {
       if (!mentionBusiness) {
         setError("Type a caption first, or switch on Mention your business so we can write one.");
         return;
@@ -811,7 +852,9 @@ function ImproveButton({
     setBusy(true);
     setError(null);
     try {
-      const improved = hook
+      const improved = meme
+        ? (await improveMemeCaption({ caption: text, memeTitle: memeTitle || undefined, mentionBusiness })).caption
+        : hook
         ? (await improveCaption({ caption: text, mentionBusiness })).caption
         : (
             await improvePrompt({
@@ -894,6 +937,8 @@ const PLACEHOLDER_NOTE: Record<string, string> = {
   avatar: "Roster picker — connect Convex to enable",
   trendingClip: "Clip library — connect Convex to enable",
   hook: "Hook picker — connect Convex to enable",
+  media: "Photo or video — connect Convex to enable",
+  meme: "Meme library — connect Convex to enable",
   imageSource: "Image sets — connect Convex to enable",
 };
 

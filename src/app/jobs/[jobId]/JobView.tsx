@@ -14,6 +14,7 @@ import { DeckEditor } from "@/components/DeckEditor";
 import { PostComposer, type ComposerMedia } from "@/components/PostComposer";
 import { WallStudio } from "@/components/wall/WallStudio";
 import { HookCaptionStudio } from "@/components/wall/HookCaptionStudio";
+import { MemeStudio } from "@/components/wall/MemeStudio";
 import { SlideshowStudio } from "@/components/slideshow/SlideshowStudio";
 import { carouselSlides } from "../../../../convex/lib/carouselPrompt";
 import { DEFAULT_CAROUSEL_TEMPLATE } from "../../../../convex/lib/carouselTemplates";
@@ -24,6 +25,7 @@ const STUDIO_STEP: Record<string, string> = {
   "wall-of-text": "style",
   "video-hook-demo": "style",
   "speaking-hook-demo": "style",
+  "green-screen-meme": "style",
   "image-slideshow": "edit",
 };
 
@@ -88,6 +90,14 @@ export function JobView({ jobId }: { jobId: string }) {
         <div className="mt-3">
           {job.formatId === "image-slideshow" ? (
             <SlideshowStudio
+              key={job._id}
+              jobId={job._id}
+              config={job.config as Record<string, never>}
+              output={studioStep.output as never}
+              onSaved={onSaved}
+            />
+          ) : job.formatId === "green-screen-meme" ? (
+            <MemeStudio
               key={job._id}
               jobId={job._id}
               config={job.config as Record<string, never>}
@@ -190,6 +200,8 @@ export function JobView({ jobId }: { jobId: string }) {
       {job.status === "done" && job.formatId === "video-hook-demo" && (
         <EditCaptionsAgain job={job} />
       )}
+
+      {job.status === "done" && job.formatId === "green-screen-meme" && <EditMemeAgain job={job} />}
 
       {job.status === "done" && job.formatId === "image-slideshow" && (
         <>
@@ -487,6 +499,55 @@ function EditCaptionsAgain({
       className="mt-4 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent-soft disabled:opacity-60"
     >
       {busy ? "Opening the editor…" : hasCaption ? "Edit captions again" : "Add captions"}
+    </button>
+  );
+}
+
+/**
+ * Green Screen Meme's EditCaptionsAgain: reopens a finished video in the meme
+ * studio with the design it was rendered from -- the meme where it was, the
+ * caption as styled -- as a new job, so the video already made stays as it
+ * is. Nothing is written again. Jobs from before the studio keyed a trending
+ * clip rather than a meme, and have nothing to reopen.
+ */
+function EditMemeAgain({
+  job,
+}: {
+  job: { _id: Id<"jobs">; config: unknown; steps: { id: string; output?: unknown }[] };
+}) {
+  const router = useRouter();
+  const generate = useMutation(api.run.generate);
+  const [busy, setBusy] = useState(false);
+  const format = getFormat("green-screen-meme");
+  const config = job.config as Record<string, unknown>;
+  const design = (job.steps.find((s) => s.id === "render")?.output as { design?: unknown } | undefined)?.design;
+  if (!format || !design || !config.meme) return null;
+
+  async function onClick() {
+    setBusy(true);
+    try {
+      const next = { ...config, design };
+      const jobId = await generate({
+        formatId: "green-screen-meme",
+        config: next,
+        steps: format!.pipeline
+          .filter((s) => stepApplies(s, next) && s.id !== "copy")
+          .map((s) => ({ id: s.id, primitive: s.primitive, label: s.label })),
+        remixedFromJobId: job._id,
+      });
+      router.push(`/jobs/${jobId}`);
+    } catch {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      className="mt-4 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent-soft disabled:opacity-60"
+    >
+      {busy ? "Opening the editor…" : "Edit meme again"}
     </button>
   );
 }

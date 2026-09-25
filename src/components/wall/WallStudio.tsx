@@ -21,6 +21,7 @@ import {
 } from "../../../convex/lib/wallOfTextDesign";
 import { patchText, textAt, WallStage, type Selection, type TextTarget } from "./WallStage";
 import { ImagePickerDialog } from "./ImagePickerDialog";
+import { MemeInspector, type StudioMeme } from "./MemeInspector";
 import { useGoogleFont } from "./useGoogleFont";
 
 interface StudioOutput {
@@ -29,6 +30,10 @@ interface StudioOutput {
   audioUrl: string | null;
   /** Loop the preview at this many seconds: the part of the clip the video uses. */
   previewSeconds?: number | null;
+  /** A still to put the text on when there's no video -- Green Screen Meme's photo background. */
+  posterUrl?: string | null;
+  /** Green Screen Meme's meme, placed by the design's `meme` layer. */
+  meme?: StudioMeme | null;
 }
 
 /**
@@ -232,14 +237,16 @@ export function WallStudio({
       if (delta && selected !== null) {
         e.preventDefault();
         const clamp = (n: number) => Math.min(1, Math.max(0, n));
-        const t = selected === "overlay" ? undefined : textAt(d, selected);
-        if (t && selected !== "overlay") {
+        const t = selected === "overlay" || selected === "meme" ? undefined : textAt(d, selected);
+        if (t && selected !== "overlay" && selected !== "meme") {
           update(patchText(d, selected, { x: clamp(t.x + delta[0]), y: clamp(t.y + delta[1]) }), "nudge");
         } else if (selected === "overlay" && d.overlay) {
           update(
             { overlay: { ...d.overlay, x: clamp(d.overlay.x + delta[0]), y: clamp(d.overlay.y + delta[1]) } },
             "nudge",
           );
+        } else if (selected === "meme" && d.meme) {
+          update({ meme: { ...d.meme, x: clamp(d.meme.x + delta[0]), y: clamp(d.meme.y + delta[1]) } }, "nudge");
         }
       }
     }
@@ -379,8 +386,13 @@ export function WallStudio({
                 <ImageIcon />
               </ToolButton>
             )}
+            {output.meme && design.meme && (
+              <ToolButton label="Adjust the meme" onClick={() => setSelected("meme")} active={selected === "meme"}>
+                <MemeToolIcon />
+              </ToolButton>
+            )}
             <span className="ml-auto hidden font-mono text-[0.6rem] uppercase tracking-[0.1em] text-muted sm:block">
-              Drag to move · double-click to edit
+              {output.meme ? "Drag to move · corner dot resizes" : "Drag to move · double-click to edit"}
             </span>
           </div>
           <div ref={stageCol} className="flex justify-center py-5">
@@ -389,6 +401,8 @@ export function WallStudio({
               videoUrl={output.videoUrl}
               audioUrl={output.audioUrl}
               overlayUrl={overlayUrl}
+              posterUrl={output.posterUrl ?? null}
+              meme={output.meme ?? null}
               maxSeconds={output.previewSeconds}
               width={stageWidth}
               interactive
@@ -402,7 +416,15 @@ export function WallStudio({
 
         {/* ---- inspector */}
         <aside className="rounded-2xl border border-line bg-surface lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
-          {selected === "overlay" && design.overlay ? (
+          {selected === "meme" && design.meme && output.meme ? (
+            <MemeInspector
+              layer={design.meme}
+              meme={output.meme}
+              backgroundIsVideo={Boolean(output.videoUrl)}
+              update={(patch, key) => update({ meme: { ...current.current.meme!, ...patch } }, `meme-${key}`)}
+              onDone={() => setSelected("text")}
+            />
+          ) : selected === "overlay" && design.overlay ? (
             <OverlayInspector
               design={design}
               overlayUrl={overlayUrl}
@@ -436,6 +458,7 @@ export function WallStudio({
               }}
               words={variant?.words}
               boxes={{ list: boxes, onSelect: setSelected, onAdd: addTextBox }}
+              meme={output.meme && design.meme ? { value: output.meme, onSelect: () => setSelected("meme") } : undefined}
               overlay={
                 overlays
                   ? {
@@ -451,7 +474,11 @@ export function WallStudio({
           ) : (
             <div className="p-5 text-center">
               <p className="text-sm font-medium">Nothing selected</p>
-              <p className="mt-1 text-xs text-muted">Click a text or an overlay on the video to style it.</p>
+              <p className="mt-1 text-xs text-muted">
+                {output.meme
+                  ? "Click the meme or a text on the video to adjust it."
+                  : "Click a text or an overlay on the video to style it."}
+              </p>
               <button
                 type="button"
                 onClick={() => setSelected("text")}
@@ -597,6 +624,7 @@ function TextInspector({
   rewrite,
   words,
   boxes,
+  meme,
   overlay,
   onRemove,
   onBack,
@@ -609,6 +637,7 @@ function TextInspector({
   rewrite?: { busy: boolean; run: () => void; label: string };
   words?: { min: number; max: number };
   boxes?: { list: WallText[]; onSelect: (i: number) => void; onAdd: () => void };
+  meme?: { value: StudioMeme; onSelect: () => void };
   overlay?: {
     value: WallOverlay | null;
     url: string | null;
@@ -842,6 +871,30 @@ function TextInspector({
           ) : (
             <p className="text-xs text-muted">Up to {MAX_TEXT_BOXES} text boxes.</p>
           )}
+        </Section>
+      )}
+
+      {meme && (
+        <Section title="Meme">
+          <button
+            type="button"
+            onClick={meme.onSelect}
+            className="flex w-full items-center gap-3 rounded-lg border border-line p-2 text-left hover:border-accent"
+          >
+            <span className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-md bg-[conic-gradient(#e7e1e5_25%,#fff_0_50%,#e7e1e5_0_75%,#fff_0)] bg-[length:12px_12px]">
+              {meme.value.isVideo ? (
+                <video src={meme.value.url} muted autoPlay loop playsInline className="size-full object-contain" />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={meme.value.url} alt="" className="size-full object-contain" />
+              )}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-xs font-medium">{meme.value.title || "Your meme"}</span>
+              <span className="block text-[0.65rem] text-muted">Size, flip, green screen, sound</span>
+            </span>
+            <span className="rounded-md border border-line px-2 py-0.5 text-[0.65rem]">Adjust</span>
+          </button>
         </Section>
       )}
 
@@ -1092,7 +1145,7 @@ export function Segmented<T extends string>({
           title={o.title}
           onClick={() => onChange(o.value)}
           className={[
-            "grid h-7 w-8 place-items-center rounded-md",
+            "grid h-7 min-w-8 place-items-center rounded-md",
             value === o.value ? "bg-surface text-accent shadow-sm" : "text-muted hover:text-foreground",
           ].join(" ")}
         >
@@ -1295,6 +1348,15 @@ export function ImageIcon() {
       <rect x="3" y="4" width="18" height="16" rx="2.5" />
       <path d="m3.5 15.5 4.2-4.2a2 2 0 0 1 2.8 0l5 5" />
       <circle cx="15.5" cy="9" r="1.5" />
+    </svg>
+  );
+}
+function MemeToolIcon() {
+  return (
+    <svg {...svg}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8.5 14.5s1.2 2 3.5 2 3.5-2 3.5-2" />
+      <path d="M8.5 9.5h.01M15.5 9.5h.01" strokeWidth="2.6" />
     </svg>
   );
 }

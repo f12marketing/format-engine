@@ -286,6 +286,15 @@ function videoHookDemoStepCost(stepId: string, values: Record<string, unknown>):
 }
 
 /**
+ * Green Screen Meme: one short caption call when the box is left blank --
+ * everything else is the client's own media, Klipy's library and an ffmpeg
+ * render, all free. Mirrors writeMemeCaption in convex/greenScreenMeme.ts.
+ */
+function greenScreenMemeStepCost(stepId: string, values: Record<string, unknown>): number {
+  return stepId === "copy" && !words(values.caption) ? llmUsd(1200, 60) : 0;
+}
+
+/**
  * Image Slideshow: one copy call, which also matches the set's photos to the
  * slides -- the photos themselves are stock or the client's own, so free.
  * The editor's "Generate" tab is billed as it is used. Mirrors
@@ -309,6 +318,7 @@ const PER_STEP_COST: Record<
 > = {
   "wall-of-text": wallOfTextStepCost,
   "video-hook-demo": videoHookDemoStepCost,
+  "green-screen-meme": greenScreenMemeStepCost,
   "image-slideshow": imageSlideshowStepCost,
   drama: dramaStepCost,
   slideshow: slideshowStepCost,

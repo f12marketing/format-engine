@@ -170,23 +170,54 @@ export const videoHookDemo = defineFormat({
 export const greenScreenMeme = defineFormat({
   id: "green-screen-meme",
   name: "Green Screen Meme",
-  blurb: "Trending video with your background image",
+  blurb: "A meme over your own photo or video, with a hook caption",
   icon: "🟩",
   group: "trending",
   preview: "video",
   status: "ready",
   phase: 3,
+  /**
+   * In the order the user works, as Video Hook & Demo's: what the meme goes
+   * on, the meme -- from Klipy's libraries or their own -- then the caption,
+   * typed, improvised, or left for P1 to write from the meme. Where the meme
+   * sits, how big, keyed or not, and how the text looks are all set
+   * afterwards, in the studio the run stops at.
+   *
+   * Jobs from before the studio hold `trendingClip`, `prompt` and `mode`, and
+   * planned a "clip" step; convex/greenScreenMeme.ts still runs them.
+   */
   config: {
-    mode: field.mode(),
+    background: field.media({
+      label: "Upload image or video",
+      required: true,
+      help: "What the meme sits on: a photo or a clip of your own.",
+    }),
+    meme: field.meme({
+      label: "Choose meme",
+      required: true,
+      help: "GIFs, clips, stickers, memes and AI emojis, or one of your own.",
+    }),
+    caption: field.longText({
+      label: "Hook caption",
+      optional: true,
+      rows: 2,
+      improvable: "memeCaption",
+      words: { min: 5, max: 14 },
+      placeholder: "me when the invoice pays itself before I've had my coffee",
+      help: "The line over the meme. Improvise sharpens it; left blank, it's written from the meme.",
+    }),
     mentionBusiness: field.mentionBusiness(),
-    trendingClip: field.trendingClip(),
-    background: field.image({ label: "Background image" }),
-    prompt: field.prompt(),
   },
+  /**
+   * "Render" absorbs the keying and the caption burn-in: the meme onto the
+   * background and the approved text over both, in the one step that encodes.
+   */
   pipeline: [
-    { id: "clip", primitive: "P9", label: "Fetch the clip" },
-    { id: "copy", primitive: "P1", label: "Write the captions" },
-    { id: "key", primitive: "P7", label: "Chroma key, composite and caption" },
+    { id: "copy", primitive: "P1", label: "Write the hook caption", when: { field: "caption", is: "empty" } },
+    { id: "meme", primitive: "P9", label: "Fetch the meme" },
+    // The studio: the run waits here while the meme and the text are placed.
+    { id: "style", primitive: "P8", label: "Edit the meme", gate: true },
+    { id: "render", primitive: "P7", label: "Key, composite and caption" },
   ],
 });
 

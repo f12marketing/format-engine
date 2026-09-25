@@ -26,6 +26,11 @@ const FAL_MEDIA_ORIGINS = "https://*.fal.media";
 const FREESOUND_MEDIA_ORIGINS = "https://cdn.freesound.org";
 // Wall of Text's studio previews text in the Google Font the render will use:
 // the stylesheet from fonts.googleapis.com, the font files from gstatic.
+// Green Screen Meme's meme popup talks to Klipy straight from the browser, as
+// Klipy's rules require, and shows its media straight from Klipy's CDN
+// (static.klipy.com, static1..., static2...) -- never copied or proxied.
+const KLIPY_API = "https://api.klipy.com";
+const KLIPY_MEDIA = "https://*.klipy.com";
 const GOOGLE_FONTS_CSS = "https://fonts.googleapis.com";
 const GOOGLE_FONTS_FILES = "https://fonts.gstatic.com";
 
@@ -45,10 +50,10 @@ const CSP = [
   // still blocks the common case of a remote <script src> being injected.
   SCRIPT_SRC,
   `style-src 'self' 'unsafe-inline' ${GOOGLE_FONTS_CSS}`,
-  `img-src 'self' data: blob: ${CONVEX_ORIGINS}`,
-  `media-src 'self' blob: ${CONVEX_ORIGINS} ${FAL_MEDIA_ORIGINS} ${FREESOUND_MEDIA_ORIGINS}`,
+  `img-src 'self' data: blob: ${CONVEX_ORIGINS} ${KLIPY_MEDIA}`,
+  `media-src 'self' blob: ${CONVEX_ORIGINS} ${FAL_MEDIA_ORIGINS} ${FREESOUND_MEDIA_ORIGINS} ${KLIPY_MEDIA}`,
   `font-src 'self' data: ${GOOGLE_FONTS_FILES}`,
-  `connect-src 'self' ${CONVEX_ORIGINS} ${CONVEX_WS_ORIGINS} ${SUPABASE_ORIGINS}`,
+  `connect-src 'self' ${CONVEX_ORIGINS} ${CONVEX_WS_ORIGINS} ${SUPABASE_ORIGINS} ${KLIPY_API}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

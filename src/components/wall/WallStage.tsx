@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import {
   blockStyle,
@@ -8,6 +8,7 @@ import {
   FRAME,
   fontsHref,
   lineStyle,
+  memeStyle,
   overlayStyle,
   textLines,
   textStyle,
@@ -18,7 +19,15 @@ import { useGoogleFont } from "./useGoogleFont";
 
 /** A text on the stage: the main one, or an added text box by its index. */
 export type TextTarget = "text" | number;
-export type Selection = TextTarget | "overlay" | null;
+export type Selection = TextTarget | "overlay" | "meme" | null;
+
+/** Green Screen Meme's GIF or clip, as the stage draws it; where it sits is the design's `meme` layer. */
+export interface StageMeme {
+  url: string;
+  isVideo: boolean;
+  /** Width over height. */
+  aspect: number;
+}
 
 export function textAt(d: WallDesign, t: TextTarget): WallText | undefined {
   return t === "text" ? d : d.boxes?.[t];
@@ -53,6 +62,7 @@ export function WallStage({
   onEditText,
   placeholder = "Your text appears here",
   maxSeconds = null,
+  meme = null,
 }: {
   design: WallDesign;
   videoUrl: string | null;
@@ -72,13 +82,17 @@ export function WallStage({
   placeholder?: string;
   /** Loop only the first this-many seconds -- all of the clip that makes the video. */
   maxSeconds?: number | null;
+  /** Green Screen Meme's meme, drawn under the text where `design.meme` places it. */
+  meme?: StageMeme | null;
 }) {
   useGoogleFont(fontsHref(designFonts(design)));
   const height = (width * FRAME.height) / FRAME.width;
   const k = width / FRAME.width;
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const memeRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const chromaId = `chroma-${useId().replace(/:/g, "")}`;
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(true);
   const [guides, setGuides] = useState<{ v: boolean; h: boolean } | null>(null);
@@ -118,16 +132,22 @@ export function WallStage({
   }, [maxSeconds, videoUrl]);
 
   function togglePlay() {
-    const v = videoRef.current;
-    if (!v) return;
-    if (v.paused) {
-      void v.play().catch(() => {});
+    // The background and a moving meme play and pause together.
+    const all = [videoRef.current, memeRef.current].filter((v): v is HTMLVideoElement => Boolean(v));
+    if (!all.length) return;
+    if (all[0].paused) {
+      for (const v of all) void v.play().catch(() => {});
       setPlaying(true);
     } else {
-      v.pause();
+      for (const v of all) v.pause();
       setPlaying(false);
     }
   }
+
+  // Whose sound the preview plays follows the meme's Sound setting, as the render's does.
+  const sound = design.meme?.sound;
+  const backgroundMuted = audioUrl ? true : muted || (sound !== undefined && sound !== "background");
+  const memeMuted = muted || sound !== "meme";
 
   function toggleMute() {
     const next = !muted;
@@ -145,13 +165,13 @@ export function WallStage({
   let gesture = 0;
   function startGesture(
     e: ReactPointerEvent,
-    kind: "text-move" | "text-left" | "text-right" | "ov-move" | "ov-resize",
+    kind: "text-move" | "text-left" | "text-right" | "ov-move" | "ov-resize" | "meme-move" | "meme-resize",
     which: TextTarget = "text",
   ) {
     if (!interactive) return;
     e.stopPropagation();
     e.preventDefault();
-    onSelect?.(kind.startsWith("text") ? which : "overlay");
+    onSelect?.(kind.startsWith("text") ? which : kind.startsWith("meme") ? "meme" : "overlay");
     const key = `drag-${e.timeStamp}-${++gesture}`;
     const d0 = design;
     const x0 = e.clientX;
@@ -182,6 +202,14 @@ export function WallStage({
         onChange?.({ overlay: { ...d0.overlay, x, y } }, key);
       } else if (kind === "ov-resize" && d0.overlay) {
         onChange?.({ overlay: { ...d0.overlay, w: clamp(d0.overlay.w + 2 * dx, 0.05, 1) } }, key);
+      } else if (kind === "meme-move" && d0.meme) {
+        const x = snap(clamp(d0.meme.x + dx));
+        const y = snap(clamp(d0.meme.y + dy));
+        setGuides({ v: x === 0.5, h: y === 0.5 });
+        onChange?.({ meme: { ...d0.meme, x, y } }, key);
+      } else if (kind === "meme-resize" && d0.meme) {
+        // Growing from the corner keeps the centre where it is, so both sides move.
+        onChange?.({ meme: { ...d0.meme, w: clamp(d0.meme.w + 2 * dx, 0.1, 1.6) } }, key);
       }
     };
     const up = () => {
@@ -218,6 +246,7 @@ export function WallStage({
   });
 
   const overlaySelected = interactive && selected === "overlay";
+  const memeSelected = interactive && selected === "meme";
 
   function textBlock(t: WallText, target: TextTarget, emptyText: string) {
     const on = interactive && selected === target;
@@ -269,7 +298,7 @@ export function WallStage({
           autoPlay
           loop
           playsInline
-          muted={audioUrl ? true : muted}
+          muted={backgroundMuted}
           className="absolute inset-0 size-full object-cover"
         />
       ) : posterUrl ? (
@@ -287,6 +316,39 @@ export function WallStage({
         className="pointer-events-none absolute left-0 top-0 origin-top-left"
         style={{ width: FRAME.width, height: FRAME.height, transform: `scale(${k})` }}
       >
+        {design.meme && meme && (
+          // Under the text, as the render composites it; the box is placed from
+          // the same fractions the render service reads.
+          <div
+            style={{
+              ...(memeStyle(design.meme, meme.aspect) as CSSProperties),
+              ...ring(memeSelected),
+              pointerEvents: interactive ? "auto" : "none",
+              cursor: interactive ? "move" : undefined,
+            }}
+            onPointerDown={(e) => startGesture(e, "meme-move")}
+          >
+            {meme.isVideo ? (
+              <video
+                ref={memeRef}
+                key={meme.url}
+                src={meme.url}
+                autoPlay
+                loop
+                playsInline
+                muted={memeMuted}
+                style={memeLook(design.meme, chromaId)}
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={meme.url} alt="" draggable={false} style={memeLook(design.meme, chromaId)} />
+            )}
+            {memeSelected && (
+              <span style={handle("corner")} onPointerDown={(e) => startGesture(e, "meme-resize")} />
+            )}
+          </div>
+        )}
+
         {design.overlay && overlayUrl && (
           // The render page places the <img> itself with these styles; here it
           // sits in a box placed the same way, so the box can carry a handle.
@@ -314,7 +376,9 @@ export function WallStage({
       {guides?.v && <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-accent/80" />}
       {guides?.h && <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-accent/80" />}
 
-      {videoUrl && (
+      {design.meme?.chroma && <ChromaFilter id={chromaId} />}
+
+      {(videoUrl || meme?.isVideo) && (
         <div className="absolute right-2.5 top-2.5 flex gap-1.5">
           <StageButton label={muted ? "Unmute" : "Mute"} onClick={toggleMute}>
             {muted ? <MutedIcon /> : <SoundIcon />}
@@ -325,6 +389,41 @@ export function WallStage({
         </div>
       )}
     </div>
+  );
+}
+
+/** The meme's media inside its box: stretched to it, mirrored and keyed as the layer says. */
+export function memeLook(m: { flip: boolean; chroma: boolean }, chromaId: string): CSSProperties {
+  return {
+    display: "block",
+    width: "100%",
+    height: "100%",
+    objectFit: "fill",
+    transform: m.flip ? "scaleX(-1)" : undefined,
+    filter: m.chroma ? `url(#${chromaId})` : undefined,
+  };
+}
+
+/**
+ * The green screen, keyed in the preview: a pixel goes clear only where green
+ * beats red AND blue -- two masks, 1 - 3(G - R) and 1 - 3(G - B), where
+ * either one keeps it. Studio green is gone; skin, yellow, cyan, white and
+ * black stay whole (a single "green minus the others" mask would eat yellow
+ * too). Close to the render's chromakey, not identical: the render samples
+ * the actual green from the meme's corner.
+ */
+export function ChromaFilter({ id }: { id: string }) {
+  return (
+    <svg width="0" height="0" className="absolute" aria-hidden>
+      <filter id={id} colorInterpolationFilters="sRGB">
+        <feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  3 -3 0 0 1" result="red" />
+        <feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 -3 3 0 1" result="blue" />
+        {/* "over" unions the two: alpha = 1 - (1 - a)(1 - b). */}
+        <feComposite in="red" in2="blue" operator="over" />
+        {/* Multiplied back by the source's own alpha, so a sticker's cut-out stays cut out. */}
+        <feComposite in2="SourceGraphic" operator="in" />
+      </filter>
+    </svg>
   );
 }
 
