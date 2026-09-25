@@ -13,7 +13,7 @@ import { resolveRosterPersona } from "./lib/roster";
 import { resolveAudioUrl } from "./lib/audioRef";
 import { isClipRef, isVideoRef, resolveVideo } from "./lib/videoRef";
 import { enforceRateLimit } from "./lib/rateLimit";
-import { hookCaptionDesign, sanitizeDesign } from "./lib/wallOfTextDesign";
+import { hasText, hookCaptionDesign, sanitizeDesign } from "./lib/wallOfTextDesign";
 import { captionHook } from "./lib/hookCaption";
 
 /**
@@ -625,7 +625,7 @@ export const stitch = internalAction({
       ?.design;
     const design = approved ? sanitizeDesign(approved) : null;
     const captioned =
-      design && design.text.trim()
+      design && hasText(design)
         ? await captionHook(ctx, hook.url, design, speaks ? MAX_SPEAKING_HOOK_SECONDS : HOOK_SECONDS)
         : null;
     const captionText = approved

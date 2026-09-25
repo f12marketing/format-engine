@@ -50,6 +50,7 @@ import type * as lib_facePrompt from "../lib/facePrompt.js";
 import type * as lib_fal from "../lib/fal.js";
 import type * as lib_falWebhook from "../lib/falWebhook.js";
 import type * as lib_grounding from "../lib/grounding.js";
+import type * as lib_hookCaption from "../lib/hookCaption.js";
 import type * as lib_imageSets from "../lib/imageSets.js";
 import type * as lib_imageSlideshowDesign from "../lib/imageSlideshowDesign.js";
 import type * as lib_imageSlideshowTemplates from "../lib/imageSlideshowTemplates.js";
@@ -144,6 +145,7 @@ declare const fullApi: ApiFromModules<{
   "lib/fal": typeof lib_fal;
   "lib/falWebhook": typeof lib_falWebhook;
   "lib/grounding": typeof lib_grounding;
+  "lib/hookCaption": typeof lib_hookCaption;
   "lib/imageSets": typeof lib_imageSets;
   "lib/imageSlideshowDesign": typeof lib_imageSlideshowDesign;
   "lib/imageSlideshowTemplates": typeof lib_imageSlideshowTemplates;
