@@ -13,6 +13,27 @@ import { callSync } from "./fal";
 const TTS_PRICE_PER_1000_CHARS = 0.1; // fal-ai/elevenlabs/tts/eleven-v3
 const AVG_SPEECH_CHARS_PER_SEC = 15;
 
+/**
+ * A "How they say it" choice, as eleven-v3 audio tags: bracketed directions
+ * the model performs rather than reads ("[annoyed] This is hard."). They go
+ * on the text sent to TTS only -- never into the job's copy output, which is
+ * also the burned-in subtitle.
+ *
+ * With a direction, stability drops to v3's "Creative" (0): its "Natural"
+ * (0.5) and "Robust" (1) settings are documented as increasingly deaf to
+ * tags, which would make the choice do nothing audible.
+ */
+const DELIVERY_TAGS: Record<string, string> = {
+  Shocked: "[shocked] [gasps]",
+  Outraged: "[outraged]",
+  Realising: "[realizing] [slowly]",
+  Relieved: "[sighs] [relieved]",
+  Deadpan: "[deadpan] [flat]",
+  Excited: "[excited]",
+  Confused: "[confused] [curious]",
+  Smug: "[mischievously] [smug]",
+};
+
 export const generateSpeech = internalAction({
   args: {
     jobId: v.id("jobs"),
@@ -20,8 +41,10 @@ export const generateSpeech = internalAction({
     /** Which config field holds the text when the copy step didn't run. */
     textConfigField: v.string(),
     voice: v.optional(v.string()),
+    /** Config field holding a "How they say it" choice (see DELIVERY_TAGS). */
+    deliveryConfigField: v.optional(v.string()),
   },
-  handler: async (ctx, { jobId, clientId, textConfigField, voice }): Promise<null> => {
+  handler: async (ctx, { jobId, clientId, textConfigField, voice, deliveryConfigField }): Promise<null> => {
     await ctx.runMutation(internal.jobs.patchStep, { jobId, stepId: "speech", state: "running" });
 
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
@@ -45,10 +68,13 @@ export const generateSpeech = internalAction({
     // do not exist on v3 and were dropped rather than sent and ignored.
     // Twice the price ($0.10 vs $0.05 per 1k chars), which the rate constant
     // above reflects.
+    const direction = deliveryConfigField
+      ? DELIVERY_TAGS[String(config[deliveryConfigField] ?? "")]
+      : undefined;
     const result = (await callSync("fal-ai/elevenlabs/tts/eleven-v3", {
-      text,
+      text: direction ? `${direction} ${text}` : text,
       voice: voice ?? "Sarah",
-      stability: 0.5,
+      stability: direction ? 0 : 0.5,
       language_code: (config.language as string | undefined) ?? "en",
       apply_text_normalization: "auto",
     })) as { audio?: { url?: string } };

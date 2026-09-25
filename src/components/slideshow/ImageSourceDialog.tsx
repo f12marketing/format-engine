@@ -167,6 +167,7 @@ export function ImageSourceDialog({
   allowGenerate = true,
   checker = false,
   onPick,
+  onUseSet,
   onClose,
 }: {
   jobId: Id<"jobs">;
@@ -182,8 +183,14 @@ export function ImageSourceDialog({
   /** Transparent-friendly thumbnails, for pictures and stickers. */
   checker?: boolean;
   onPick: (p: PickedImage) => void;
+  /**
+   * Swap Image's other job: a whole set, one photo per slide -- and, when
+   * `restyle` is ticked, the text and tint that set is written in.
+   */
+  onUseSet?: (setId: string, restyle: boolean) => Promise<void>;
   onClose: () => void;
 }) {
+  const [restyle, setRestyle] = useState(true);
   const [tab, setTab] = useState<Tab>(defaultSet ? "sets" : deckImages.length ? "deck" : "library");
   const adoptSetImage = useMutation(api.imageSets.use);
   const [adopting, setAdopting] = useState(false);
@@ -236,9 +243,44 @@ export function ImageSourceDialog({
       {error && <p className="mx-4 mt-3 rounded-lg bg-accent-soft px-3 py-2 text-xs text-accent">{error}</p>}
       {tab === "sets" && (
         <div className={`flex min-h-0 flex-1 flex-col ${adopting ? "pointer-events-none opacity-60" : ""}`}>
+          {onUseSet && (
+            <div className="mx-5 mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-line bg-surface-sub px-3 py-2 text-xs">
+              <span className="flex-1">
+                <span className="font-medium">Change the whole theme:</span>{" "}
+                <span className="text-muted">open a set and choose &ldquo;Use on every slide&rdquo;.</span>
+              </span>
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={restyle}
+                  onChange={(e) => setRestyle(e.target.checked)}
+                  className="size-3.5 accent-accent"
+                />
+                Restyle the text to match the set
+              </label>
+            </div>
+          )}
+          {adopting && onUseSet && (
+            <p className="mx-5 mt-2 text-xs text-muted">Placing the set&rsquo;s photos on every slide…</p>
+          )}
           <SetBrowser
             selectedSet={defaultSet}
             initialOpen={defaultSet}
+            useSetLabel="Use on every slide"
+            onUseSet={
+              onUseSet
+                ? async (id) => {
+                    setAdopting(true);
+                    setError(null);
+                    try {
+                      await onUseSet(id, restyle);
+                    } catch (e) {
+                      setError(cleanError(e));
+                      setAdopting(false);
+                    }
+                  }
+                : undefined
+            }
             onPickPhoto={(p) => onPick(p)}
             onPickImage={async (img) => {
               setAdopting(true);

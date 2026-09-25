@@ -10,12 +10,14 @@ import {
   DEFAULT_TEXT,
   deckAssetIds,
   frameOf,
+  imageOverlay,
   MAX_PICTURES_PER_SLIDE,
   MAX_SLIDES,
   MAX_TEXT_CHARS,
   MAX_TEXTS_PER_SLIDE,
   newId,
   OVERLAY_PRESETS,
+  presetOverlay,
   RATIO_USES,
   SLIDE_FONTS,
   SLIDE_RATIOS,
@@ -23,12 +25,14 @@ import {
   snapWeight,
   type Slide,
   type SlideDeck,
+  type SlideOverlay,
   type SlidePicture,
   type SlideRatio,
   type SlideText,
   type TextBackground,
 } from "../../../convex/lib/imageSlideshowDesign";
-import { parseImageSource } from "../../../convex/lib/imageSets";
+import { imageSetById, parseImageSource, setValue } from "../../../convex/lib/imageSets";
+import { restyleSlide, templateById } from "../../../convex/lib/imageSlideshowTemplates";
 import { SlideStage, type Selection } from "./SlideStage";
 import { Dots, SourceSummary } from "./ImageSetPicker";
 import { ImageSourceDialog, OverlayDialog, type PickedImage } from "./ImageSourceDialog";
@@ -63,7 +67,7 @@ interface SlideshowConfig {
 type Dialog = "swap" | "addImage" | "overlay" | "addSlide" | null;
 type Panel = "dimensions" | "text" | "picture" | "overlay" | null;
 
-/** The style half of a text box -- what "Apply to all text boxes" carries across the deck. */
+/** The style half of a text box -- what "Apply to all slides" carries across the deck. */
 const STYLE_KEYS = [
   "font",
   "weight",
@@ -74,12 +78,25 @@ const STYLE_KEYS = [
   "background",
   "bgColor",
   "align",
+  "width",
 ] as const satisfies readonly (keyof SlideText)[];
 
 function stylePart(patch: Partial<SlideText>): Partial<SlideText> {
   const out: Partial<SlideText> = {};
   for (const k of STYLE_KEYS) if (k in patch) (out as Record<string, unknown>)[k] = patch[k];
   return out;
+}
+
+/** Undo keys for set swaps, which must never fold into one another. */
+let themeSeq = 0;
+
+/**
+ * Which box of an `n`-box slide another slide's box `j` takes its style from:
+ * the one in the same place in the stack, or the last. So a heading styles
+ * headings and a body styles bodies, however many boxes each slide has.
+ */
+function counterpart(j: number, n: number): number {
+  return Math.min(j, n - 1);
 }
 
 /**
@@ -104,6 +121,7 @@ export function SlideshowStudio({
 }) {
   const router = useRouter();
   const approve = useMutation(api.jobs.approveStep);
+  const photosForDeck = useMutation(api.imageSets.forDeck);
   const brand = useQuery(api.brands.mine);
 
   const [deck, setDeck] = useState<SlideDeck>(output.deck);
@@ -113,6 +131,8 @@ export function SlideshowStudio({
   const [dialog, setDialog] = useState<Dialog>(null);
   const [panel, setPanel] = useState<Panel>("text");
   const [applyAll, setApplyAll] = useState(false);
+  /** The set chosen with "Use on every slide", once one is. */
+  const [themeSet, setThemeSet] = useState<string | null>(null);
   const [saving, setSaving] = useState<"save" | "schedule" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -175,18 +195,23 @@ export function SlideshowStudio({
   const onText = useCallback(
     (id: string, patch: Partial<SlideText>, key: string) => {
       const style = stylePart(patch);
-      // Apply-to-all carries style only: every box keeps its own words and place.
+      // Apply-to-all carries style only: every box keeps its own words and
+      // place, and takes the style of its counterpart on this slide.
       if (applyAll && Object.keys(style).length && !key.startsWith("drag-") && !key.startsWith("type-")) {
-        update(
-          (d) => ({
+        update((d) => {
+          const src = d.slides.find((s) => s.texts.some((t) => t.id === id));
+          if (!src) return d;
+          const i = src.texts.findIndex((t) => t.id === id);
+          const n = src.texts.length;
+          return {
             ...d,
-            slides: d.slides.map((s) => ({
-              ...s,
-              texts: s.texts.map((t) => (t.id === id ? { ...t, ...patch } : { ...t, ...style })),
-            })),
-          }),
-          key,
-        );
+            slides: d.slides.map((s) =>
+              s === src
+                ? { ...s, texts: s.texts.map((t) => (t.id === id ? { ...t, ...patch } : t)) }
+                : { ...s, texts: s.texts.map((t, j) => (counterpart(j, n) === i ? { ...t, ...style } : t)) },
+            ),
+          };
+        }, key);
         return;
       }
       update(
@@ -220,6 +245,59 @@ export function SlideshowStudio({
     [update],
   );
 
+  const onOverlay = useCallback(
+    (slideId: string, patch: Partial<SlideOverlay>, key: string) =>
+      editSlide(slideId, (s) => (s.overlay ? { ...s, overlay: { ...s.overlay, ...patch } } : s), key),
+    [editSlide],
+  );
+
+  /** Ticking "Apply to all slides": every slide's text takes this slide's style, now. */
+  function styleAllLike(from: Slide) {
+    const n = from.texts.length;
+    if (!n) return;
+    update(
+      (d) => ({
+        ...d,
+        slides: d.slides.map((s) =>
+          s.id === from.id
+            ? s
+            : { ...s, texts: s.texts.map((t, j) => ({ ...t, ...stylePart(from.texts[counterpart(j, n)]) })) },
+        ),
+      }),
+      `apply-all-${Date.now()}`,
+    );
+  }
+
+  /** Swap Image's "Use on every slide": a new photo on every slide from one set, and optionally its look. */
+  async function useSetEverywhere(setId: string, restyle: boolean) {
+    const slides = live.current.slides.map(
+      (s) => s.texts.map((t) => t.text).join("\n").trim() || s.imagePrompt,
+    );
+    const photos = await photosForDeck({ set: setId, slides });
+    setPickedUrls((m) => {
+      const next = { ...m };
+      for (const p of photos) if (p.url) next[p.assetId] = p.url;
+      return next;
+    });
+    const style = restyle ? templateById(imageSetById(setId)?.style) : null;
+    update(
+      (d) => ({
+        ...d,
+        template: style?.id ?? d.template,
+        slides: d.slides.map((s, i) => {
+          const photo = photos[i];
+          const next = photo ? { ...s, imageAssetId: photo.assetId } : s;
+          return style ? restyleSlide(style, next, i === 0) : next;
+        }),
+      }),
+      `theme-${++themeSeq}`,
+    );
+    setThemeSet(setId);
+    setSelected(null);
+    setEditingId(null);
+    setDialog(null);
+  }
+
   const selectedText =
     selected?.kind === "text" ? slide?.texts.find((t) => t.id === selected.id) : undefined;
   const selectedPicture =
@@ -230,6 +308,7 @@ export function SlideshowStudio({
     setSelected(s);
     if (s?.kind === "text") setPanel("text");
     if (s?.kind === "picture") setPanel("picture");
+    if (s?.kind === "overlay") setPanel("overlay");
   }, []);
 
   function goTo(i: number) {
@@ -285,6 +364,8 @@ export function SlideshowStudio({
     if (!slide || !selected) return;
     if (selected.kind === "text") {
       editSlide(slide.id, (s) => ({ ...s, texts: s.texts.filter((t) => t.id !== selected.id) }), `rm-${Date.now()}`);
+    } else if (selected.kind === "overlay") {
+      editSlide(slide.id, (s) => ({ ...s, overlay: null }), `rm-${Date.now()}`);
     } else {
       editSlide(slide.id, (s) => ({ ...s, pictures: s.pictures.filter((p) => p.id !== selected.id) }), `rm-${Date.now()}`);
     }
@@ -411,6 +492,8 @@ export function SlideshowStudio({
           { x: clamp(selectedPicture.x + delta[0]), y: clamp(selectedPicture.y + delta[1]) },
           "nudge",
         );
+      } else if (selected.kind === "overlay" && slide?.overlay && !slide.overlay.fill) {
+        onOverlay(slide.id, { x: clamp(slide.overlay.x + delta[0]), y: clamp(slide.overlay.y + delta[1]) }, "nudge");
       }
     }
     window.addEventListener("keydown", onKey);
@@ -502,7 +585,12 @@ export function SlideshowStudio({
       )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)_280px]">
-        <Summary config={config} brandName={brand?.name ?? null} deck={deck} />
+        <Summary
+          config={config}
+          images={themeSet ? setValue(themeSet) : config.images}
+          brandName={brand?.name ?? null}
+          deck={deck}
+        />
 
         {/* ---- stage */}
         <section className="min-w-0 rounded-2xl border border-line bg-surface p-3">
@@ -539,6 +627,7 @@ export function SlideshowStudio({
               }}
               onText={onText}
               onPicture={onPicture}
+              onOverlay={(patch, key) => onOverlay(slide.id, patch, key)}
               onStartEdit={(id) => {
                 setSelected({ kind: "text", id });
                 setPanel("text");
@@ -597,12 +686,17 @@ export function SlideshowStudio({
               <input
                 type="checkbox"
                 checked={applyAll}
-                onChange={(e) => setApplyAll(e.target.checked)}
+                onChange={(e) => {
+                  setApplyAll(e.target.checked);
+                  if (e.target.checked) styleAllLike(slide);
+                }}
                 className="size-3.5 accent-accent"
               />
               <span>
-                <span className="font-medium">Apply to all text boxes</span>
-                <span className="block text-[0.65rem] text-muted">Style changes reach every slide</span>
+                <span className="font-medium">Apply to all slides</span>
+                <span className="block text-[0.65rem] text-muted">
+                  Every slide takes this slide&rsquo;s text style, and follows your changes while ticked
+                </span>
               </span>
             </label>
             {selectedText ? (
@@ -679,21 +773,66 @@ export function SlideshowStudio({
               open={panel === "overlay"}
               onToggle={() => setPanel(panel === "overlay" ? null : "overlay")}
             >
+              {slide.overlay.assetId && (
+                <FitToggle
+                  fill={slide.overlay.fill}
+                  onChange={(fill) => {
+                    onOverlay(slide.id, { fill }, `overlay-fit-${Date.now()}`);
+                    setSelected(fill ? null : { kind: "overlay", id: slide.id });
+                  }}
+                />
+              )}
               <Slider
-                label="Strength"
+                label="Opacity"
                 value={Math.round(slide.overlay.opacity * 100)}
                 min={5}
                 max={100}
                 display={`${Math.round(slide.overlay.opacity * 100)}%`}
-                onChange={(v) =>
-                  editSlide(
-                    slide.id,
-                    (s) => (s.overlay ? { ...s, overlay: { ...s.overlay, opacity: v / 100 } } : s),
-                    "overlay-opacity",
-                  )
-                }
+                onChange={(v) => onOverlay(slide.id, { opacity: v / 100 }, "overlay-opacity")}
               />
+              {slide.overlay.assetId && !slide.overlay.fill && (
+                <>
+                  <Slider
+                    label="Size"
+                    value={Math.round(slide.overlay.w * 100)}
+                    min={5}
+                    max={200}
+                    display={`${Math.round(slide.overlay.w * 100)}%`}
+                    onChange={(w) => onOverlay(slide.id, { w: w / 100 }, "overlay-size")}
+                  />
+                  <Slider
+                    label="Rotation"
+                    value={Math.round(slide.overlay.rotation)}
+                    min={-180}
+                    max={180}
+                    display={`${Math.round(slide.overlay.rotation)}°`}
+                    onChange={(rotation) => onOverlay(slide.id, { rotation }, "overlay-rotation")}
+                  />
+                  <p className="text-[0.65rem] leading-snug text-muted">
+                    Drag it on the slide. The corner handle resizes it, the top one rotates it.
+                  </p>
+                </>
+              )}
+              {slide.overlay.assetId && slide.overlay.fill && (
+                <p className="text-[0.65rem] leading-snug text-muted">
+                  Stretched over the whole slide. Choose Free to move, resize and rotate it.
+                </p>
+              )}
               <div className="flex flex-wrap gap-2">
+                {slide.overlay.assetId && !slide.overlay.fill && (
+                  <>
+                    <SmallButton
+                      onClick={() => onOverlay(slide.id, { x: 0.5, y: 0.5 }, `overlay-centre-${Date.now()}`)}
+                    >
+                      Centre
+                    </SmallButton>
+                    <SmallButton
+                      onClick={() => onOverlay(slide.id, { rotation: 0 }, `overlay-straight-${Date.now()}`)}
+                    >
+                      Straighten
+                    </SmallButton>
+                  </>
+                )}
                 <SmallButton onClick={() => setDialog("overlay")}>Change</SmallButton>
                 <SmallButton
                   onClick={() => {
@@ -739,19 +878,23 @@ export function SlideshowStudio({
           title={dialog === "swap" ? "Swap image" : dialog === "addImage" ? "Add an image" : "Add a slide"}
           blurb={
             dialog === "swap"
-              ? "Replace this slide's photo with one from an image set, your images or an upload. The text stays put."
+              ? "Replace this slide's photo — or give every slide a new look from another image set. The text stays put."
               : dialog === "addImage"
                 ? "Place a picture on this slide — a screenshot, a product shot, a second photo."
                 : "A new slide after this one, with its own photo and a text box ready to type in."
           }
           initialPrompt={dialog === "swap" ? slide.imagePrompt : ""}
-          defaultSet={(() => {
-            const src = parseImageSource(config.images);
-            return src.kind === "set" ? src.set.id : null;
-          })()}
+          defaultSet={
+            themeSet ??
+            (() => {
+              const src = parseImageSource(config.images);
+              return src.kind === "set" ? src.set.id : null;
+            })()
+          }
           deckImages={deckImages}
           checker={dialog === "addImage"}
           onPick={onImagePicked}
+          onUseSet={dialog === "swap" ? useSetEverywhere : undefined}
           onClose={() => setDialog(null)}
         />
       )}
@@ -767,12 +910,16 @@ export function SlideshowStudio({
                 ...s,
                 overlay:
                   "assetId" in o
-                    ? { preset: null, assetId: o.assetId, opacity: 1 }
-                    : { preset: o.preset, assetId: null, opacity: o.preset === "grain" ? 0.35 : 0.55 },
+                    ? // A new image takes the old one's place, size and turn.
+                      s.overlay?.assetId
+                      ? { ...s.overlay, assetId: o.assetId }
+                      : imageOverlay(o.assetId)
+                    : presetOverlay(o.preset, o.preset === "grain" ? 0.35 : 0.55),
               }),
               `overlay-${Date.now()}`,
             );
             setPanel("overlay");
+            if ("assetId" in o) setSelected({ kind: "overlay", id: slide.id });
             setDialog(null);
           }}
         />
@@ -785,10 +932,13 @@ export function SlideshowStudio({
 
 function Summary({
   config,
+  images,
   brandName,
   deck,
 }: {
   config: SlideshowConfig;
+  /** The images the deck is on now: the config's, or a set applied since. */
+  images?: string;
   brandName: string | null;
   deck: SlideDeck;
 }) {
@@ -805,7 +955,7 @@ function Summary({
           {config.mentionBusiness ? (brandName ? `Yes · ${brandName}` : "Yes") : "No"}
         </Row>
         <Row label="Images">
-          <SourceSummary value={config.images} />
+          <SourceSummary value={images} />
         </Row>
         <Row label="Slides">
           {deck.slides.length} · {deck.ratio}
@@ -1073,6 +1223,33 @@ function TextInspector({
           onChange={(w) => onChange({ width: w / 100 }, "width")}
         />
       )}
+    </div>
+  );
+}
+
+/** An image overlay: stretched over the slide, or a box placed on it. */
+function FitToggle({ fill, onChange }: { fill: boolean; onChange: (fill: boolean) => void }) {
+  return (
+    <div className="grid grid-cols-2 gap-1.5">
+      {(
+        [
+          [false, "Free", "Move, resize and rotate"],
+          [true, "Fill slide", "Cover the whole slide"],
+        ] as const
+      ).map(([value, label, hint]) => (
+        <button
+          key={label}
+          type="button"
+          onClick={() => onChange(value)}
+          className={[
+            "rounded-lg border px-2 py-1.5 text-left text-xs",
+            fill === value ? "border-accent bg-accent-soft font-semibold text-accent" : "border-line hover:border-accent",
+          ].join(" ")}
+        >
+          {label}
+          <span className="block text-[0.6rem] font-normal text-muted">{hint}</span>
+        </button>
+      ))}
     </div>
   );
 }

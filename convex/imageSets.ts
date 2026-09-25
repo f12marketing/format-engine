@@ -173,6 +173,76 @@ export const useMany = internalMutation({
   },
 });
 
+const STOP_WORDS = new Set(
+  "the and for with that this your you are was were have has had from into over just like what when then than they them their there about after before while".split(
+    " ",
+  ),
+);
+
+function words(s: string): Set<string> {
+  return new Set(
+    s
+      .toLowerCase()
+      .split(/[^a-z]+/)
+      .filter((w) => w.length > 2 && !STOP_WORDS.has(w))
+      .map((w) => w.replace(/s$/, "")),
+  );
+}
+
+/**
+ * The editor's "use this set on every slide": one photo from the set per
+ * slide, all different while the set has enough. Each slide gets the unused
+ * photo whose description shares the most words with what the slide says;
+ * ties -- the usual case, as the whole set suits the theme -- fall to a fresh
+ * shuffle, so choosing the same set again gives a different mix.
+ */
+export const forDeck = mutation({
+  args: { set: v.string(), slides: v.array(v.string()) },
+  handler: async (ctx, { set, slides }): Promise<{ assetId: Id<"assets">; url: string | null }[]> => {
+    const client = await requireClient(ctx);
+    const meta = imageSetById(set);
+    if (!meta) throw new Error("That image set doesn't exist.");
+    if (!slides.length || slides.length > 20) throw new Error("A slideshow has 1 to 20 slides.");
+    const rows = (
+      await ctx.db
+        .query("stockImages")
+        .withIndex("by_set", (q) => q.eq("set", set))
+        .take(MAX_PER_SET * 2)
+    ).filter((r) => !r.archived);
+    if (!rows.length) throw new Error(`The "${meta.name}" image set has no photos yet.`);
+
+    const shuffled = rows
+      .map((r) => ({ r, k: Math.random() }))
+      .sort((a, b) => a.k - b.k)
+      .map(({ r }) => ({ row: r, words: words(r.description) }));
+    const used = new Set<number>();
+    const picks = slides.map((text) => {
+      const want = words(text.slice(0, 2000));
+      let best = -1;
+      let bestScore = -1;
+      shuffled.forEach((p, i) => {
+        if (used.has(i) && used.size < shuffled.length) return;
+        let score = 0;
+        for (const w of want) if (p.words.has(w)) score++;
+        if (score > bestScore) {
+          best = i;
+          bestScore = score;
+        }
+      });
+      if (used.size >= shuffled.length) used.clear();
+      used.add(best);
+      return shuffled[best].row;
+    });
+
+    // One at a time: a photo used twice must find the asset row its first use made.
+    const out: { assetId: Id<"assets">; url: string | null }[] = [];
+    for (const img of picks) {
+      out.push({ assetId: await adopt(ctx, client._id, img._id), url: await ctx.storage.getUrl(img.storageId) });
+    }
+    return out;
+  },
+});
+
 // ---------------------------------------------------------------- seeding
 
 function key(name: "PEXELS_API_KEY" | "PIXABAY_API_KEY"): string | null {

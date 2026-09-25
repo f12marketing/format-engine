@@ -248,6 +248,17 @@ export const field = {
   }),
 
   /**
+   * The hook popup: a finished clip (trending, or one of My hooks) or a
+   * person to perform a new one. Holds "clip:<id>", "video:<assetId>" or a
+   * roster ref -- see convex/lib/videoRef.ts and convex/lib/roster.ts.
+   */
+  hook: (o?: Partial<Omit<SimpleField, "kind">>): SimpleField => ({
+    kind: "hook",
+    label: "Hook",
+    ...o,
+  }),
+
+  /**
    * Pick an existing audio clip or upload a new one -- the spec's "select
    * audio clip templates or upload a new audio clip", one control rather than
    * a dropdown next to an upload button.
