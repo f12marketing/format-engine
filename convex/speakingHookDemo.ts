@@ -158,6 +158,10 @@ export const writeHook = internalAction({
  * business's own voice -- a rewrite of what's typed, or a fresh line when
  * nothing is -- in the chosen language and delivery. Returned to the browser
  * rather than saved anywhere; the client keeps it or undoes it.
+ *
+ * No profile yet is an answer, not an error: the switch sits right above the
+ * business card that fills one in, so the panel says so there rather than
+ * surfacing a thrown error for the most ordinary state a new client is in.
  */
 export const personalizeLine = action({
   args: {
@@ -165,16 +169,17 @@ export const personalizeLine = action({
     delivery: v.optional(v.string()),
     language: v.optional(v.string()),
   },
-  handler: async (ctx, { saying, delivery, language }): Promise<{ saying: string; business: string }> => {
+  handler: async (
+    ctx,
+    { saying, delivery, language },
+  ): Promise<{ saying: string; business: string } | { needsBusiness: true }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, { authUserId: identity.subject });
     if (!client) throw new Error("Not authorised. This is an invite-only tool.");
 
     const brand = await ctx.runQuery(internal.brands.forClientInternal, { clientId: client._id });
-    if (!brand?.description) {
-      throw new Error("Add your business details first — they're what the line is written from.");
-    }
+    if (!brand?.description) return { needsBusiness: true };
     await enforceRateLimit(ctx, "rewriteText", client._id);
     await ctx.runMutation(internal.ledger.assertUnderCap, { clientId: client._id, aboutToSpendUsd: 0.02 });
 
@@ -300,11 +305,13 @@ export const stitch = internalAction({
     const demoUrl = await ctx.storage.getUrl(demoAsset.storageId);
     if (!demoUrl) throw new Error("The demo video upload could not be read.");
 
-    // A typed line skips the copy step, so it is the caption itself.
+    // A typed line skips the copy step, so it is the caption itself. "None"
+    // as the subtitle style is no caption at all.
     const captionText =
-      config.saying?.trim() ||
-      ((job.steps.find((s) => s.id === "copy")?.output as { text?: string } | undefined)?.text ??
-        "");
+      config.captionStyle === "None"
+        ? ""
+        : config.saying?.trim() ||
+          ((job.steps.find((s) => s.id === "copy")?.output as { text?: string } | undefined)?.text ?? "");
 
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const res = await fetch(`${base}/render/video-hook-demo`, {

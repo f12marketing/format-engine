@@ -281,7 +281,7 @@ export const speakingHookDemo = defineFormat({
       showWhen: newSpeaker,
       section: "Voice & subtitles",
     }),
-    captionStyle: field.captionStyle({ label: "Subtitle style", section: "Voice & subtitles" }),
+    captionStyle: field.captionStyle({ label: "Subtitle style", section: "Voice & subtitles", none: true }),
   },
   /**
    * "Stitch" absorbs the caption burn-in, same reasoning as every other

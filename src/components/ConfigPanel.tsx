@@ -643,6 +643,10 @@ function Control({
  * then -- in the chosen language and delivery -- so the difference it makes
  * is on screen before anything is generated. Undo puts the old line back;
  * "Another take" rewrites again, e.g. after changing the language.
+ *
+ * With no business details saved yet there is nothing to write from, so it
+ * says so -- over the business card it opens right underneath -- instead of
+ * calling the writer to be told the same thing.
  */
 function PersonalizingToggle({
   id,
@@ -660,6 +664,7 @@ function PersonalizingToggle({
   setField: (key: string, v: unknown) => void;
 }) {
   const personalize = useAction(api.speakingHookDemo.personalizeLine);
+  const brand = useQuery(api.brands.mine);
   const [busy, setBusy] = useState(false);
   const [previous, setPrevious] = useState<string | null>(null);
   const [business, setBusiness] = useState<string | null>(null);
@@ -667,6 +672,11 @@ function PersonalizingToggle({
 
   async function rewrite() {
     const current = typeof values[target] === "string" ? (values[target] as string) : "";
+    // Still loading (undefined) goes ahead: the server gives the same answer.
+    if (brand !== undefined && !brand?.description) {
+      setError(NEEDS_BUSINESS);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -675,6 +685,10 @@ function PersonalizingToggle({
         delivery: typeof values.delivery === "string" ? values.delivery : undefined,
         language: typeof values.language === "string" ? values.language : undefined,
       });
+      if ("needsBusiness" in res) {
+        setError(NEEDS_BUSINESS);
+        return;
+      }
       setPrevious(current);
       setBusiness(res.business);
       setField(target, res.saying);
