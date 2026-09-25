@@ -1,5 +1,6 @@
 import { defineFormat } from "./types";
 import { field } from "./fields";
+import { VOICE_LANGUAGES } from "../../convex/lib/voiceLanguages";
 
 /**
  * The fifteen formats whose step runners don't exist yet.
@@ -77,6 +78,16 @@ export const custom = defineFormat({
 
 // ---------------------------------------------------------------- Phase 3
 
+/**
+ * The hook popup holds a finished clip ("clip:" trending, "video:" My hooks)
+ * or a person. The two hook + demo formats branch on which.
+ */
+const pickedHook = { field: "hook", matches: "^(clip|video):" } as const;
+// `matches` on a lookahead rather than `notMatches`: nothing picked yet is
+// not "filming someone", and shouldn't show the reaction settings.
+const filmingHook = { field: "hook", matches: "^(?!(clip|video):)." } as const;
+const newSpeaker = { field: "speaker", notMatches: "^(clip|video):" } as const;
+
 export const videoHookDemo = defineFormat({
   id: "video-hook-demo",
   name: "Video Hook & Demo",
@@ -86,22 +97,60 @@ export const videoHookDemo = defineFormat({
   preview: "video",
   status: "ready",
   phase: 3,
+  /**
+   * In the order the user works: pick a hook in the hook popup, upload the
+   * demo, choose the sound, then brief the caption -- which P1 always
+   * writes. Hook length and caption styling are fixed at the reference ads'
+   * look (a ~4s hook, outlined text mid-frame, on the hook only) rather than
+   * offered as settings. Reaction and setting only appear, under the hook,
+   * when a person is picked to be filmed.
+   */
   config: {
-    mode: field.mode(),
+    hook: field.hook({
+      label: "Hook video",
+      required: true,
+      hookMode: "reaction",
+      help: "A trending clip, one of your hooks, or someone we film reacting.",
+    }),
+    reaction: field.choice({
+      label: "Their reaction",
+      options: ["Shocked", "Mind-blown", "Laughing", "Side-eye", "Excited", "Spilling a secret"],
+      default: "Shocked",
+      showWhen: filmingHook,
+    }),
+    setting: field.choice({
+      label: "Where they're filming",
+      options: ["Car", "Bedroom", "Kitchen", "Couch", "Desk", "Walking outside"],
+      default: "Car",
+      showWhen: filmingHook,
+    }),
+    demoVideo: field.video({ label: "Demo video", videoOnly: true, required: true }),
+    audio: field.audioClip({
+      label: "Background music",
+      optional: true,
+      emptyLabel: "Original sound",
+      help: "Keep the clips' own sound, or lay a track over the whole video.",
+    }),
+    prompt: {
+      ...field.prompt(),
+      placeholder: "What's the demo showing? We write the hook caption from this.",
+    },
     mentionBusiness: field.mentionBusiness(),
-    trendingClip: field.trendingClip(),
-    demoVideo: field.video({ label: "Demo video" }),
-    prompt: field.prompt(),
   },
   /**
    * "Stitch" absorbs the caption burn-in -- same reasoning as Video
    * Animation's "stitch" step: both happen in one ffmpeg encode, so a second
    * declared step would describe two things happening when only one render
    * actually runs.
+   *
+   * The caption is written first: it's the step that fails on a missing
+   * brief, and it should fail before a reaction has been paid for.
    */
   pipeline: [
-    { id: "clip", primitive: "P9", label: "Fetch the hook clip" },
-    { id: "copy", primitive: "P1", label: "Write the captions" },
+    { id: "copy", primitive: "P1", label: "Write the hook caption" },
+    { id: "clip", primitive: "P9", label: "Fetch the hook clip", when: pickedHook },
+    { id: "scene", primitive: "P2", label: "Stage the reaction", when: filmingHook },
+    { id: "film", primitive: "P3", label: "Film the reaction", when: filmingHook },
     { id: "stitch", primitive: "P7", label: "Stitch hook onto demo and caption" },
   ],
 });
@@ -179,28 +228,59 @@ export const speakingHookDemo = defineFormat({
   // FLAG: no avatar picker in the spec's list despite a P5 step -- added,
   // same reasoning as Talking Head UGC. "Hook" already supplies P1 its topic,
   // so no extra prompt field is needed here.
+  //
+  // Speaker is the hook popup: someone to say a new line, or a hook from My
+  // hooks reused as it is -- which already has its words, so everything that
+  // writes and voices a line steps aside for it.
+  //
+  // No separate topic box: the line is typed, or P1 writes it from the
+  // business profile.
   config: {
-    speaker: field.avatar({ label: "Speaker" }),
-    hook: field.shortText({ label: "Hook" }),
+    mentionBusiness: {
+      ...field.mentionBusiness(),
+      help: "Rewrites What they say in your business’s own voice.",
+      personalizes: "saying",
+      showWhen: newSpeaker,
+    },
+    speaker: field.hook({ label: "Hook video", default: "cast:any", hookMode: "speaking" }),
     demoVideo: field.video({ label: "Demo video" }),
-    language: field.language(),
-    saying: field.longText({ label: "What they say", optional: true, generatedBy: "P1" }),
-    captionStyle: field.captionStyle(),
+    language: field.language({
+      languages: VOICE_LANGUAGES,
+      help: "What they say is written and spoken in this language.",
+      showWhen: newSpeaker,
+      section: "Voice & subtitles",
+    }),
+    saying: field.longText({
+      label: "What they say",
+      optional: true,
+      generatedBy: "P1",
+      rows: 2,
+      maxLength: 120,
+      placeholder: "e.g. Wait, why did nobody tell me this app writes my invoices for me?",
+      help: "10 to 12 words, said to camera. Leave blank and we’ll write it from your business.",
+      showWhen: newSpeaker,
+      section: "Voice & subtitles",
+    }),
     delivery: field.choice({
       label: "How they say it",
-      options: ["Auto", "Shocked", "Outrage", "Realizing", "Relieved", "Deadpan"],
+      options: ["Auto", "Shocked", "Outraged", "Realising", "Relieved", "Deadpan", "Excited", "Confused", "Smug"],
       default: "Auto",
+      help: "Shapes the words, the voice and the performance.",
+      showWhen: newSpeaker,
+      section: "Voice & subtitles",
     }),
-    mentionBusiness: field.mentionBusiness(),
+    captionStyle: field.captionStyle({ label: "Subtitle style", section: "Voice & subtitles" }),
   },
   /**
    * "Stitch" absorbs the caption burn-in, same reasoning as every other
-   * format that combines them: one ffmpeg encode, one declared step.
+   * format that combines them: one ffmpeg encode, one declared step. A
+   * reused hook still passes through "copy", which reads its saved line
+   * rather than writing one.
    */
   pipeline: [
     { id: "copy", primitive: "P1", label: "Write the hook", when: { field: "saying", is: "empty" } },
-    { id: "speech", primitive: "P4", label: "Generate the voice" },
-    { id: "avatar", primitive: "P5", label: "Render the speaker" },
+    { id: "speech", primitive: "P4", label: "Generate the voice", when: newSpeaker },
+    { id: "avatar", primitive: "P5", label: "Render the speaker", when: newSpeaker },
     { id: "stitch", primitive: "P7", label: "Stitch onto the demo and caption" },
   ],
 });

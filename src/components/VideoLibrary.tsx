@@ -194,9 +194,15 @@ function Tile({
  * read in the browser first -- the publish pre-flight and the library tiles
  * both use them, and the browser already has the file.
  */
-function useVideoUpload(onDone: (assetId: string) => void) {
+export function useVideoUpload(
+  onDone: (assetId: string) => void,
+  /** Record it as a hook, so it lands in the hook popup's My hooks. */
+  { asHook = false }: { asHook?: boolean } = {},
+) {
   const generateUploadUrl = useMutation(api.uploads.generateUploadUrl);
-  const attach = useMutation(api.uploads.attach);
+  const attachVideo = useMutation(api.uploads.attach);
+  const attachHook = useMutation(api.hooks.attachUpload);
+  const attach = asHook ? attachHook : attachVideo;
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

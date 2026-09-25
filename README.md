@@ -69,9 +69,12 @@ A few things are worth knowing about before you touch them:
   generation, so a run costs about a cent. It then pauses in an editor on the
   job page: dimensions (1:1, 4:5, 3:4, 9:16), text boxes you drag, resize,
   double-click to type in and style (font, weight, size, colour, stroke,
-  background none / white / Snapchat / colour, with *Apply to all text
-  boxes*), swap image, add images, add overlay (built-in tints and grain, or
-  your own image), add / reorder / delete slides; a Generate tab draws a new
+  background none / white / Snapchat / colour, with *Apply to all slides*,
+  which gives every slide this slide's text style box by box), swap image
+  (one slide, or *Use on every slide* to re-theme the whole deck from another
+  set, restyling the text to match), add images, add overlay (built-in tints
+  and grain, or your own image -- moved, resized and rotated on the slide,
+  with opacity, or stretched to fill it), add / reorder / delete slides; a Generate tab draws a new
   photo when nothing fits ($0.08). Save exports every slide as a 1080-wide
   JPEG through the render service's `/render/image-pages` route; preview and
   export share `convex/lib/imageSlideshowDesign.ts`. The image sets are

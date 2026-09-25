@@ -26,10 +26,15 @@ const GALLERY_PREFIX = "gallery:";
 const IMAGE_PREFIX = "image:";
 const CAST_PREFIX = "cast:";
 
+/** Who is on screen, as far as it is known -- what a speech step picks a voice by. */
+export type SpeakerGender = "woman" | "man" | "nonbinary";
+
 interface RosterPersona {
   imageUrl: string;
   /** Folded into generation prompts the same way `avatar.lookNotes` always was. */
   description: string;
+  /** Undefined when nothing says: an uploaded photo, or notes that never mention it. */
+  gender?: SpeakerGender;
 }
 
 /** Who is asking: an uploaded photo is only ever resolved for its owner, and a cast is drawn per job. */
@@ -53,14 +58,32 @@ async function storageUrl(ctx: ActionCtx, storageId: Id<"_storage">): Promise<st
 }
 
 /**
- * A small stable hash, so "cast someone" picks the same face every time it
- * is resolved within one job (several steps resolve it) and, almost always,
- * a different face on the next job.
+ * A small stable hash, so "cast someone" draws, almost always, a different
+ * face on the next job. Within one job the draw is pinned (`jobs.pinCastFace`)
+ * rather than re-drawn: the hash alone moves as soon as the pool does.
  */
 function pick<T>(pool: T[], seed: string): T {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
   return pool[(h >>> 0) % pool.length];
+}
+
+const NONBINARY_WORDS = /non-?binary/i;
+const FEMALE_WORDS = /(woman|women|female|girl|lady|she|her)/i;
+const MALE_WORDS = /(man|men|male|guy|boy|gentleman|he|him|his)/i;
+
+/**
+ * Avatars and influencers carry no gender field, but their notes usually say:
+ * an influencer's are composed from its Gender picker ("a 25-year-old male
+ * person."), and an avatar's are typed as a description. Only an unambiguous
+ * answer counts -- notes naming both, or neither, give none.
+ */
+function genderFromNotes(notes: string): SpeakerGender | undefined {
+  if (NONBINARY_WORDS.test(notes)) return "nonbinary";
+  const female = FEMALE_WORDS.test(notes);
+  const male = MALE_WORDS.test(notes);
+  if (female === male) return undefined;
+  return female ? "woman" : "man";
 }
 
 /**
@@ -81,10 +104,20 @@ export async function resolveRosterPersona(
     if (!pool.length) {
       throw new Error("There are no pre-made faces to cast from yet. Pick someone from another tab.");
     }
-    const face = pick(pool, `${who.jobId}:${ref}`);
+    const drawn = pick(pool, `${who.jobId}:${ref}`);
+    const faceId = await ctx.runMutation(internal.jobs.pinCastFace, {
+      jobId: who.jobId,
+      ref,
+      faceId: drawn.id,
+    });
+    // An earlier step's pin can name a face since archived or relabelled
+    // out of this pool; archived faces still resolve, as a picked one does.
+    const face = faceId === drawn.id ? drawn : await ctx.runQuery(internal.galleryFaces.getInternal, { faceId });
+    if (!face) throw new Error("That pre-made face no longer exists.");
     return {
       imageUrl: await storageUrl(ctx, face.storageId),
       description: `the ${face.gender ?? "person"} in the reference photo`,
+      gender: face.gender ?? undefined,
     };
   }
 
@@ -96,6 +129,7 @@ export async function resolveRosterPersona(
     return {
       imageUrl: await storageUrl(ctx, face.storageId),
       description: `the ${face.gender ?? "person"} in the reference photo`,
+      gender: face.gender,
     };
   }
 
@@ -121,6 +155,7 @@ export async function resolveRosterPersona(
     return {
       imageUrl: await resolveAssetUrl(ctx, assetId),
       description: influencer.personaNotes || influencer.name,
+      gender: genderFromNotes(influencer.personaNotes),
     };
   }
 
@@ -132,5 +167,6 @@ export async function resolveRosterPersona(
   return {
     imageUrl: await resolveAssetUrl(ctx, assetId),
     description: avatar.lookNotes || avatar.name,
+    gender: genderFromNotes(avatar.lookNotes),
   };
 }

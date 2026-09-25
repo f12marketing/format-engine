@@ -27,7 +27,7 @@ export const run = workflow
         // On a Walk's copy step is unconditional (no `when`), so this
         // fallback field is never actually read -- required by the shared
         // primitive's signature regardless. Same as Cutting Fruit.
-        { ...args, textConfigField: "prompt" },
+        { ...args, textConfigField: "prompt", speakerConfigField: "whosWalking" },
         { retry: true },
       );
       await step.runAction(internal.onAWalk.composeWalkingScene, args, { retry: true });

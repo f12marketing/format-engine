@@ -46,6 +46,7 @@ export type FieldKind =
   | "captionStyle"
   | "avatar"
   | "trendingClip"
+  | "hook"
   | "audioClip"
   | "imageSource"
   | "mode";
@@ -96,6 +97,12 @@ export interface FieldBase {
    * it rather than leaving dead controls on screen.
    */
   showWhen?: StepCondition;
+  /**
+   * Starts a new visual section in the main panel: a divider and this
+   * heading, drawn above the first *showing* field that names it -- so a
+   * section whose opening field is hidden still gets its heading.
+   */
+  section?: string;
 }
 
 /**
@@ -184,6 +191,21 @@ export interface SimpleField extends FieldBase {
    * Text is the one format where both are the same question.
    */
   videos?: boolean;
+  /**
+   * For "hook": what a person picked in the hook popup does. "reaction" films
+   * them reacting, silently (Video Hook & Demo), and adds the Trending tab;
+   * "speaking" has them say a new line (Speaking Hook & Demo). Either way My
+   * hooks offers the ones already made.
+   */
+  hookMode?: "reaction" | "speaking";
+  /** For "language": the choices, where the format's voice speaks more than English. */
+  languages?: readonly { code: string; label: string }[];
+  /**
+   * For the "Mention your business" toggle: the key of a text field that is
+   * rewritten in the business's own voice the moment the toggle goes on, so
+   * the effect is visible in the panel rather than only in the finished run.
+   */
+  personalizes?: string;
 }
 
 export type Field = ChoiceField | SecondsField | CountField | TextField | SimpleField;

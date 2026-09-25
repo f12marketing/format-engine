@@ -267,6 +267,25 @@ function wallOfTextStepCost(stepId: string, values: Record<string, unknown>): nu
 }
 
 /**
+ * Video Hook & Demo: a short caption call, and -- only when someone is filmed
+ * reacting -- the same qwen frame and Kling clip as Wall of Text, for the
+ * fixed 4s hook. Mirrors stageReaction and REACTION_SECONDS in
+ * convex/videoHookDemo.ts. A picked clip is free.
+ */
+function videoHookDemoStepCost(stepId: string, values: Record<string, unknown>): number {
+  switch (stepId) {
+    case "copy":
+      return llmUsd(1400 + words(values.prompt) * TOKENS_PER_WORD, 80);
+    case "scene":
+      return RATES.compositePerUnit;
+    case "film":
+      return 4 * RATES.klingPerSec[DEFAULT_KLING_TIER];
+    default:
+      return 0;
+  }
+}
+
+/**
  * Image Slideshow: one copy call, which also matches the set's photos to the
  * slides -- the photos themselves are stock or the client's own, so free.
  * The editor's "Generate" tab is billed as it is used. Mirrors
@@ -289,6 +308,7 @@ const PER_STEP_COST: Record<
   (stepId: string, values: Record<string, unknown>) => number
 > = {
   "wall-of-text": wallOfTextStepCost,
+  "video-hook-demo": videoHookDemoStepCost,
   "image-slideshow": imageSlideshowStepCost,
   drama: dramaStepCost,
   slideshow: slideshowStepCost,

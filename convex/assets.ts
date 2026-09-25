@@ -53,6 +53,8 @@ export const record = internalMutation({
     width: v.optional(v.number()),
     height: v.optional(v.number()),
     durationSec: v.optional(v.number()),
+    hookKind: v.optional(v.union(v.literal("speaking"), v.literal("reaction"))),
+    hookLine: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<Id<"assets">> => {
     const kind = kindForMime(args.mimeType);

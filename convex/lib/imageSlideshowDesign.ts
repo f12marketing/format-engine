@@ -99,12 +99,35 @@ export const OVERLAY_PRESETS = [
 ] as const;
 export type OverlayPreset = (typeof OVERLAY_PRESETS)[number]["id"];
 
-/** One full-frame layer between the photo and everything on it: a preset, or an image of the client's. */
+/**
+ * One layer between the photo and everything on it: a preset tint over the
+ * whole frame, or an image of the client's -- stretched over the frame
+ * (`fill`) or placed as a box that can be moved, resized and rotated.
+ */
 export interface SlideOverlay {
   preset: OverlayPreset | null;
   assetId: string | null;
   /** 0-1. */
   opacity: number;
+  /** Image overlays: cover the whole frame, ignoring the box below. Presets always fill. */
+  fill: boolean;
+  /** Centre of the box, as fractions of the frame. */
+  x: number;
+  y: number;
+  /** Width as a fraction of the frame width; height follows the image. Can exceed the frame. */
+  w: number;
+  /** Degrees clockwise, -180 to 180. */
+  rotation: number;
+}
+
+/** A preset tint, as a new overlay. */
+export function presetOverlay(preset: OverlayPreset, opacity: number): SlideOverlay {
+  return { preset, assetId: null, opacity, fill: true, x: 0.5, y: 0.5, w: 1, rotation: 0 };
+}
+
+/** An image of the client's, as a new overlay: a box in the middle, ready to drag. */
+export function imageOverlay(assetId: string): SlideOverlay {
+  return { preset: null, assetId, opacity: 1, fill: false, x: 0.5, y: 0.5, w: 0.6, rotation: 0 };
 }
 
 export interface Slide {
@@ -250,7 +273,18 @@ function sanitizeOverlay(raw: unknown): SlideOverlay | null {
   const preset = OVERLAY_PRESETS.some((p) => p.id === d.preset) ? (d.preset as OverlayPreset) : null;
   const image = assetId(d.assetId);
   if (!preset && !image) return null;
-  return { preset: image ? null : preset, assetId: image, opacity: clamp(d.opacity, 0, 1, 0.6) };
+  const rotation = clamp(d.rotation, -180, 180, 0);
+  return {
+    preset: image ? null : preset,
+    assetId: image,
+    opacity: clamp(d.opacity, 0, 1, 0.6),
+    // An image overlay saved before overlays could be placed covered the frame; it still does.
+    fill: image ? (typeof d.fill === "boolean" ? d.fill : true) : true,
+    x: clamp(d.x, 0, 1, 0.5),
+    y: clamp(d.y, 0, 1, 0.5),
+    w: clamp(d.w, 0.05, 2, 1),
+    rotation: Math.round(rotation * 10) / 10,
+  };
 }
 
 function sanitizeSlide(raw: unknown): Slide {
@@ -401,12 +435,24 @@ export function presetStyle(preset: OverlayPreset): Style {
   }
 }
 
+/** A preset overlay, or an image overlay in `fill` mode: the whole frame. */
 export function overlayLayerStyle(o: SlideOverlay): Style {
   return {
     position: "absolute",
     inset: 0,
     opacity: o.opacity,
     ...(o.preset && !o.assetId ? presetStyle(o.preset) : {}),
+  };
+}
+
+/** An image overlay placed as a box: centred on (x, y), `w` wide, turned by `rotation`. */
+export function overlayBoxStyle(o: SlideOverlay, frame: Frame): Style {
+  return {
+    position: "absolute",
+    left: `${frame.width * o.x}px`,
+    top: `${frame.height * o.y}px`,
+    width: `${frame.width * o.w}px`,
+    transform: `translate(-50%, -50%) rotate(${o.rotation}deg)`,
   };
 }
 
@@ -447,13 +493,15 @@ export function slidePageHtml(
   let overlay = "";
   if (slide.overlay) {
     const img = url(slide.overlay.assetId);
-    if (img) {
+    if (img && slide.overlay.fill) {
       overlay = `<img src="${escapeHtml(img)}" style="${attr({
         ...overlayLayerStyle(slide.overlay),
         width: "100%",
         height: "100%",
         objectFit: "cover",
       })}" alt="">`;
+    } else if (img) {
+      overlay = `<div style="${attr(overlayBoxStyle(slide.overlay, frame))}"><img src="${escapeHtml(img)}" style="display:block;width:100%;height:auto;opacity:${slide.overlay.opacity}" alt=""></div>`;
     } else if (slide.overlay.preset) {
       overlay = `<div style="${attr(overlayLayerStyle(slide.overlay))}"></div>`;
     }
