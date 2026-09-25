@@ -12,6 +12,7 @@ import { RemixActions } from "@/components/RemixActions";
 import { DeckEditor } from "@/components/DeckEditor";
 import { PostComposer, type ComposerMedia } from "@/components/PostComposer";
 import { WallStudio } from "@/components/wall/WallStudio";
+import { SlideshowStudio } from "@/components/slideshow/SlideshowStudio";
 import { carouselSlides } from "../../../../convex/lib/carouselPrompt";
 import { DEFAULT_CAROUSEL_TEMPLATE } from "../../../../convex/lib/carouselTemplates";
 
@@ -59,24 +60,38 @@ export function JobView({ jobId }: { jobId: string }) {
 
   // Wall of Text parked at its studio gate gets the whole page: the studio is
   // the review, and it needs more room than the job column has.
+  // Image Slideshow's editor gets the same treatment, at its "edit" gate.
+  const studioStepId =
+    job.formatId === "wall-of-text" ? "style" : job.formatId === "image-slideshow" ? "edit" : null;
   const studioStep =
-    job.formatId === "wall-of-text" && job.status === "awaiting_approval"
-      ? job.steps.find((s) => s.id === "style" && s.state === "awaiting_approval")
+    studioStepId && job.status === "awaiting_approval"
+      ? job.steps.find((s) => s.id === studioStepId && s.state === "awaiting_approval")
       : undefined;
   if (studioStep) {
+    const onSaved = (schedule: boolean) => schedule && setScheduleWhenDone(true);
     return (
       <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6">
         <Link href="/" className="font-mono text-xs text-muted hover:text-accent">
           ← Dashboard
         </Link>
         <div className="mt-3">
-          <WallStudio
-            key={job._id}
-            jobId={job._id}
-            config={job.config as Record<string, never>}
-            output={studioStep.output as never}
-            onSaved={(schedule) => schedule && setScheduleWhenDone(true)}
-          />
+          {job.formatId === "image-slideshow" ? (
+            <SlideshowStudio
+              key={job._id}
+              jobId={job._id}
+              config={job.config as Record<string, never>}
+              output={studioStep.output as never}
+              onSaved={onSaved}
+            />
+          ) : (
+            <WallStudio
+              key={job._id}
+              jobId={job._id}
+              config={job.config as Record<string, never>}
+              output={studioStep.output as never}
+              onSaved={onSaved}
+            />
+          )}
         </div>
       </main>
     );
@@ -150,6 +165,18 @@ export function JobView({ jobId }: { jobId: string }) {
 
       {job.status === "done" && job.formatId === "wall-of-text" && (
         <EditWallAgain job={job} />
+      )}
+
+      {job.status === "done" && job.formatId === "image-slideshow" && (
+        <>
+          {job.outputsPurgedAt && (
+            <p className="mt-4 rounded-lg border border-line bg-surface-sub px-3 py-2 text-sm text-muted">
+              The exported images were removed after 90 days to save storage. Your slides are kept —
+              use Edit slides again to export them again, free.
+            </p>
+          )}
+          <EditSlidesAgain job={job} />
+        </>
       )}
 
       {/* Only once there's something to post: the composer's whole job is to
@@ -372,6 +399,50 @@ function EditWallAgain({
       className="mt-4 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent-soft disabled:opacity-60"
     >
       {busy ? "Opening the studio…" : "Edit text & style again"}
+    </button>
+  );
+}
+
+/**
+ * Reopens a finished Image Slideshow in the editor with the deck it was
+ * exported from -- a new job, so the images already made stay as they are.
+ * The words and photos travel inside the deck, so nothing is written again.
+ */
+function EditSlidesAgain({
+  job,
+}: {
+  job: { _id: Id<"jobs">; config: unknown; steps: { id: string; primitive: string; label: string; output?: unknown }[] };
+}) {
+  const router = useRouter();
+  const generate = useMutation(api.run.generate);
+  const [busy, setBusy] = useState(false);
+  const deck = (job.steps.find((s) => s.id === "render")?.output as { deck?: unknown } | undefined)?.deck;
+  if (!deck) return null;
+
+  async function onClick() {
+    setBusy(true);
+    try {
+      const jobId = await generate({
+        formatId: "image-slideshow",
+        config: { ...(job.config as object), deck },
+        steps: job.steps
+          .filter((s) => s.id !== "copy")
+          .map((s) => ({ id: s.id, primitive: s.primitive, label: s.label })),
+        remixedFromJobId: job._id,
+      });
+      router.push(`/jobs/${jobId}`);
+    } catch {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      className="mt-4 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent-soft disabled:opacity-60"
+    >
+      {busy ? "Opening the editor…" : "Edit slides again"}
     </button>
   );
 }

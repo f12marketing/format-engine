@@ -113,7 +113,10 @@ export default defineSchema({
     posterStorageId: v.optional(v.id("_storage")),
   })
     .index("by_client", ["clientId"])
-    .index("by_job", ["producedByJobId"]),
+    .index("by_job", ["producedByJobId"])
+    // Several rows can share bytes (a stock photo adopted by many clients);
+    // retention.ts needs every row pointing at a file before deleting it.
+    .index("by_storage", ["storageId"]),
 
   /**
    * One row per run, for every format. `config` is a snapshot, `steps` is the
@@ -162,10 +165,17 @@ export default defineSchema({
     remixedFromJobId: v.optional(v.id("jobs")),
     workflowId: v.optional(v.string()),
     error: v.optional(v.string()),
+    /**
+     * Set when retention.ts deleted this job's exported files after their
+     * retention period. The job and its deck stay, so the job page can offer
+     * to export them again.
+     */
+    outputsPurgedAt: v.optional(v.number()),
   })
     .index("by_client", ["clientId"])
     .index("by_client_and_format", ["clientId", "formatId"])
-    .index("by_remixed_from", ["remixedFromJobId"]),
+    .index("by_remixed_from", ["remixedFromJobId"])
+    .index("by_format_and_purge", ["formatId", "outputsPurgedAt"]),
 
   /**
    * Written per step, in the same transaction that records the step.
@@ -455,6 +465,57 @@ export default defineSchema({
     storageId: v.id("_storage"),
     mimeType: v.string(),
     addedAt: v.number(),
+  }).index("by_key", ["key"]),
+
+  /**
+   * Image Slideshow's stock photo sets (lib/imageSets.ts), seeded from Pexels
+   * and Pixabay by `imageSets.seed`. Shared, like `galleryFaces`, and used the
+   * same way: a picked photo is copied into the client's own `assets`
+   * pointing at the same bytes, so every deck, owner check and export treats
+   * it like any other image of theirs. The bytes are stored rather than
+   * hotlinked because Pixabay's terms forbid hotlinking.
+   */
+  stockImages: defineTable({
+    set: v.string(),
+    source: v.union(v.literal("pexels"), v.literal("pixabay")),
+    sourceId: v.string(),
+    storageId: v.id("_storage"),
+    /**
+     * A ~360px copy for the popup's grids, which would otherwise download
+     * every full-size photo just to draw a tile. Optional: rows seeded before
+     * it existed get one from `imageSets.backfillThumbs`.
+     */
+    thumbStorageId: v.optional(v.id("_storage")),
+    mimeType: v.string(),
+    bytes: v.number(),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    /** Pexels' alt text or Pixabay's tags -- what the writer matches slides to. */
+    description: v.string(),
+    photographer: v.optional(v.string()),
+    /** The photo's page on its source, for attribution. */
+    pageUrl: v.optional(v.string()),
+    archived: v.optional(v.boolean()),
+    addedAt: v.number(),
+    /**
+     * A searched photo that retention.ts found in use: never checked, and so
+     * never deleted, again. Unset on image-set photos, which are never deleted.
+     */
+    keptAt: v.optional(v.number()),
+  })
+    .index("by_set", ["set"])
+    .index("by_source", ["source", "sourceId"])
+    .index("by_set_and_kept", ["set", "keptAt"]),
+
+  /**
+   * The Images popup's photo search, cached for 24 hours per query and page
+   * -- Pixabay's API terms require it, and it keeps a popular search from
+   * spending the hourly quota twice. A stale row is simply overwritten.
+   */
+  stockSearches: defineTable({
+    key: v.string(),
+    results: v.any(),
+    fetchedAt: v.number(),
   }).index("by_key", ["key"]),
 
   clips: defineTable({

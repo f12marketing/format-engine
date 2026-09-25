@@ -32,4 +32,16 @@ crons.interval(
   internal.analytics.syncAllClients,
 );
 
+/**
+ * Image Slideshow's photo search cache: Pixabay's terms ask for searches to be
+ * cached for 24 hours, and nothing needs one longer than that.
+ */
+crons.interval("prune photo search cache", { hours: 24 }, internal.imageSets.pruneSearchCache);
+
+/**
+ * Deletes Image Slideshow exports and never-used searched photos older than
+ * 90 days -- see retention.ts for what is protected and why.
+ */
+crons.interval("expire old slideshow files", { hours: 24 }, internal.retention.run, {});
+
 export default crons;

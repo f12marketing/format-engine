@@ -444,7 +444,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 type Update = (patch: Partial<WallDesign>, key: string) => void;
 
-const WEIGHT_NAMES: Record<number, string> = {
+export const WEIGHT_NAMES: Record<number, string> = {
   300: "Light",
   400: "Regular",
   500: "Medium",
@@ -777,7 +777,7 @@ function OverlayInspector({
 
 // ---------------------------------------------------------------- controls
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-3 px-4 py-3.5">
       <h3 className="font-mono text-[0.62rem] uppercase tracking-[0.12em] text-muted">{title}</h3>
@@ -786,7 +786,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Slider({
+export function Slider({
   label,
   value,
   min,
@@ -825,7 +825,7 @@ function Slider({
   );
 }
 
-function ColorField({
+export function ColorField({
   value,
   palette,
   onChange,
@@ -881,7 +881,7 @@ function ColorField({
   );
 }
 
-function Segmented<T extends string>({
+export function Segmented<T extends string>({
   value,
   options,
   onChange,
@@ -915,7 +915,7 @@ const ALL_FONTS_HREF = `https://fonts.googleapis.com/css2?${WALL_FONTS.map(
   (f) => `family=${f.name.replace(/ /g, "+")}`,
 ).join("&")}&display=swap`;
 
-function FontPicker({ value, onChange }: { value: string; onChange: (font: string) => void }) {
+export function FontPicker({ value, onChange }: { value: string; onChange: (font: string) => void }) {
   const [open, setOpen] = useState(false);
   useGoogleFont(open ? ALL_FONTS_HREF : null);
   const box = useRef<HTMLDivElement>(null);
@@ -993,7 +993,7 @@ function LookSwatch({ d }: { d: WallDesign }) {
   );
 }
 
-function ToolButton({
+export function ToolButton({
   label,
   onClick,
   disabled,
@@ -1024,7 +1024,7 @@ function ToolButton({
   );
 }
 
-function SmallButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+export function SmallButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
@@ -1036,7 +1036,7 @@ function SmallButton({ onClick, children }: { onClick: () => void; children: Rea
   );
 }
 
-function cleanError(e: unknown): string {
+export function cleanError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
   // Convex wraps a thrown Error as "[CONVEX ...] ... Uncaught Error: <msg>\n  at ...".
   const m = /Uncaught Error: ([^\n]+)/.exec(msg);
@@ -1057,7 +1057,7 @@ const svg = {
   "aria-hidden": true,
 };
 
-function SaveIcon() {
+export function SaveIcon() {
   return (
     <svg {...svg}>
       <path d="M5 4h11l3 3v13H5z" />
@@ -1065,7 +1065,7 @@ function SaveIcon() {
     </svg>
   );
 }
-function CalendarIcon() {
+export function CalendarIcon() {
   return (
     <svg {...svg}>
       <rect x="3" y="5" width="18" height="16" rx="2.5" />
@@ -1073,7 +1073,7 @@ function CalendarIcon() {
     </svg>
   );
 }
-function UndoIcon() {
+export function UndoIcon() {
   return (
     <svg {...svg}>
       <path d="M9 14 4 9l5-5" />
@@ -1081,7 +1081,7 @@ function UndoIcon() {
     </svg>
   );
 }
-function RedoIcon() {
+export function RedoIcon() {
   return (
     <svg {...svg}>
       <path d="m15 14 5-5-5-5" />
@@ -1089,14 +1089,14 @@ function RedoIcon() {
     </svg>
   );
 }
-function ShuffleIcon({ spinning, small }: { spinning?: boolean; small?: boolean }) {
+export function ShuffleIcon({ spinning, small }: { spinning?: boolean; small?: boolean }) {
   return (
     <svg {...svg} width={small ? 13 : 16} height={small ? 13 : 16} className={spinning ? "animate-spin" : ""}>
       <path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
     </svg>
   );
 }
-function ImageIcon() {
+export function ImageIcon() {
   return (
     <svg {...svg}>
       <rect x="3" y="4" width="18" height="16" rx="2.5" />
@@ -1114,7 +1114,7 @@ function MusicIcon() {
     </svg>
   );
 }
-function AlignIcon({ side }: { side: "left" | "center" | "right" }) {
+export function AlignIcon({ side }: { side: "left" | "center" | "right" }) {
   const lines =
     side === "left"
       ? ["M4 6h16", "M4 10h10", "M4 14h16", "M4 18h10"]

@@ -6,6 +6,8 @@ import {
   SCENE_SECONDS,
   SPEECH_CHARS_PER_SEC,
 } from "../../convex/lib/scriptTiming";
+import { templateById } from "../../convex/lib/imageSlideshowTemplates";
+import { parseImageSource, slideCountFor, styleFor } from "../../convex/lib/imageSets";
 
 /**
  * The pre-flight cost estimate, driven by a format's pipeline rather than
@@ -264,11 +266,30 @@ function wallOfTextStepCost(stepId: string, values: Record<string, unknown>): nu
   }
 }
 
+/**
+ * Image Slideshow: one copy call, which also matches the set's photos to the
+ * slides -- the photos themselves are stock or the client's own, so free.
+ * The editor's "Generate" tab is billed as it is used. Mirrors
+ * convex/imageSlideshow.ts.
+ */
+function imageSlideshowStepCost(stepId: string, values: Record<string, unknown>): number {
+  const source = parseImageSource(values.images);
+  const slides = slideCountFor(source, templateById(styleFor(source)).slideCount);
+  const photoList = source.kind === "set" ? 20 * 25 : 0;
+  switch (stepId) {
+    case "copy":
+      return llmUsd(1800 + photoList + words(values.prompt) * TOKENS_PER_WORD, 250 + slides * 140);
+    default:
+      return 0;
+  }
+}
+
 const PER_STEP_COST: Record<
   string,
   (stepId: string, values: Record<string, unknown>) => number
 > = {
   "wall-of-text": wallOfTextStepCost,
+  "image-slideshow": imageSlideshowStepCost,
   drama: dramaStepCost,
   slideshow: slideshowStepCost,
   "video-animation": videoAnimationStepCost,

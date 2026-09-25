@@ -1,4 +1,5 @@
-import { RateLimiter, MINUTE } from "@convex-dev/rate-limiter";
+import { RateLimiter, DAY, HOUR, MINUTE } from "@convex-dev/rate-limiter";
+import { GENERATED_IMAGES_PER_DAY } from "./imageSlideshowDesign";
 import { components } from "../_generated/api";
 import type { ActionCtx, MutationCtx } from "../_generated/server";
 
@@ -37,6 +38,21 @@ const rateLimiter = new RateLimiter(components.rateLimiter, {
   // and flicking through moods. Each call is one request to Freesound, whose
   // own free tier allows 60 a minute for the whole deployment.
   searchMusic: { kind: "token bucket", rate: 40, period: MINUTE },
+  // imageSlideshow.generateImage: the slideshow editor's "generate a new
+  // image" for Swap Image and Add Slide. Eight cents a click.
+  slideImage: { kind: "token bucket", rate: 12, period: MINUTE },
+  // ...and a daily ceiling on the same button, so one client can't turn a
+  // free format into a steady $0.08-a-click image generator.
+  slideImageDaily: { kind: "fixed window", rate: GENERATED_IMAGES_PER_DAY, period: DAY },
+  // imageSets.search / importPhotos: the Images popup's photo search. Free,
+  // but each uncached search spends the deployment's shared hourly quota.
+  stockSearch: { kind: "token bucket", rate: 40, period: MINUTE },
+  // The photo APIs' own quotas, for the whole deployment (key "all"), kept
+  // just under what their terms allow: Pexels 200 requests an hour and 20,000
+  // a month, Pixabay 100 a minute. See takeApiBudget.
+  pexelsApiHourly: { kind: "token bucket", rate: 180, period: HOUR },
+  pexelsApiMonthly: { kind: "fixed window", rate: 19_000, period: 30 * DAY },
+  pixabayApi: { kind: "token bucket", rate: 90, period: MINUTE },
 });
 
 type LimitName =
@@ -46,7 +62,40 @@ type LimitName =
   | "previewVoice"
   | "rewriteText"
   | "analyzeBusiness"
-  | "searchMusic";
+  | "searchMusic"
+  | "slideImage"
+  | "slideImageDaily"
+  | "stockSearch"
+  | "pexelsApiHourly"
+  | "pexelsApiMonthly"
+  | "pixabayApi";
+
+/**
+ * Spends one request of a photo API's deployment-wide quota, or says there is
+ * none left. Never throws: a search with one source out of budget still
+ * searches the other.
+ */
+export async function takeApiBudget(
+  ctx: MutationCtx | ActionCtx,
+  source: "pexels" | "pixabay",
+): Promise<boolean> {
+  if (source === "pixabay") return (await rateLimiter.limit(ctx, "pixabayApi", { key: "all" })).ok;
+  const hourly = await rateLimiter.limit(ctx, "pexelsApiHourly", { key: "all" });
+  if (!hourly.ok) return false;
+  return (await rateLimiter.limit(ctx, "pexelsApiMonthly", { key: "all" })).ok;
+}
+
+/** The daily Generate cap, with a message in hours rather than seconds. */
+export async function enforceDailyImageCap(ctx: MutationCtx | ActionCtx, key: string): Promise<void> {
+  const { ok, retryAfter } = await rateLimiter.limit(ctx, "slideImageDaily", { key });
+  if (!ok) {
+    const hours = Math.max(1, Math.ceil((retryAfter ?? 0) / HOUR));
+    throw new Error(
+      `You've generated ${GENERATED_IMAGES_PER_DAY} images today -- the limit resets in about ${hours} hour${hours === 1 ? "" : "s"}. ` +
+        "Pick a photo from the image sets or upload one in the meantime.",
+    );
+  }
+}
 
 /** Throws the same plain, human-readable Error style as ledger.assertUnderCap. */
 export async function enforceRateLimit(

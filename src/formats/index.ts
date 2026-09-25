@@ -1,6 +1,7 @@
 import type { FormatDefinition, FormatGroup } from "./types";
 import carousel from "./carousel";
 import drama from "./drama";
+import imageSlideshow from "./imageSlideshow";
 import slideshow from "./slideshow";
 import videoAnimation from "./videoAnimation";
 import wallOfText from "./wallOfText";
@@ -13,6 +14,7 @@ import * as planned from "./planned";
  */
 export const FORMATS: FormatDefinition[] = [
   carousel,
+  imageSlideshow,
   slideshow,
   wallOfText,
   planned.custom,
