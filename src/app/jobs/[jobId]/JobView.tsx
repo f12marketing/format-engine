@@ -201,7 +201,9 @@ export function JobView({ jobId }: { jobId: string }) {
         <EditCaptionsAgain job={job} />
       )}
 
-      {job.status === "done" && job.formatId === "green-screen-meme" && <EditMemeAgain job={job} />}
+      {(job.status === "done" || job.status === "failed") && job.formatId === "green-screen-meme" && (
+        <EditMemeAgain job={job} />
+      )}
 
       {job.status === "done" && job.formatId === "image-slideshow" && (
         <>
@@ -509,46 +511,65 @@ function EditCaptionsAgain({
  * caption as styled -- as a new job, so the video already made stays as it
  * is. Nothing is written again. Jobs from before the studio keyed a trending
  * clip rather than a meme, and have nothing to reopen.
+ *
+ * A job whose render failed (say, the render service was down) still has the
+ * design it was saved with, on its "style" step: it gets "Render again" too,
+ * which skips the studio and renders exactly that.
  */
 function EditMemeAgain({
   job,
 }: {
-  job: { _id: Id<"jobs">; config: unknown; steps: { id: string; output?: unknown }[] };
+  job: { _id: Id<"jobs">; status: string; config: unknown; steps: { id: string; output?: unknown }[] };
 }) {
   const router = useRouter();
   const generate = useMutation(api.run.generate);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"edit" | "render" | null>(null);
   const format = getFormat("green-screen-meme");
   const config = job.config as Record<string, unknown>;
-  const design = (job.steps.find((s) => s.id === "render")?.output as { design?: unknown } | undefined)?.design;
+  const designOf = (id: string) => (job.steps.find((s) => s.id === id)?.output as { design?: unknown } | undefined)?.design;
+  const design = designOf("render") ?? designOf("style");
   if (!format || !design || !config.meme) return null;
+  const failed = job.status === "failed";
 
-  async function onClick() {
-    setBusy(true);
+  async function reopen(mode: "edit" | "render") {
+    setBusy(mode);
     try {
       const next = { ...config, design };
       const jobId = await generate({
         formatId: "green-screen-meme",
         config: next,
         steps: format!.pipeline
-          .filter((s) => stepApplies(s, next) && s.id !== "copy")
+          .filter((s) => stepApplies(s, next) && s.id !== "copy" && (mode === "edit" || s.id !== "style"))
           .map((s) => ({ id: s.id, primitive: s.primitive, label: s.label })),
         remixedFromJobId: job._id,
       });
       router.push(`/jobs/${jobId}`);
     } catch {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  return (
+  const edit = (
     <button
-      onClick={onClick}
-      disabled={busy}
+      onClick={() => reopen("edit")}
+      disabled={busy !== null}
       className="mt-4 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent-soft disabled:opacity-60"
     >
-      {busy ? "Opening the editor…" : "Edit meme again"}
+      {busy === "edit" ? "Opening the editor…" : "Edit meme again"}
     </button>
+  );
+  if (!failed) return edit;
+  return (
+    <div className="mt-4 grid gap-2 sm:grid-cols-2">
+      <button
+        onClick={() => reopen("render")}
+        disabled={busy !== null}
+        className="w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
+      >
+        {busy === "render" ? "Starting…" : "Render again"}
+      </button>
+      <div className="[&>button]:mt-0">{edit}</div>
+    </div>
   );
 }
 
