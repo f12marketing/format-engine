@@ -7,8 +7,6 @@ import {
   AnyoneTab,
   describe as describePerson,
   Faces,
-  ImageIcon,
-  ImagesTab,
   InfluencersTab,
   PeopleIcon,
   PersonIcon,
@@ -24,11 +22,12 @@ import { clipName, useClips } from "./TrendingClipField";
  * The hook popup: the opening seconds of a hook + demo ad, chosen one of two
  * ways, grouped that way in the tab row --
  *
- *   Ready to use   My hooks, and My videos (reaction mode) -- any video of
- *                  the client's, or a new upload, used as it is
+ *   Ready to use   My hooks, My videos -- any video of the client's, or a
+ *                  new upload, used as it is
  *   New            Anyone, Influencers, Pre-made -- someone we film reacting
- *                  ("reaction") -- or, in speaking mode, those and My images:
- *                  someone who says a new line
+ *                  ("reaction") or who says a new line ("speaking")
+ *
+ * The same tabs in both modes; speaking only leads with the casting ones.
  *
  * A "clip:" ref from the trending library, which the popup no longer offers,
  * is still described, so older jobs' picks read properly.
@@ -42,7 +41,7 @@ import { clipName, useClips } from "./TrendingClipField";
  * "clip:<id>", "video:<assetId>", or a roster ref (convex/lib/roster.ts).
  */
 type Mode = "reaction" | "speaking";
-type Tab = "mine" | "videos" | "anyone" | "influencers" | "premade" | "images";
+type Tab = "mine" | "videos" | "anyone" | "influencers" | "premade";
 type Hook = NonNullable<ReturnType<typeof useHooks>>[number];
 
 function useHooks() {
@@ -139,7 +138,7 @@ function describeHook(ref: string | null, data: HookData, mode: Mode): Shown {
   if (!ref) {
     return {
       title: "Choose your hook",
-      sub: mode === "reaction" ? "One of your hooks or videos, or someone new" : "Reuse a hook, or pick who says a new line",
+      sub: mode === "reaction" ? "One of your hooks or videos, or someone new" : "Pick who says a new line, or reuse a hook or video",
       faces: [],
     };
   }
@@ -238,15 +237,12 @@ function HookDialog({
 
   const ready: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "mine", label: "My hooks", icon: <HookIcon size={16} /> },
-    ...(mode === "reaction" ? [{ id: "videos" as const, label: "My videos", icon: <VideoIcon /> }] : []),
+    { id: "videos", label: "My videos", icon: <VideoIcon /> },
   ];
   const fresh: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "anyone", label: "Anyone", icon: <PeopleIcon /> },
     { id: "influencers", label: "Influencers", icon: <PersonIcon /> },
     { id: "premade", label: "Pre-made", icon: <SparkIcon /> },
-    // A reaction is filmed from a face we cast; a photo of your own is for
-    // someone who says a line. Your own videos are under Ready to use.
-    ...(mode === "speaking" ? [{ id: "images" as const, label: "My images", icon: <ImageIcon /> }] : []),
   ];
   // Speaking leads with casting, as a new line is the usual reason to be here.
   const groups =
@@ -278,7 +274,7 @@ function HookDialog({
             <p className="mt-0.5 text-sm text-muted">
               {mode === "reaction"
                 ? "Open on one of your hooks or videos, or cast someone and we’ll film them reacting."
-                : "Reuse a hook you’ve already made, or pick who says a new line."}
+                : "Pick who says a new line, or reuse one of your hooks or videos as it is."}
             </p>
           </div>
           <button
@@ -334,7 +330,6 @@ function HookDialog({
           )}
           {tab === "influencers" && <InfluencersTab value={chosen} people={data.people} onPick={setChosen} />}
           {tab === "premade" && <PremadeTab value={chosen} people={data.people} onPick={setChosen} />}
-          {tab === "images" && <ImagesTab value={chosen} onPick={setChosen} />}
         </div>
 
         <footer className="shrink-0 border-t border-line px-5 py-3 sm:px-7">
@@ -374,11 +369,11 @@ function initialTab(value: string | null, mode: Mode, data: HookData): Tab {
   // A trending clip, from before the tab went: the nearest thing still offered.
   if (value.startsWith("clip:")) return "mine";
   if (value.startsWith("video:")) {
-    const isHook = data.hooks?.some((h) => h.id === value.slice(6));
-    return isHook || mode === "speaking" ? "mine" : "videos";
+    return data.hooks?.some((h) => h.id === value.slice(6)) ? "mine" : "videos";
   }
   if (value.startsWith("cast:")) return "anyone";
-  if (value.startsWith("image:")) return "images";
+  // An uploaded photo, from before My images went: it's a person, so Anyone.
+  if (value.startsWith("image:")) return "anyone";
   if (value.startsWith("gallery:") || data.people.avatars?.find((a) => a.id === value)?.house) return "premade";
   return "influencers";
 }
@@ -489,7 +484,7 @@ type LibraryVideo = NonNullable<HookData["videos"]>[number];
  * filtered to them, and anything else chosen through "All files" is refused
  * before it's sent.
  */
-function MyVideosTab({
+export function MyVideosTab({
   videos,
   chosen,
   onSelect,
@@ -546,7 +541,7 @@ function MyVideosTab({
   );
 }
 
-function VideoTile({
+export function VideoTile({
   url,
   poster,
   selected,
@@ -625,7 +620,7 @@ function VideoTile({
 
 // ---------------------------------------------------------------- bits
 
-function clock(sec: number): string {
+export function clock(sec: number): string {
   const s = Math.round(sec);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }

@@ -169,6 +169,12 @@ export interface SimpleField extends FieldBase {
    */
   videoOnly?: boolean;
   /**
+   * For "video": chosen in a popup -- the client's own videos, or a new
+   * upload -- rather than by uploading every time. The value is still the
+   * bare asset id an upload stores.
+   */
+  library?: boolean;
+  /**
    * For "images": how many files the control accepts. A cast of recurring
    * characters is several reference sheets, not one -- but every edit model
    * degrades as the reference count climbs, so the control caps rather than

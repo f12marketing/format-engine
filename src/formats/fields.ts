@@ -191,19 +191,11 @@ export const field = {
     ...o,
   }),
 
-  /**
-   * `none` offers "None" ahead of the styles -- for a format with no separate
-   * caption switch, where the style is the only place to say "no captions" --
-   * and makes it the default.
-   */
-  captionStyle: ({
-    none = false,
-    ...o
-  }: Partial<Omit<ChoiceField, "kind" | "options">> & { none?: boolean } = {}): ChoiceField => ({
+  captionStyle: (o?: Partial<Omit<ChoiceField, "kind" | "options">>): ChoiceField => ({
     kind: "captionStyle",
     label: "Caption style",
-    options: none ? ["None", ...CAPTION_STYLES] : CAPTION_STYLES,
-    default: none ? "None" : "Classic",
+    options: CAPTION_STYLES,
+    default: "Classic",
     ...o,
   }),
 

@@ -125,7 +125,7 @@ export const videoHookDemo = defineFormat({
       default: "Car",
       showWhen: filmingHook,
     }),
-    demoVideo: field.video({ label: "Demo video", videoOnly: true, required: true }),
+    demoVideo: field.video({ label: "Demo video", videoOnly: true, library: true, required: true }),
     audio: field.audioClip({
       label: "Background music",
       optional: true,
@@ -241,26 +241,22 @@ export const speakingHookDemo = defineFormat({
   // same reasoning as Talking Head UGC. "Hook" already supplies P1 its topic,
   // so no extra prompt field is needed here.
   //
-  // Speaker is the hook popup: someone to say a new line, or a hook from My
-  // hooks reused as it is -- which already has its words, so everything that
-  // writes and voices a line steps aside for it.
+  // Speaker is the hook popup, as Video Hook & Demo's: someone to say a new
+  // line, or a hook or video of the client's reused as it is -- which already
+  // has its words, so everything that writes and voices a line steps aside.
   //
   // No separate topic box: the line is typed, or P1 writes it from the
-  // business profile.
+  // business profile. The caption is Video Hook & Demo's too -- a Captions
+  // box with Improvise, styled in the studio the run stops at once the
+  // speaker is rendered.
   config: {
-    mentionBusiness: {
-      ...field.mentionBusiness(),
-      help: "Rewrites What they say in your business’s own voice.",
-      personalizes: "saying",
-      showWhen: newSpeaker,
-    },
     speaker: field.hook({ label: "Hook video", default: "cast:any", hookMode: "speaking" }),
-    demoVideo: field.video({ label: "Demo video" }),
+    demoVideo: field.video({ label: "Demo video", videoOnly: true, library: true }),
     language: field.language({
       languages: VOICE_LANGUAGES,
       help: "What they say is written and spoken in this language.",
       showWhen: newSpeaker,
-      section: "Voice & subtitles",
+      section: "Voice",
     }),
     saying: field.longText({
       label: "What they say",
@@ -271,7 +267,7 @@ export const speakingHookDemo = defineFormat({
       placeholder: "e.g. Wait, why did nobody tell me this app writes my invoices for me?",
       help: "10 to 12 words, said to camera. Leave blank and we’ll write it from your business.",
       showWhen: newSpeaker,
-      section: "Voice & subtitles",
+      section: "Voice",
     }),
     delivery: field.choice({
       label: "How they say it",
@@ -279,21 +275,38 @@ export const speakingHookDemo = defineFormat({
       default: "Auto",
       help: "Shapes the words, the voice and the performance.",
       showWhen: newSpeaker,
-      section: "Voice & subtitles",
+      section: "Voice",
     }),
-    captionStyle: field.captionStyle({ label: "Subtitle style", section: "Voice & subtitles", none: true }),
+    caption: field.longText({
+      label: "Captions",
+      optional: true,
+      rows: 2,
+      improvable: "hookCaption",
+      words: { min: 10, max: 12 },
+      placeholder: "wait why did NOBODY tell me an app could write my invoices??",
+      help: "On screen over the speaker. Left blank, it's what they say. You style it once the video's ready.",
+      section: "On screen",
+    }),
+    mentionBusiness: {
+      ...field.mentionBusiness(),
+      help: "Rewrites What they say in your business’s own voice.",
+      personalizes: "saying",
+      showWhen: newSpeaker,
+    },
   },
   /**
-   * "Stitch" absorbs the caption burn-in, same reasoning as every other
-   * format that combines them: one ffmpeg encode, one declared step. A
-   * reused hook still passes through "copy", which reads its saved line
+   * "Stitch" absorbs the caption burn-in: the approved caption goes onto the
+   * speaker clip, and the clip onto the demo, in the one step that renders.
+   * A reused hook still passes through "copy", which reads its saved line
    * rather than writing one.
    */
   pipeline: [
     { id: "copy", primitive: "P1", label: "Write the hook", when: { field: "saying", is: "empty" } },
     { id: "speech", primitive: "P4", label: "Generate the voice", when: newSpeaker },
     { id: "avatar", primitive: "P5", label: "Render the speaker", when: newSpeaker },
-    { id: "stitch", primitive: "P7", label: "Stitch onto the demo and caption" },
+    // The studio: the run waits here while the caption is edited on the speaker.
+    { id: "style", primitive: "P8", label: "Edit the captions", gate: true },
+    { id: "stitch", primitive: "P7", label: "Stitch onto the demo" },
   ],
 });
 

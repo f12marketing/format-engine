@@ -7,6 +7,7 @@ import { UploadField } from "./UploadField";
 import { MultiUploadField } from "./MultiUploadField";
 import { TrendingClipField } from "./TrendingClipField";
 import { HookField } from "./HookField";
+import { DemoVideoField } from "./DemoVideoField";
 import { BusinessProfileCard } from "./BusinessProfileCard";
 import { AvatarField } from "./AvatarField";
 import { AudioClipField } from "./AudioClipField";
@@ -566,6 +567,15 @@ function Control({
 
     case "image":
     case "video":
+      if (field.kind === "video" && field.library) {
+        return convexConfigured ? (
+          <AuthorisedBoundary>
+            <DemoVideoField value={value} onChange={onChange} label={field.label} />
+          </AuthorisedBoundary>
+        ) : (
+          <Placeholder kind={field.kind} />
+        );
+      }
       // Needs a deployment to upload to; without one the control would fail on
       // its first click, so say why instead.
       return convexConfigured ? (

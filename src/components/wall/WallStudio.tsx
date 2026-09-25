@@ -44,6 +44,8 @@ export interface StudioVariant {
   words?: { min: number; max: number };
   /** Whether an overlay image can be added. */
   overlays: boolean;
+  /** Whether saving with no text is allowed -- a caption is optional, a wall of text isn't. */
+  allowEmpty?: boolean;
 }
 
 interface WallConfig {
@@ -211,7 +213,7 @@ export function WallStudio({
   }
 
   async function save(schedule: boolean) {
-    if (!design.text.trim()) {
+    if (!design.text.trim() && !variant?.allowEmpty) {
       setError("Add some text before saving.");
       setSelected("text");
       return;

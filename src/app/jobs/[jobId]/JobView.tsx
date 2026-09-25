@@ -23,6 +23,7 @@ import { hookCaptionDesign } from "../../../../convex/lib/wallOfTextDesign";
 const STUDIO_STEP: Record<string, string> = {
   "wall-of-text": "style",
   "video-hook-demo": "style",
+  "speaking-hook-demo": "style",
   "image-slideshow": "edit",
 };
 
@@ -93,9 +94,10 @@ export function JobView({ jobId }: { jobId: string }) {
               output={studioStep.output as never}
               onSaved={onSaved}
             />
-          ) : job.formatId === "video-hook-demo" ? (
+          ) : job.formatId === "video-hook-demo" || job.formatId === "speaking-hook-demo" ? (
             <HookCaptionStudio
               key={job._id}
+              formatId={job.formatId}
               jobId={job._id}
               config={job.config as Record<string, never>}
               output={studioStep.output as never}

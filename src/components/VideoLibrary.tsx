@@ -243,6 +243,8 @@ export function useVideoUpload(
     busy,
     error,
     pick: () => inputRef.current?.click(),
+    /** For a drop zone: the same checks and recording as a picked file. */
+    uploadFile: (file: File) => void upload(file),
     input: (
       <input
         ref={inputRef}
