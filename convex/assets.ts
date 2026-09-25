@@ -18,6 +18,7 @@ import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 const KIND_BY_MIME: Record<string, "image" | "video" | "audio" | "pdf" | "text"> = {
   "image/png": "image",
   "image/jpeg": "image",
+  "image/gif": "image",
   "image/webp": "image",
   "video/mp4": "video",
   // Phones record .mov; a picker filtering on "video" must still see it.
@@ -187,7 +188,8 @@ export const mediaLibrary = query({
       .query("assets")
       .withIndex("by_client", (q) => q.eq("clientId", client._id))
       .order("desc")
-      .filter((q) => q.eq(q.field("kind"), kind))
+      // Uploaded memes are My memes' own library, not photos and videos.
+      .filter((q) => q.and(q.eq(q.field("kind"), kind), q.neq(q.field("meme"), true)))
       .take(60);
 
     return Promise.all(
@@ -200,6 +202,60 @@ export const mediaLibrary = query({
         createdAt: a._creationTime,
         url: await ctx.storage.getUrl(a.storageId),
         posterUrl: a.posterStorageId ? await ctx.storage.getUrl(a.posterStorageId) : null,
+      })),
+    );
+  },
+});
+
+/**
+ * One of the client's own images or videos, as a picker card or preview
+ * shows it: where it is, whether it moves, and its shape. Null for anything
+ * that isn't theirs.
+ */
+export const mediaInfo = query({
+  args: { assetId: v.id("assets") },
+  handler: async (ctx, { assetId }) => {
+    const client = await requireClient(ctx);
+    const a = await ctx.db.get(assetId);
+    if (!a || a.clientId !== client._id) return null;
+    return {
+      id: a._id,
+      isVideo: a.kind === "video",
+      mimeType: a.mimeType,
+      width: a.width,
+      height: a.height,
+      durationSec: a.durationSec,
+      url: await ctx.storage.getUrl(a.storageId),
+      posterUrl: a.posterStorageId ? await ctx.storage.getUrl(a.posterStorageId) : null,
+    };
+  },
+});
+
+/**
+ * The Green Screen Meme popup's "My memes": GIFs, stickers and clips the
+ * client uploaded as memes, newest first -- with what the editor needs to
+ * place one (its shape, and whether it moves).
+ */
+export const memeLibrary = query({
+  args: {},
+  handler: async (ctx) => {
+    const client = await requireClient(ctx);
+    const rows = await ctx.db
+      .query("assets")
+      .withIndex("by_client", (q) => q.eq("clientId", client._id))
+      .order("desc")
+      .filter((q) => q.eq(q.field("meme"), true))
+      .take(60);
+    return Promise.all(
+      rows.map(async (a) => ({
+        id: a._id,
+        mimeType: a.mimeType,
+        isVideo: a.kind === "video",
+        width: a.width,
+        height: a.height,
+        durationSec: a.durationSec,
+        createdAt: a._creationTime,
+        url: await ctx.storage.getUrl(a.storageId),
       })),
     );
   },

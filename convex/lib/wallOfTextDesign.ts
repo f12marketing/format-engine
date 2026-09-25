@@ -58,10 +58,35 @@ export interface WallText {
 /** How many text boxes can be added on top of the main text. */
 export const MAX_TEXT_BOXES = 4;
 
+/** Whose sound a Green Screen Meme plays: the meme's own, the background video's, or none. */
+export type MemeSound = "meme" | "background" | "none";
+
+/**
+ * Green Screen Meme's GIF or clip, placed like the overlay but moving -- so
+ * ffmpeg composites it under the text layer rather than the page drawing it.
+ * See convex/lib/memeDesign.ts.
+ */
+export interface MemeLayer {
+  /** Centre, as fractions of the frame. */
+  x: number;
+  y: number;
+  /** Width as a fraction of the frame width; height follows the meme. Over 1 overflows the frame. */
+  w: number;
+  /** Mirrored left to right. */
+  flip: boolean;
+  /** Key the green screen out. */
+  chroma: boolean;
+  sound: MemeSound;
+  /** How long the video runs over a still background. Null loops the meme to about six seconds. */
+  seconds: number | null;
+}
+
 export interface WallDesign extends WallText {
   overlay: WallOverlay | null;
   /** Added text boxes, drawn over the main text. Missing on designs from before they existed. */
   boxes?: WallText[];
+  /** Green Screen Meme only. `sanitizeDesign` drops it; `sanitizeMemeDesign` keeps it. */
+  meme?: MemeLayer;
 }
 
 /** Whether there is any text to burn in: the main text or an added box. */
@@ -373,6 +398,19 @@ export function overlayStyle(o: WallOverlay): Style {
     width: `${FRAME.width * o.w}px`,
     height: "auto",
     transform: "translate(-50%, -50%)",
+  };
+}
+
+/** The meme's box on the frame, as the render service places it: centred on (x, y), `w` of the frame wide. */
+export function memeStyle(m: MemeLayer, aspect: number): Style {
+  const w = FRAME.width * m.w;
+  const h = w / (aspect > 0 ? aspect : 1);
+  return {
+    position: "absolute",
+    left: `${FRAME.width * m.x - w / 2}px`,
+    top: `${FRAME.height * m.y - h / 2}px`,
+    width: `${w}px`,
+    height: `${h}px`,
   };
 }
 

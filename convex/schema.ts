@@ -123,6 +123,11 @@ export default defineSchema({
     ),
     /** What a speaking hook says, reused as its caption when it's picked again. */
     hookLine: v.optional(v.string()),
+    /**
+     * Set on a GIF, sticker or clip the client uploaded as a meme, so the
+     * Green Screen Meme popup's "My memes" tab can offer it again.
+     */
+    meme: v.optional(v.boolean()),
   })
     .index("by_client", ["clientId"])
     // Absent sorts before every string, so a range over the kinds is exactly the hooks.

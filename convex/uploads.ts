@@ -41,3 +41,31 @@ export const attach = mutation({
     });
   },
 });
+
+/** What a meme can be: an animated GIF, a still sticker, or a short clip. */
+const MEME_TYPES = ["image/gif", "image/png", "image/jpeg", "video/mp4", "video/webm", "video/quicktime"];
+
+/** `attach`, for the meme popup's upload: marked as a meme, so "My memes" offers it next time. */
+export const attachMeme = mutation({
+  args: {
+    storageId: v.id("_storage"),
+    mimeType: v.string(),
+    bytes: v.number(),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    durationSec: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<Id<"assets">> => {
+    const client = await requireClient(ctx);
+    if (!MEME_TYPES.includes(args.mimeType)) {
+      await ctx.storage.delete(args.storageId);
+      throw new Error("A meme has to be a GIF, PNG or JPG, or an MP4, WebM or MOV clip.");
+    }
+    return ctx.db.insert("assets", {
+      ...args,
+      clientId: client._id,
+      kind: kindForMime(args.mimeType),
+      meme: true,
+    });
+  },
+});

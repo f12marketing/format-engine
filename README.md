@@ -1,8 +1,8 @@
 # Format Engine
 
-Twenty-four content formats behind one picker: decks, slideshows, trending-clip
-remixes, talking avatars, generated stop-motion and documentary scenes, short
-drama episodes, character swaps. The successor to `../app`, built on Convex +
+Twenty-five content formats behind one picker: decks, slideshows, hook + demo
+ads, green-screen memes, talking avatars, generated stop-motion and
+documentary scenes, short drama episodes, character swaps. The successor to `../app`, built on Convex +
 Vercel + Railway + fal.ai, with Supabase Auth and Zernio for posting. See the
 implementation plan for the why:
 https://claude.ai/code/artifact/1295e505-faca-4d71-b58e-8093a96e5ced
@@ -92,6 +92,90 @@ A few things are worth knowing about before you touch them:
   service screenshots the page that module builds, so the video matches the
   studio. It needs the render service's `/render/wall-of-text` route with
   `layerHtml` support.
+- **The studio.** Wall of Text's studio (`src/components/wall/WallStudio.tsx`
+  over `WallStage.tsx`) is also the editor for three other formats. Their runs
+  stop at a `style` gate (a P8 step with `gate: true`), the job page opens the
+  studio on the real footage, and **Save** approves the gate with the design.
+  The design is the main text plus up to four extra **text boxes** (`boxes`).
+  Each is dragged, resized, nudged, undone and styled on its own, and Delete
+  removes one. The design is saved as fractions of a 1080x1920 frame and
+  checked by `sanitizeDesign` in `convex/lib/wallOfTextDesign.ts` before
+  anything renders. `wallLayerHtml` in the same file builds the text layer the
+  render service screenshots, so the video matches the editor. Finished jobs
+  reopen the studio with **Edit captions again** or **Edit meme again**.
+- **Video Hook & Demo** puts a ~4s hook in front of the client's demo video.
+  The hook comes from the hook popup (`src/components/HookField.tsx`):
+  - **My hooks**: hooks this client already made, reused for free. These are
+    ordinary video assets with `hookKind` set (`convex/hooks.ts`).
+  - **My videos**: any video of theirs, or a new upload.
+  - **Anyone**, **Influencers** or **Pre-made**: a person the run films
+    reacting (qwen edit still + Kling clip).
+
+  The other settings:
+  - **Demo video**: a gallery-or-upload popup (`DemoVideoField.tsx`).
+  - **Background music**: optional.
+  - **Add captions**: with it on, a **Captions** box with **Improvise**
+    rewrites the line into a 10-12 word hook, or writes one from the business
+    when left blank.
+
+  The run stops in the studio once the hook exists. `convex/lib/hookCaption.ts`
+  burns the approved caption onto the hook alone through `/render/wall-of-text`,
+  and `/render/video-hook-demo` then joins it onto the uncaptioned demo.
+- **Speaking Hook & Demo** is the same shape with a speaker: someone says a
+  line to camera, then the demo plays. It uses the same hook popup, where a
+  reused hook keeps its words. A new speaker has these settings:
+  - **Language**: 30-odd eleven-v3 languages (`convex/lib/voiceLanguages.ts`).
+    The line is written in the language it will be spoken in.
+  - **What they say**: 10-12 words, written from the business if left blank.
+  - **How they say it**: a delivery (Shocked, Deadpan, Smug…) that shapes the
+    words, eleven-v3's delivery tags and the performance.
+
+  The TTS voice follows the speaker's gender (`convex/lib/roster.ts`). The
+  caption is Video Hook's: blank means what they say, styled in the studio.
+  Jobs from before the studio keep their old Subtitle style burn-in.
+- **Green Screen Meme** puts a meme over the client's own photo or video,
+  with a hook caption on top. Its settings:
+  - **Upload image or video**: a popup with their photo and video gallery,
+    or a new upload (`src/components/meme/BackgroundField.tsx`).
+  - **Choose meme**: a popup (`src/components/meme/MemeField.tsx`) with
+    KLIPY's five libraries in their own tabs (GIFs, Clips, Stickers, Memes,
+    AI Emojis), then **My memes** and **Upload new**. The KLIPY side has
+    search with autocomplete, related searches, categories, Recently used, a
+    "green screen" shortcut and Report.
+  - **Hook caption**: a 5-14 word line whose **Improvise** reads the meme's
+    title, and which is written from the meme when left blank.
+  - **Mention your business**.
+
+  A live preview on the right composes the picks. The run stops in the
+  **meme studio** (`src/components/wall/MemeStudio.tsx` +
+  `MemeInspector.tsx`), where the meme is a layer:
+  - drag it, resize it from the corner, and flip it
+  - key out its green screen, previewed live by an SVG filter
+  - choose whose sound plays: the meme's, the background video's, or none
+  - over a photo, set the length (3-20s)
+
+  The caption and text boxes are styled in the same studio. The design is
+  `WallDesign & {meme}` (`convex/lib/memeDesign.ts`). The render sends the text
+  layer HTML, the background URL, the meme URL and the meme placement to
+  `/render/green-screen-meme`, where ffmpeg keys, scales and overlays the meme
+  under the text. A job whose render fails offers **Render again** (the saved
+  design, no editor) and **Edit meme again**. Jobs made before the studio
+  (they planned a `clip` step: a trending clip keyed over a still) still run
+  the old way at the bottom of `convex/greenScreenMeme.ts`.
+- **KLIPY's rules**, and where the app follows them (`src/lib/klipy.ts`):
+  - Every KLIPY request is made from the browser, with a
+    `NEXT_PUBLIC_KLIPY_APP_KEY`.
+  - Media URLs are used exactly as returned and never stored or re-hosted.
+    `parseMemePick` accepts only `https://static*.klipy.com/` URLs.
+  - Results keep KLIPY's order, each library in its own tab.
+  - The search box reads "Search KLIPY", and "Powered by KLIPY" is shown.
+  - Every pick fires the Share Trigger with an anonymous customer id: a
+    SHA-256 hash of the client id.
+  - KLIPY may place ad tiles in results; they are shown as ads (`AdTile`).
+    Ads are switched on or off per key in KLIPY's Partner Panel, not in code.
+  - The render service fetches the picked meme server-side to burn it into
+    the video, which KLIPY only allows with their written approval. See
+    *Known gaps*.
 - **The business profile** is collected by a quiz every new client is sent
   to once after sign-up (`/onboarding`): name and logo (brand colours are read
   out of the logo), their website -- read server-side and drafted into a
@@ -228,6 +312,23 @@ Without it the tab says it isn't switched on, and uploads still work. A
 picked track is copied into `audioTemplates` once (`convex/music.ts`), so a
 job keeps its music even if the track later leaves Freesound.
 
+### KLIPY (for Green Screen Meme's meme popup)
+
+Create an app key at https://partner.klipy.com (API Keys) and put it in
+`.env.local`. It is public by design, because KLIPY requires calls from the
+browser:
+
+```
+NEXT_PUBLIC_KLIPY_APP_KEY=<your key>
+```
+
+Restart `npm run dev` after adding it. Without a key, the popup's KLIPY side
+explains how to set one up, and My memes and Upload new still work. A new key
+is in **Testing** mode, capped at 100 requests an hour. Request **Production**
+in the Partner Panel before launch. KLIPY is free (it is funded by ads), and
+ads are turned on or off per key in that same panel. `next.config.ts` already
+allows `api.klipy.com` and `*.klipy.com` media in the CSP.
+
 ### Image sets (for Image Slideshow)
 
 The 51 stock photo sets are downloaded once into Convex storage from Pexels
@@ -293,7 +394,7 @@ RENDER_SERVICE_API_KEY=<the same string> npm start
 ```
 
 Needs Chrome/Edge and ffmpeg; set `CHROME_BIN` / `FFMPEG_BIN` if either isn't
-found automatically. **Restart it whenever this repo's Slideshow or Video Animation change:** they send a `voiceoverUrl` that an older service would silently ignore, leaving the video with no voice. So both formats check `/health` (which reports `voiceover: true` from current code) before spending anything, and stop with a message telling you to restart it. It serves the routes the formats call: `/render/carousel`,
+found automatically. **Restart it whenever this repo's Slideshow or Video Animation change:** they send a `voiceoverUrl` that an older service would silently ignore, leaving the video with no voice. So both formats check `/health` (which reports `voiceover: true` from current code) before spending anything, and stop with a message telling you to restart it. Green Screen Meme is the same: a service from before the meme studio renders only the old keyed clip, so the render step detects that and fails with "The render service is running old code that can't place a meme". Restart the service, then use **Render again** on the job page. To try a render-service change without disturbing the running one, start a second copy on a spare port (`PORT=4411 npm start`) and point a curl at it. It serves the routes the formats call: `/render/carousel`,
 `/render/wall-of-text`, `/render/slideshow`, `/render/video-animation`,
 `/render/drama`, `/render/video-hook-demo`, `/render/green-screen-meme`,
 `/render/picture-in-picture`, `/render/custom`, plus helpers for inspecting
@@ -353,17 +454,21 @@ in order when the repo is ready to host.
 
 **2. Render service -- Railway**
 
-- [ ] Deploy `format-engine-render-service` `master` (it includes the Wall of
-      Text `layerHtml` renderer and Image Slideshow's `/render/image-pages`
-      route; an older build fails every Wall of Text render and every
-      slideshow export).
+- [ ] Deploy `format-engine-render-service` `master`. It must include:
+      - the Wall of Text `layerHtml` renderer, without which every Wall of
+        Text render and every hook caption fails
+      - Image Slideshow's `/render/image-pages` route, without which every
+        slideshow export fails
+      - `/render/green-screen-meme`'s `layerHtml` + `memeUrl` path, without
+        which every Green Screen Meme render fails with the "old code" message
 - [ ] Set `RENDER_SERVICE_API_KEY` to the same value as Convex's.
 - [ ] `curl https://<railway-url>/health` returns `"ok":true` and `"voiceover":true`.
 
 **3. App -- Vercel**
 
 - [ ] `NEXT_PUBLIC_CONVEX_URL` (production), `NEXT_PUBLIC_SUPABASE_URL`,
-      `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+      `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_KLIPY_APP_KEY`
+      (a Production-access key).
 - [ ] Build with `npx convex deploy --cmd 'npm run build'` and a
       `CONVEX_DEPLOY_KEY`, so the functions and the site ship together.
 
@@ -374,6 +479,11 @@ in order when the repo is ready to host.
 - [ ] Zernio: point its webhook at `https://<name>.convex.site/zernio/events`.
       (fal's training webhook needs nothing -- it's built from `CONVEX_SITE_URL`.)
 - [ ] Freesound: optionally update the app's URL to the production domain.
+- [ ] KLIPY:
+      - Production access for the key, with ads set the way you want them in
+        the Partner Panel.
+      - Written approval (developers@klipy.com) for the render service
+        fetching a picked meme server-side to burn it into the video.
 
 **5. First run on production**
 
@@ -386,15 +496,19 @@ in order when the repo is ready to host.
       after setting both keys with `--prod`).
 - [ ] Image Slideshow end to end (about a cent): pick an image set, Improve a
       prompt, generate, edit in the editor, Save, then Schedule.
+- [ ] Green Screen Meme end to end (under a cent with a typed caption): upload
+      a photo, pick a KLIPY GIF, place and key it in the meme studio, Save.
+- [ ] Video Hook & Demo with a hook from My videos (free): type a caption,
+      style it in the studio, Save.
 
 ## Layout
 
 ```
 convex/
   schema.ts              clients, brands, avatars, assets, jobs, spend_ledger,
-                         influencers, galleryFaces, houseImages, audioTemplates,
-                         clips, socialAccounts, socialPosts, postAnalytics,
-                         zernioWebhookEvents
+                         influencers, galleryFaces, houseImages, stockImages,
+                         stockSearches, audioTemplates, clips, socialAccounts,
+                         socialPosts, postAnalytics, zernioWebhookEvents
   auth.config.ts         Supabase JWT verification (customJwt provider)
   clients.ts             invite-only resolution: JWT subject -> clients row
   ledger.ts              spend tracking + the pre-spend cap assertion
@@ -406,6 +520,14 @@ convex/
   influencers.ts         roster, LoRA training, the fal callback
   galleryFaces.ts        the curated base faces the New Influencer popup offers
   voicePreview.ts        the Preview button's action: one short TTS line
+  assets.ts, uploads.ts  the media bank: gallery queries (mediaLibrary,
+                         memeLibrary, mediaInfo) and signed-URL uploads
+  hooks.ts               My hooks: hook clips a client made, offered again
+  onboarding.ts, brands.ts
+                         the business quiz and the profile it writes
+  music.ts               Freesound search + copying a picked track in
+  imageSets.ts           Image Slideshow's stock sets and live photo search
+  retention.ts           the daily clean-up of old exports and unused photos
   audio.ts, clips.ts     the shared audio and trending-clip libraries
   social.ts, socialPosts.ts, analytics.ts
                          Zernio: connected accounts, posting, performance
@@ -423,6 +545,18 @@ convex/
   lib/carouselPrompt.ts  the tuned prompt, ported unchanged — three eval rounds
                          went into these numbers
   lib/renderService.ts   base URL + auth headers for every render-service call
+  lib/wallOfTextDesign.ts
+                         the studio's design: sanitizeDesign, wallLayerHtml
+                         (the text layer the render service screenshots),
+                         text boxes, and the meme layer's type
+  lib/hookCaption.ts     burns a studio design onto a hook clip (both hook + demo
+                         formats)
+  lib/memeDesign.ts      Green Screen Meme: MemePick, parseMemePick (KLIPY URL
+                         allow-list), default placement, sanitizeMemeDesign
+  lib/voiceLanguages.ts  the languages a spoken line can be written and voiced in
+  lib/businessContext.ts every "Mention your business" toggle's prompt text
+  lib/imageSets.ts, lib/imageSlideshowDesign.ts, lib/imageSlideshowTemplates.ts
+                         Image Slideshow's sets, editor/export design and styles
   lib/nodeStorage.ts     the one "use node" place that decodes and stores
                          render output
   dev.ts                 CLI-only seeding/inspection
@@ -430,8 +564,11 @@ src/
   formats/
     types.ts             defineFormat, the ten primitives, step conditions
     fields.ts            the recurring field types
-    carousel.ts, slideshow.ts, videoAnimation.ts, drama.ts, extras.ts,
-    planned.ts           all 24 formats declared
+    carousel.ts, slideshow.ts, imageSlideshow.ts, wallOfText.ts,
+    videoAnimation.ts, drama.ts, extras.ts
+                         the formats with a file of their own
+    planned.ts           the rest, incl. both hook + demo formats and Green
+                         Screen Meme (the name predates them being built)
     index.ts             the registry — the single source of truth
   components/
     ConfigPanel.tsx      renders itself from a format's config
@@ -443,13 +580,30 @@ src/
     VoicePreview.tsx     the Preview button beside a voice select
     AvatarField.tsx, NewInfluencerModal.tsx, InfluencerRoster.tsx
     TrendingClipField.tsx, AudioClipField.tsx
+    HookField.tsx        the hook popup (My hooks, My videos, Anyone,
+                         Influencers, Pre-made) for both hook + demo formats
+    DemoVideoField.tsx, VideoLibrary.tsx
+                         the demo video popup and the shared video gallery
+    wall/                the studio: WallStudio + WallStage (Wall of Text),
+                         HookCaptionStudio (hook + demo captions), MemeStudio +
+                         MemeInspector (Green Screen Meme)
+    meme/                Green Screen Meme's config: BackgroundField,
+                         MemeField (the KLIPY popup), MemePreview, and the
+                         shared PickerDialog / useMediaUpload
+    slideshow/           Image Slideshow's set picker and slide editor
+    business/            the onboarding quiz and the Business page
     PostComposer.tsx     scheduling and posting through Zernio
     AuthStatus.tsx       sign-in state + the owner bootstrap
   hooks/useSupabaseAuth.ts   the ConvexProviderWithAuth contract, for Supabase
   lib/
     estimate.ts          pipeline-driven cost estimate
+    klipy.ts             the KLIPY client (browser-only): lists, search,
+                         autocomplete, recent, share trigger, report
     supabaseClient.ts    one browser client, shared
   carousel-templates/    the CSS the render service typesets decks with
+  app/jobs/[jobId]/JobView.tsx
+                         the job page: progress, gates, which studio a
+                         gate opens (STUDIO_STEP), Edit … again / Render again
   proxy.ts               Next 16's middleware: redirects signed-out visitors
 ../render-service/       sibling repo, deploys separately to Railway
 ```
@@ -511,6 +665,14 @@ the spend cap stops a run rather than warning about it.
   the render service should eventually take a signed URL and fetch bytes
   itself.
 - The clip, audio and gallery libraries have no admin UI; curation is CLI-only.
+- **KLIPY server-side fetch is not yet approved.** KLIPY's terms ask for
+  browser-only use; burning a meme into a video needs the render service to
+  fetch it, which needs KLIPY's written OK (developers@klipy.com). The code
+  already keeps to everything else: URLs unaltered, never stored, fetched for
+  one render and deleted. Uploaded memes don't involve KLIPY at all.
+- A KLIPY key stays in Testing (100 requests an hour, shared by every user)
+  until Production access is granted. The popup caches pages and
+  de-duplicates in-flight requests to stretch it.
 - No production deploy yet (Vercel, Railway, a promoted Convex deployment) —
   deliberately last, per the "deployment at the end" call. Everything it
   involves is in [Deployment checklist](#deployment-checklist).

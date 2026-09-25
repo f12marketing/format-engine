@@ -47,6 +47,8 @@ export type FieldKind =
   | "avatar"
   | "trendingClip"
   | "hook"
+  | "media"
+  | "meme"
   | "audioClip"
   | "imageSource"
   | "mode";
@@ -150,9 +152,10 @@ export interface TextField extends FieldBase {
    * Puts a rewrite button under a long text, which rewrites what was typed
    * without saving anything -- the new text simply replaces the old in the
    * field. Names what it is rewritten into: a sharper brief for an Image
-   * Slideshow ("Improve"), or a punchier hook caption ("Improvise").
+   * Slideshow ("Improve"), or a punchier hook caption ("Improvise") -- for a
+   * meme, one written to the meme picked above it.
    */
-  improvable?: "slideshowPrompt" | "hookCaption";
+  improvable?: "slideshowPrompt" | "hookCaption" | "memeCaption";
   /** A word count to aim for, shown as a counter under a long text. Advisory: the panel doesn't cut anything. */
   words?: { min: number; max: number };
 }

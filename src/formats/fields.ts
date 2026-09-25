@@ -259,6 +259,26 @@ export const field = {
   }),
 
   /**
+   * An image OR a video, chosen in a popup from the client's gallery or
+   * uploaded new. Holds the bare asset id, like an upload.
+   */
+  media: (o?: Partial<Omit<SimpleField, "kind">>): SimpleField => ({
+    kind: "media",
+    label: "Image or video",
+    ...o,
+  }),
+
+  /**
+   * The meme popup: a GIF, clip, sticker, meme or AI emoji from Klipy, or one
+   * the client uploaded. Holds a MemePick object -- see convex/lib/memeDesign.ts.
+   */
+  meme: (o?: Partial<Omit<SimpleField, "kind">>): SimpleField => ({
+    kind: "meme",
+    label: "Meme",
+    ...o,
+  }),
+
+  /**
    * Pick an existing audio clip or upload a new one -- the spec's "select
    * audio clip templates or upload a new audio clip", one control rather than
    * a dropdown next to an upload button.
