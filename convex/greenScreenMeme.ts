@@ -473,7 +473,7 @@ export const render = internalAction({
       // An instance from before the studio reads this as the old request and asks for a clip.
       if (/a clip is required/.test(body)) {
         throw new Error(
-          "The render service is running old code that can't place a meme. Restart it (cd ../render-service && npm start) and save again.",
+          "The render service is running old code that can't place a meme. Restart it (cd ../render-service && npm start), then make the video again.",
         );
       }
       throw new Error(`render service failed: ${res.status} ${body}`);
