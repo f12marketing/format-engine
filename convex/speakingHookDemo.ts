@@ -1,7 +1,9 @@
 import { v } from "convex/values";
+import type { WorkflowCtx } from "@convex-dev/workflow";
 import { internal } from "./_generated/api";
 import { action, internalAction, internalMutation } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { ActionCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import { callTool, LLM_MODEL } from "./lib/fal";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
@@ -9,6 +11,8 @@ import { businessContext } from "./lib/businessContext";
 import { isVideoRef, resolveVideo } from "./lib/videoRef";
 import { enforceRateLimit } from "./lib/rateLimit";
 import { languageName } from "./lib/voiceLanguages";
+import { hookCaptionDesign, sanitizeDesign } from "./lib/wallOfTextDesign";
+import { captionHook } from "./lib/hookCaption";
 
 /**
  * Speaking Hook & Demo: an avatar says the hook out loud, then cuts to the
@@ -17,8 +21,15 @@ import { languageName } from "./lib/voiceLanguages";
  * is why "stitch" reuses that exact render-service endpoint unchanged.
  *
  * The Speaker field is the hook popup: a person to say a new line, or
- * "video:<assetId>" -- a hook from My hooks, reused as it is. Every speaker
- * clip this renders is kept there, with its line, for exactly that.
+ * "video:<assetId>" -- a hook from My hooks or one of the client's videos,
+ * reused as it is. Every speaker clip this renders is kept there, with its
+ * line, for exactly that.
+ *
+ * The caption is Video Hook & Demo's: the Captions box (or, left blank, what
+ * they say), edited and styled in Wall of Text's studio once the speaker
+ * exists, then burned onto the speaker clip before the demo is joined on.
+ * Jobs from before the studio have no "style" step and keep the old
+ * Subtitle style burn-in.
  */
 interface SpeakingConfig {
   speaker?: string;
@@ -27,8 +38,14 @@ interface SpeakingConfig {
   language?: string;
   mentionBusiness?: boolean;
   demoVideo?: Id<"assets">;
+  /** The Captions box: the on-screen line, word for word. Blank is what they say. */
+  caption?: string;
+  /** Before the studio, how the subtitles looked. Still read for older jobs. */
   captionStyle?: string;
 }
+
+/** A spoken hook plays in full; this caps what one caption pass may encode. */
+const MAX_HOOK_SECONDS = 60;
 
 export const run = workflow
   .define({
@@ -54,6 +71,10 @@ export const run = workflow
         await step.runAction(internal.speakingHookDemo.animateAvatar, args, { retry: true });
         await step.runAction(internal.speakingHookDemo.keepHook, args);
       }
+      if (planned.includes("style")) {
+        await step.runAction(internal.speakingHookDemo.openStudio, args, { retry: true });
+        await passGate(step, args.jobId, "style");
+      }
       await step.runAction(internal.speakingHookDemo.stitch, args, { retry: true });
       await step.runMutation(internal.jobs.finish, { jobId: args.jobId, status: "done" });
     } catch (e) {
@@ -65,6 +86,12 @@ export const run = workflow
     }
     return null;
   });
+
+async function passGate(step: WorkflowCtx, jobId: Id<"jobs">, stepId: string): Promise<void> {
+  await step.awaitEvent({ name: `approve:${jobId}:${stepId}` });
+  await step.runMutation(internal.jobs.patchStep, { jobId, stepId, state: "done" });
+  await step.runMutation(internal.jobs.setRunning, { jobId });
+}
 
 const HOOK_SYSTEM = `You write a single spoken line for a UGC-style video hook -- the first thing
 someone says directly to camera before a product demo plays.
@@ -158,6 +185,10 @@ export const writeHook = internalAction({
  * business's own voice -- a rewrite of what's typed, or a fresh line when
  * nothing is -- in the chosen language and delivery. Returned to the browser
  * rather than saved anywhere; the client keeps it or undoes it.
+ *
+ * No profile yet is an answer, not an error: the switch sits right above the
+ * business card that fills one in, so the panel says so there rather than
+ * surfacing a thrown error for the most ordinary state a new client is in.
  */
 export const personalizeLine = action({
   args: {
@@ -165,16 +196,17 @@ export const personalizeLine = action({
     delivery: v.optional(v.string()),
     language: v.optional(v.string()),
   },
-  handler: async (ctx, { saying, delivery, language }): Promise<{ saying: string; business: string }> => {
+  handler: async (
+    ctx,
+    { saying, delivery, language },
+  ): Promise<{ saying: string; business: string } | { needsBusiness: true }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, { authUserId: identity.subject });
     if (!client) throw new Error("Not authorised. This is an invite-only tool.");
 
     const brand = await ctx.runQuery(internal.brands.forClientInternal, { clientId: client._id });
-    if (!brand?.description) {
-      throw new Error("Add your business details first — they're what the line is written from.");
-    }
+    if (!brand?.description) return { needsBusiness: true };
     await enforceRateLimit(ctx, "rewriteText", client._id);
     await ctx.runMutation(internal.ledger.assertUnderCap, { clientId: client._id, aboutToSpendUsd: 0.02 });
 
@@ -272,6 +304,50 @@ export const keepHook = internalAction({
   },
 });
 
+/** The hook as a playable video: a reused one, or the speaker this run rendered. */
+async function speakerClip(ctx: ActionCtx, job: Doc<"jobs">, clientId: Id<"clients">): Promise<string> {
+  const config = job.config as SpeakingConfig;
+  if (config.speaker && isVideoRef(config.speaker)) return (await resolveVideo(ctx, config.speaker, clientId)).url;
+  const rendered = (job.steps.find((s) => s.id === "avatar")?.output as { videoUrl?: string } | undefined)
+    ?.videoUrl;
+  if (!rendered) throw new Error("The speaker has not been rendered yet.");
+  return rendered;
+}
+
+/**
+ * Parks the run in the caption studio -- Video Hook & Demo's -- over the
+ * speaker, with the Captions box's line in the hook look, or what they say
+ * when that was left blank. The speaker plays in full, in their own voice,
+ * so the preview neither loops early nor lays music over them.
+ */
+export const openStudio = internalAction({
+  args: { jobId: v.id("jobs"), clientId: v.id("clients") },
+  handler: async (ctx, { jobId, clientId }): Promise<null> => {
+    await ctx.runMutation(internal.jobs.patchStep, { jobId, stepId: "style", state: "running" });
+    const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
+    if (!job) throw new Error("unknown job");
+    const config = job.config as SpeakingConfig;
+
+    const line =
+      config.caption?.trim() ||
+      config.saying?.trim() ||
+      (job.steps.find((s) => s.id === "copy")?.output as { text?: string } | undefined)?.text?.trim() ||
+      "";
+
+    await ctx.runMutation(internal.jobs.setAwaitingApproval, {
+      jobId,
+      stepId: "style",
+      output: {
+        design: hookCaptionDesign(line),
+        videoUrl: await speakerClip(ctx, job, clientId),
+        audioUrl: null,
+        previewSeconds: null,
+      },
+    });
+    return null;
+  },
+});
+
 /** P7 + P8 in one hop, reusing Video Hook & Demo's exact renderer: two segments, caption on the first. */
 export const stitch = internalAction({
   args: { jobId: v.id("jobs"), clientId: v.id("clients") },
@@ -286,12 +362,7 @@ export const stitch = internalAction({
     const config = job.config as SpeakingConfig;
     if (!config.demoVideo) throw new Error("A demo video upload is required.");
 
-    const hookUrl =
-      config.speaker && isVideoRef(config.speaker)
-        ? (await resolveVideo(ctx, config.speaker, clientId)).url
-        : (job.steps.find((s) => s.id === "avatar")?.output as { videoUrl?: string } | undefined)
-            ?.videoUrl;
-    if (!hookUrl) throw new Error("The speaker has not been rendered yet.");
+    const hookUrl = await speakerClip(ctx, job, clientId);
 
     const demoAsset = await ctx.runQuery(internal.assets.getInternal, {
       assetId: config.demoVideo,
@@ -300,18 +371,26 @@ export const stitch = internalAction({
     const demoUrl = await ctx.storage.getUrl(demoAsset.storageId);
     if (!demoUrl) throw new Error("The demo video upload could not be read.");
 
-    // A typed line skips the copy step, so it is the caption itself.
+    // The studio's design, when this run went through it: burned onto the
+    // speaker clip first, in a pass of its own. A job from before the studio
+    // has no "style" step, and keeps its Subtitle style burn-in ("None" being
+    // no subtitles at all).
+    const approved = (job.steps.find((s) => s.id === "style")?.output as { design?: unknown } | undefined)
+      ?.design;
+    const design = approved ? sanitizeDesign(approved) : null;
+    const captioned = design?.text.trim() ? await captionHook(ctx, hookUrl, design, MAX_HOOK_SECONDS) : null;
     const captionText =
-      config.saying?.trim() ||
-      ((job.steps.find((s) => s.id === "copy")?.output as { text?: string } | undefined)?.text ??
-        "");
+      approved || config.captionStyle === "None"
+        ? ""
+        : config.saying?.trim() ||
+          ((job.steps.find((s) => s.id === "copy")?.output as { text?: string } | undefined)?.text ?? "");
 
     const uploadUrl = await ctx.storage.generateUploadUrl();
     const res = await fetch(`${base}/render/video-hook-demo`, {
       method: "POST",
       headers: renderServiceHeaders(),
       body: JSON.stringify({
-        hookUrl,
+        hookUrl: captioned?.url ?? hookUrl,
         demoUrl,
         dimensions: "9:16",
         captionText,
@@ -321,6 +400,8 @@ export const stitch = internalAction({
         uploadUrl,
       }),
     });
+    // The captioned clip was only ever an input to this render.
+    if (captioned) await ctx.storage.delete(captioned.storageId);
     if (!res.ok) throw new Error(`render service failed: ${res.status} ${await res.text()}`);
 
     const out = (await res.json()) as {
@@ -355,7 +436,7 @@ export const stitch = internalAction({
       jobId,
       stepId: "stitch",
       state: "done",
-      output: { files: [{ name: "output.mp4" }] },
+      output: { files: [{ name: "output.mp4" }], ...(design ? { design } : {}) },
     });
     await ctx.runMutation(internal.jobs.setOutputs, { jobId, assetIds: [assetId] });
     return null;

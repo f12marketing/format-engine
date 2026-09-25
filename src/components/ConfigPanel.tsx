@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useAction } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { UploadField } from "./UploadField";
 import { MultiUploadField } from "./MultiUploadField";
 import { TrendingClipField } from "./TrendingClipField";
 import { HookField } from "./HookField";
+import { DemoVideoField } from "./DemoVideoField";
 import { BusinessProfileCard } from "./BusinessProfileCard";
 import { AvatarField } from "./AvatarField";
 import { AudioClipField } from "./AudioClipField";
@@ -419,13 +420,15 @@ function Control({
           />
           <div className="mt-1 flex items-center gap-3">
             {field.improvable && convexConfigured && (
-              <ImproveButton text={text} values={values} onImproved={(t) => onChange(t)} />
+              <ImproveButton kind={field.improvable} text={text} values={values} onImproved={(t) => onChange(t)} />
             )}
-            {field.maxLength && (
+            {field.words ? (
+              <WordCount text={text} min={field.words.min} max={field.words.max} />
+            ) : field.maxLength ? (
               <p className="ml-auto font-mono text-[0.65rem] tabular-nums text-muted">
                 {text.length} / {field.maxLength}
               </p>
-            )}
+            ) : null}
           </div>
         </div>
       );
@@ -564,6 +567,15 @@ function Control({
 
     case "image":
     case "video":
+      if (field.kind === "video" && field.library) {
+        return convexConfigured ? (
+          <AuthorisedBoundary>
+            <DemoVideoField value={value} onChange={onChange} label={field.label} />
+          </AuthorisedBoundary>
+        ) : (
+          <Placeholder kind={field.kind} />
+        );
+      }
       // Needs a deployment to upload to; without one the control would fail on
       // its first click, so say why instead.
       return convexConfigured ? (
@@ -641,6 +653,10 @@ function Control({
  * then -- in the chosen language and delivery -- so the difference it makes
  * is on screen before anything is generated. Undo puts the old line back;
  * "Another take" rewrites again, e.g. after changing the language.
+ *
+ * With no business details saved yet there is nothing to write from, so it
+ * says so -- over the business card it opens right underneath -- instead of
+ * calling the writer to be told the same thing.
  */
 function PersonalizingToggle({
   id,
@@ -658,6 +674,7 @@ function PersonalizingToggle({
   setField: (key: string, v: unknown) => void;
 }) {
   const personalize = useAction(api.speakingHookDemo.personalizeLine);
+  const brand = useQuery(api.brands.mine);
   const [busy, setBusy] = useState(false);
   const [previous, setPrevious] = useState<string | null>(null);
   const [business, setBusiness] = useState<string | null>(null);
@@ -665,6 +682,11 @@ function PersonalizingToggle({
 
   async function rewrite() {
     const current = typeof values[target] === "string" ? (values[target] as string) : "";
+    // Still loading (undefined) goes ahead: the server gives the same answer.
+    if (brand !== undefined && !brand?.description) {
+      setError(NEEDS_BUSINESS);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -673,6 +695,10 @@ function PersonalizingToggle({
         delivery: typeof values.delivery === "string" ? values.delivery : undefined,
         language: typeof values.language === "string" ? values.language : undefined,
       });
+      if ("needsBusiness" in res) {
+        setError(NEEDS_BUSINESS);
+        return;
+      }
       setPrevious(current);
       setBusiness(res.business);
       setField(target, res.saying);
@@ -744,35 +770,58 @@ function PersonalizingToggle({
 }
 
 /**
- * Rewrites the prompt into a sharper brief for the images picked above it.
- * The last version is kept for one Undo -- an improvement the client doesn't
- * like should cost them nothing to walk back.
+ * Rewrites what was typed: an Image Slideshow prompt into a sharper brief for
+ * the images picked above it, or a Video Hook & Demo caption into a punchier
+ * 10-12 word hook. The last version is kept for one Undo -- an improvement
+ * the client doesn't like should cost them nothing to walk back.
  */
 function ImproveButton({
+  kind,
   text,
   values,
   onImproved,
 }: {
+  kind: "slideshowPrompt" | "hookCaption";
   text: string;
   values: Record<string, unknown>;
   onImproved: (text: string) => void;
 }) {
-  const improve = useAction(api.imageSlideshow.improvePrompt);
+  const improvePrompt = useAction(api.imageSlideshow.improvePrompt);
+  const improveCaption = useAction(api.videoHookDemo.improveCaption);
+  const brand = useQuery(api.brands.mine);
   const [busy, setBusy] = useState(false);
   const [previous, setPrevious] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const hook = kind === "hookCaption";
 
   async function onClick() {
+    const mentionBusiness = Boolean(values.mentionBusiness);
+    // A caption from nothing is written from the business, so it needs one --
+    // said here rather than by a call that can only refuse.
+    if (hook && !text.trim()) {
+      if (!mentionBusiness) {
+        setError("Type a caption first, or switch on Mention your business so we can write one.");
+        return;
+      }
+      if (brand !== undefined && !brand?.description) {
+        setError(NEEDS_BUSINESS);
+        return;
+      }
+    }
     setBusy(true);
     setError(null);
     try {
-      const { prompt } = await improve({
-        prompt: text,
-        images: typeof values.images === "string" ? values.images : undefined,
-        mentionBusiness: Boolean(values.mentionBusiness),
-      });
+      const improved = hook
+        ? (await improveCaption({ caption: text, mentionBusiness })).caption
+        : (
+            await improvePrompt({
+              prompt: text,
+              images: typeof values.images === "string" ? values.images : undefined,
+              mentionBusiness,
+            })
+          ).prompt;
       setPrevious(text);
-      onImproved(prompt);
+      onImproved(improved);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(/Uncaught Error: ([^\n]+)/.exec(msg)?.[1] ?? msg);
@@ -792,7 +841,17 @@ function ImproveButton({
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={busy ? "animate-pulse" : ""}>
           <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
         </svg>
-        {busy ? "Improving…" : text.trim() ? "Improve" : "Suggest a topic"}
+        {busy
+          ? hook
+            ? "Improvising…"
+            : "Improving…"
+          : hook
+            ? text.trim()
+              ? "Improvise"
+              : "Write one for me"
+            : text.trim()
+              ? "Improve"
+              : "Suggest a topic"}
       </button>
       {previous !== null && !busy && (
         <button
@@ -808,6 +867,22 @@ function ImproveButton({
       )}
       {error && <span className="text-xs text-accent">{error}</span>}
     </div>
+  );
+}
+
+const NEEDS_BUSINESS = "Add your business details first — they're what it's written from.";
+
+/** "11 words", in the accent colour once it's outside the range the format aims for. */
+function WordCount({ text, min, max }: { text: string; min: number; max: number }) {
+  const n = text.trim().match(/\S+/g)?.length ?? 0;
+  const off = n > 0 && (n < min || n > max);
+  return (
+    <p
+      className={`ml-auto font-mono text-[0.65rem] tabular-nums ${off ? "text-accent" : "text-muted"}`}
+      title={`Aim for ${min}–${max} words`}
+    >
+      {n} {n === 1 ? "word" : "words"} · {min}–{max}
+    </p>
   );
 }
 

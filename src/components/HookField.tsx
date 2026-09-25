@@ -7,8 +7,6 @@ import {
   AnyoneTab,
   describe as describePerson,
   Faces,
-  ImageIcon,
-  ImagesTab,
   InfluencersTab,
   PeopleIcon,
   PersonIcon,
@@ -18,16 +16,21 @@ import {
   usePeople,
 } from "./AvatarField";
 import { isVideoRef, useVideoUpload } from "./VideoLibrary";
-import { clipName, TrendingGrid, useClips } from "./TrendingClipField";
+import { clipName, useClips } from "./TrendingClipField";
 
 /**
  * The hook popup: the opening seconds of a hook + demo ad, chosen one of two
  * ways, grouped that way in the tab row --
  *
- *   Ready to use   Trending (reaction mode only), My hooks
- *   New            Anyone, Influencers, Pre-made, My images -- someone we
- *                  film reacting ("reaction") or who says a new line
- *                  ("speaking")
+ *   Ready to use   My hooks, My videos -- any video of the client's, or a
+ *                  new upload, used as it is
+ *   New            Anyone, Influencers, Pre-made -- someone we film reacting
+ *                  ("reaction") or who says a new line ("speaking")
+ *
+ * The same tabs in both modes; speaking only leads with the casting ones.
+ *
+ * A "clip:" ref from the trending library, which the popup no longer offers,
+ * is still described, so older jobs' picks read properly.
  *
  * Unlike the casting popup, nothing is applied on the first tap: a hook is
  * judged by watching it, so a tap selects (a video starts playing with
@@ -38,7 +41,7 @@ import { clipName, TrendingGrid, useClips } from "./TrendingClipField";
  * "clip:<id>", "video:<assetId>", or a roster ref (convex/lib/roster.ts).
  */
 type Mode = "reaction" | "speaking";
-type Tab = "trending" | "mine" | "anyone" | "influencers" | "premade" | "images";
+type Tab = "mine" | "videos" | "anyone" | "influencers" | "premade";
 type Hook = NonNullable<ReturnType<typeof useHooks>>[number];
 
 function useHooks() {
@@ -112,7 +115,12 @@ export function HookField({
 // ---------------------------------------------------------------- data
 
 function useHookData() {
-  return { people: usePeople(), clips: useClips(), hooks: useHooks() };
+  return {
+    people: usePeople(),
+    clips: useClips(),
+    hooks: useHooks(),
+    videos: useQuery(api.assets.mediaLibrary, { kind: "video" }),
+  };
 }
 type HookData = ReturnType<typeof useHookData>;
 
@@ -130,7 +138,7 @@ function describeHook(ref: string | null, data: HookData, mode: Mode): Shown {
   if (!ref) {
     return {
       title: "Choose your hook",
-      sub: mode === "reaction" ? "A trending clip, one of yours, or someone new" : "Reuse a hook, or pick who says a new line",
+      sub: mode === "reaction" ? "One of your hooks or videos, or someone new" : "Pick who says a new line, or reuse a hook or video",
       faces: [],
     };
   }
@@ -145,12 +153,16 @@ function describeHook(ref: string | null, data: HookData, mode: Mode): Shown {
   }
   if (ref.startsWith("video:")) {
     const h = data.hooks?.find((x) => x.id === ref.slice(6));
+    if (h) return { title: hookTitle(h), sub: hookSub(h), faces: [], videoUrl: h.url, poster: h.posterUrl };
+    const vid = data.videos?.find((x) => x.id === ref.slice(6));
     return {
-      title: h ? hookTitle(h) : "Your hook",
-      sub: h ? hookSub(h) : "From My hooks",
+      title: "Your video",
+      sub: vid
+        ? [vid.uploaded ? "Upload" : "Made here", vid.durationSec ? clock(vid.durationSec) : null].filter(Boolean).join(" · ")
+        : "From My videos",
       faces: [],
-      videoUrl: h?.url,
-      poster: h?.posterUrl,
+      videoUrl: vid?.url,
+      poster: vid?.posterUrl,
     };
   }
   const person = describePerson(ref, data.people, { label: "" });
@@ -224,14 +236,13 @@ function HookDialog({
   }, [close]);
 
   const ready: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    ...(mode === "reaction" ? [{ id: "trending" as const, label: "Trending", icon: <FlameIcon /> }] : []),
     { id: "mine", label: "My hooks", icon: <HookIcon size={16} /> },
+    { id: "videos", label: "My videos", icon: <VideoIcon /> },
   ];
   const fresh: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "anyone", label: "Anyone", icon: <PeopleIcon /> },
     { id: "influencers", label: "Influencers", icon: <PersonIcon /> },
     { id: "premade", label: "Pre-made", icon: <SparkIcon /> },
-    { id: "images", label: "My images", icon: <ImageIcon /> },
   ];
   // Speaking leads with casting, as a new line is the usual reason to be here.
   const groups =
@@ -262,8 +273,8 @@ function HookDialog({
             <h2 className="text-lg font-semibold tracking-tight">Choose your hook</h2>
             <p className="mt-0.5 text-sm text-muted">
               {mode === "reaction"
-                ? "Open on a trending clip, reuse one you’ve made, or cast someone and we’ll film them reacting."
-                : "Reuse a hook you’ve already made, or pick who says a new line."}
+                ? "Open on one of your hooks or videos, or cast someone and we’ll film them reacting."
+                : "Pick who says a new line, or reuse one of your hooks or videos as it is."}
             </p>
           </div>
           <button
@@ -312,21 +323,13 @@ function HookDialog({
         </nav>
 
         <div className="min-h-[320px] flex-1 overflow-y-auto px-5 py-5 sm:px-7">
-          {tab === "trending" && (
-            <TrendingGrid
-              clips={data.clips}
-              chosen={chosen?.startsWith("clip:") ? chosen.slice(5) : null}
-              onSelect={(id) => setChosen(`clip:${id}`)}
-              onUse={(id) => onPick(`clip:${id}`)}
-            />
-          )}
           {tab === "mine" && <MyHooksTab mode={mode} hooks={data.hooks} chosen={chosen} onSelect={setChosen} onUse={onPick} />}
+          {tab === "videos" && <MyVideosTab videos={data.videos} chosen={chosen} onSelect={setChosen} onUse={onPick} />}
           {tab === "anyone" && (
             <AnyoneTab value={chosen} options={{ label }} people={data.people} onPick={(r) => setChosen(r)} />
           )}
           {tab === "influencers" && <InfluencersTab value={chosen} people={data.people} onPick={setChosen} />}
           {tab === "premade" && <PremadeTab value={chosen} people={data.people} onPick={setChosen} />}
-          {tab === "images" && <ImagesTab value={chosen} onPick={setChosen} />}
         </div>
 
         <footer className="shrink-0 border-t border-line px-5 py-3 sm:px-7">
@@ -362,11 +365,15 @@ function HookDialog({
 }
 
 function initialTab(value: string | null, mode: Mode, data: HookData): Tab {
-  if (!value) return mode === "reaction" ? "trending" : "anyone";
-  if (value.startsWith("clip:")) return "trending";
-  if (value.startsWith("video:")) return "mine";
+  if (!value) return mode === "reaction" ? "mine" : "anyone";
+  // A trending clip, from before the tab went: the nearest thing still offered.
+  if (value.startsWith("clip:")) return "mine";
+  if (value.startsWith("video:")) {
+    return data.hooks?.some((h) => h.id === value.slice(6)) ? "mine" : "videos";
+  }
   if (value.startsWith("cast:")) return "anyone";
-  if (value.startsWith("image:")) return "images";
+  // An uploaded photo, from before My images went: it's a person, so Anyone.
+  if (value.startsWith("image:")) return "anyone";
   if (value.startsWith("gallery:") || data.people.avatars?.find((a) => a.id === value)?.house) return "premade";
   return "influencers";
 }
@@ -467,7 +474,74 @@ function MyHooksTab({
   );
 }
 
-function VideoTile({
+// ---------------------------------------------------------------- My videos
+
+type LibraryVideo = NonNullable<HookData["videos"]>[number];
+
+/**
+ * Any video of the client's -- an upload, or one made here -- opening the
+ * demo as it is. Uploading from here takes videos only: the picker is
+ * filtered to them, and anything else chosen through "All files" is refused
+ * before it's sent.
+ */
+export function MyVideosTab({
+  videos,
+  chosen,
+  onSelect,
+  onUse,
+}: {
+  videos: LibraryVideo[] | undefined;
+  chosen: string | null;
+  onSelect: (ref: string) => void;
+  onUse: (ref: string) => void;
+}) {
+  const upload = useVideoUpload((assetId) => onSelect(`video:${assetId}`));
+
+  return (
+    <div className="space-y-4">
+      <p className="max-w-2xl text-sm text-muted">
+        Open on any video of yours, as it is — we use its first few seconds, then cut to your demo. Free.
+      </p>
+      {upload.error && <p className="text-sm text-accent">{upload.error}</p>}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+        <button
+          type="button"
+          onClick={upload.pick}
+          disabled={upload.busy}
+          className="flex aspect-[9/16] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-line-strong px-3 text-center text-sm text-muted transition hover:border-accent hover:bg-accent-soft hover:text-accent disabled:opacity-60"
+        >
+          <span className="grid size-10 place-items-center rounded-full bg-surface-sub">
+            <UploadIcon />
+          </span>
+          {upload.busy ? "Uploading…" : "Upload a video"}
+          <span className="text-[0.65rem]">Videos only · MP4, MOV or WebM</span>
+        </button>
+        {videos === undefined
+          ? Array.from({ length: 3 }, (_, i) => <span key={i} className="aspect-[9/16] animate-pulse rounded-2xl bg-surface-sub" />)
+          : videos.map((a) => (
+              <VideoTile
+                key={a.id}
+                url={a.url}
+                poster={a.posterUrl}
+                selected={chosen === `video:${a.id}`}
+                badge={a.uploaded ? "Upload" : "Made here"}
+                title="Your video"
+                sub={new Date(a.createdAt).toLocaleDateString()}
+                seconds={a.durationSec}
+                onSelect={() => onSelect(`video:${a.id}`)}
+                onUse={() => onUse(`video:${a.id}`)}
+              />
+            ))}
+      </div>
+      {videos !== undefined && !videos.length && (
+        <p className="text-xs text-muted">No videos yet. Upload one, and it stays here for next time.</p>
+      )}
+      {upload.input}
+    </div>
+  );
+}
+
+export function VideoTile({
   url,
   poster,
   selected,
@@ -546,7 +620,7 @@ function VideoTile({
 
 // ---------------------------------------------------------------- bits
 
-function clock(sec: number): string {
+export function clock(sec: number): string {
   const s = Math.round(sec);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
@@ -561,10 +635,11 @@ function HookIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-function FlameIcon() {
+function VideoIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5.3 1.6 1.2 2.5 2 2.5-1-3 0-5.5 1-8Z" />
+      <rect x="3" y="6" width="13" height="12" rx="2.5" />
+      <path d="m16 10 5-3v10l-5-3" />
     </svg>
   );
 }

@@ -267,15 +267,15 @@ function wallOfTextStepCost(stepId: string, values: Record<string, unknown>): nu
 }
 
 /**
- * Video Hook & Demo: a short caption call, and -- only when someone is filmed
- * reacting -- the same qwen frame and Kling clip as Wall of Text, for the
- * fixed 4s hook. Mirrors stageReaction and REACTION_SECONDS in
- * convex/videoHookDemo.ts. A picked clip is free.
+ * Video Hook & Demo: a short caption call -- free when the caption was typed
+ * -- and, only when someone is filmed reacting, the same qwen frame and Kling
+ * clip as Wall of Text, for the fixed 4s hook. Mirrors stageReaction and
+ * REACTION_SECONDS in convex/videoHookDemo.ts. A picked clip is free.
  */
 function videoHookDemoStepCost(stepId: string, values: Record<string, unknown>): number {
   switch (stepId) {
     case "copy":
-      return llmUsd(1400 + words(values.prompt) * TOKENS_PER_WORD, 80);
+      return words(values.caption) ? 0 : llmUsd(1400, 80);
     case "scene":
       return RATES.compositePerUnit;
     case "film":

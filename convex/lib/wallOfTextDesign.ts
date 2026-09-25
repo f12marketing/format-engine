@@ -126,6 +126,22 @@ export function defaultDesign(text: string): WallDesign {
   };
 }
 
+/**
+ * Video Hook & Demo's caption, in the same design so it gets the same studio:
+ * the reference hooks' look -- one short line, bolder and larger than a wall
+ * of text, outlined, mid-frame over the reaction.
+ */
+export function hookCaptionDesign(text: string): WallDesign {
+  return {
+    ...defaultDesign(text),
+    weight: 700,
+    size: text.length > 70 ? 60 : 68,
+    stroke: 4,
+    y: 0.45,
+    width: 0.86,
+  };
+}
+
 /** One-click looks: the "Colours" row. Each is a partial design laid over the current one. */
 export const LOOKS: { id: string; label: string; patch: Partial<WallDesign> }[] = [
   {

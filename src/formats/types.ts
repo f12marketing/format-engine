@@ -147,11 +147,14 @@ export interface TextField extends FieldBase {
   /** Visible lines of a long text. Defaults to 4; a script wants more. */
   rows?: number;
   /**
-   * Puts an "Improve" button under a long text, which rewrites what was typed
-   * into a sharper brief for this format (and its chosen template) without
-   * saving anything -- the new text simply replaces the old in the field.
+   * Puts a rewrite button under a long text, which rewrites what was typed
+   * without saving anything -- the new text simply replaces the old in the
+   * field. Names what it is rewritten into: a sharper brief for an Image
+   * Slideshow ("Improve"), or a punchier hook caption ("Improvise").
    */
-  improvable?: boolean;
+  improvable?: "slideshowPrompt" | "hookCaption";
+  /** A word count to aim for, shown as a counter under a long text. Advisory: the panel doesn't cut anything. */
+  words?: { min: number; max: number };
 }
 
 export interface SimpleField extends FieldBase {
@@ -165,6 +168,12 @@ export interface SimpleField extends FieldBase {
    * because "All files" in the OS dialog defeats the accept attribute alone.
    */
   videoOnly?: boolean;
+  /**
+   * For "video": chosen in a popup -- the client's own videos, or a new
+   * upload -- rather than by uploading every time. The value is still the
+   * bare asset id an upload stores.
+   */
+  library?: boolean;
   /**
    * For "images": how many files the control accepts. A cast of recurring
    * characters is several reference sheets, not one -- but every edit model
