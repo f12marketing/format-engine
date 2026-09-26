@@ -201,6 +201,10 @@ export function JobView({ jobId }: { jobId: string }) {
         <EditCaptionsAgain job={job} />
       )}
 
+      {job.status === "done" && job.formatId === "speaking-hook-demo" && (
+        <EditSpeakerCaptionsAgain job={job} />
+      )}
+
       {(job.status === "done" || job.status === "failed") && job.formatId === "green-screen-meme" && (
         <EditMemeAgain job={job} />
       )}
@@ -404,6 +408,7 @@ function EditWallAgain({
   const router = useRouter();
   const generate = useMutation(api.run.generate);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const design = (job.steps.find((s) => s.id === "render")?.output as { design?: unknown } | undefined)
     ?.design;
   if (!design) return null;
@@ -429,19 +434,21 @@ function EditWallAgain({
         remixedFromJobId: job._id,
       });
       router.push(`/jobs/${jobId}`);
-    } catch {
+    } catch (e) {
       setBusy(false);
+      setError(againError(e));
     }
   }
 
   return (
-    <button
+    <AgainButton
+      error={error}
       onClick={onClick}
       disabled={busy}
       className="mt-4 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent-soft disabled:opacity-60"
     >
       {busy ? "Opening the studio…" : "Edit text & style again"}
-    </button>
+    </AgainButton>
   );
 }
 
@@ -461,6 +468,7 @@ function EditCaptionsAgain({
   const router = useRouter();
   const generate = useMutation(api.run.generate);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const format = getFormat("video-hook-demo");
   if (!format) return null;
 
@@ -489,19 +497,87 @@ function EditCaptionsAgain({
         remixedFromJobId: job._id,
       });
       router.push(`/jobs/${jobId}`);
-    } catch {
+    } catch (e) {
       setBusy(false);
+      setError(againError(e));
     }
   }
 
   return (
-    <button
+    <AgainButton
+      error={error}
       onClick={onClick}
       disabled={busy}
       className="mt-4 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent-soft disabled:opacity-60"
     >
       {busy ? "Opening the editor…" : hasCaption ? "Edit captions again" : "Add captions"}
-    </button>
+    </AgainButton>
+  );
+}
+
+/**
+ * Speaking Hook & Demo's EditCaptionsAgain: reopens a finished job in the
+ * caption studio on the same speaker -- a new job, so the video already made
+ * stays as it is. A speaker this job rendered is one of My hooks now, so
+ * nothing is written, voiced or rendered again. One made without captions
+ * opens with what they say, to start from. Jobs from before the speaker was
+ * noted on the job have nothing to reopen on, and get no button.
+ */
+function EditSpeakerCaptionsAgain({
+  job,
+}: {
+  job: { _id: Id<"jobs">; config: unknown; steps: { id: string; output?: unknown }[] };
+}) {
+  const router = useRouter();
+  const generate = useMutation(api.run.generate);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const format = getFormat("speaking-hook-demo");
+  const outputOf = (id: string) => job.steps.find((s) => s.id === id)?.output as Record<string, unknown> | undefined;
+  const config = job.config as Record<string, unknown>;
+  const rendered = outputOf("avatar")?.assetId;
+  const speaker =
+    typeof rendered === "string"
+      ? `video:${rendered}`
+      : typeof config.speaker === "string" && /^(clip|video):/.test(config.speaker)
+        ? config.speaker
+        : undefined;
+  if (!format || !speaker) return null;
+
+  const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const line = text(config.caption) || text(config.saying) || text(outputOf("copy")?.text);
+  const design = outputOf("stitch")?.design ?? hookCaptionDesign(line);
+  // Before the studio, a job was subtitled unless its Subtitle style was None.
+  const hasCaption = Boolean(outputOf("stitch")?.design) || (config.captions !== false && config.captionStyle !== "None");
+
+  async function onClick() {
+    setBusy(true);
+    try {
+      const next = { ...config, design, captions: true, speaker };
+      const jobId = await generate({
+        formatId: "speaking-hook-demo",
+        config: next,
+        steps: format!.pipeline
+          .filter((s) => stepApplies(s, next) && s.id !== "copy")
+          .map((s) => ({ id: s.id, primitive: s.primitive, label: s.label })),
+        remixedFromJobId: job._id,
+      });
+      router.push(`/jobs/${jobId}`);
+    } catch (e) {
+      setBusy(false);
+      setError(againError(e));
+    }
+  }
+
+  return (
+    <AgainButton
+      error={error}
+      onClick={onClick}
+      disabled={busy}
+      className="mt-4 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent-soft disabled:opacity-60"
+    >
+      {busy ? "Opening the editor…" : hasCaption ? "Edit captions again" : "Add captions"}
+    </AgainButton>
   );
 }
 
@@ -524,6 +600,7 @@ function EditMemeAgain({
   const router = useRouter();
   const generate = useMutation(api.run.generate);
   const [busy, setBusy] = useState<"edit" | "render" | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const format = getFormat("green-screen-meme");
   const config = job.config as Record<string, unknown>;
   const designOf = (id: string) => (job.steps.find((s) => s.id === id)?.output as { design?: unknown } | undefined)?.design;
@@ -544,19 +621,21 @@ function EditMemeAgain({
         remixedFromJobId: job._id,
       });
       router.push(`/jobs/${jobId}`);
-    } catch {
+    } catch (e) {
       setBusy(null);
+      setError(againError(e));
     }
   }
 
   const edit = (
-    <button
+    <AgainButton
+      error={error}
       onClick={() => reopen("edit")}
       disabled={busy !== null}
       className="mt-4 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent-soft disabled:opacity-60"
     >
       {busy === "edit" ? "Opening the editor…" : "Edit meme again"}
-    </button>
+    </AgainButton>
   );
   if (!failed) return edit;
   return (
@@ -589,6 +668,7 @@ function EditSlidesAgain({
   const router = useRouter();
   const generate = useMutation(api.run.generate);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const deckOf = (id: string) => (job.steps.find((s) => s.id === id)?.output as { deck?: unknown } | undefined)?.deck;
   // A finished export records the deck it drew; a failed one never got that
   // far, but Save left the deck on the editor step.
@@ -607,19 +687,21 @@ function EditSlidesAgain({
         remixedFromJobId: job._id,
       });
       router.push(`/jobs/${jobId}`);
-    } catch {
+    } catch (e) {
       setBusy(false);
+      setError(againError(e));
     }
   }
 
   return (
-    <button
+    <AgainButton
+      error={error}
       onClick={onClick}
       disabled={busy}
       className="mt-4 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent-soft disabled:opacity-60"
     >
       {busy ? "Opening the editor…" : failed ? "Open your slides and save again" : "Edit slides again"}
-    </button>
+    </AgainButton>
   );
 }
 
@@ -649,4 +731,28 @@ function StepDot({ state }: { state: string }) {
       className={`size-2.5 shrink-0 rounded-full ${DOT[state] ?? "bg-line-strong"}`}
     />
   );
+}
+
+/**
+ * An "again" button with the reason under it when the new job is refused --
+ * a photo or trending clip still waiting on the permission box, the spend cap,
+ * a rate limit. Without it the button just stopped spinning.
+ */
+function AgainButton({
+  error,
+  children,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { error: string | null }) {
+  return (
+    <>
+      <button {...props}>{children}</button>
+      {error && <p className="mt-2 text-xs text-accent">{error}</p>}
+    </>
+  );
+}
+
+/** A Convex error's own sentence, without the "Uncaught Error:" wrapper and stack. */
+function againError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /Uncaught Error: ([^\n]+)/.exec(msg)?.[1] ?? msg;
 }

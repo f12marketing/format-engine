@@ -28,6 +28,7 @@ import { captionHook } from "./lib/hookCaption";
  * The caption is Video Hook & Demo's: the Captions box (or, left blank, what
  * they say), edited and styled in Wall of Text's studio once the speaker
  * exists, then burned onto the speaker clip before the demo is joined on.
+ * With Add captions off there's no studio and no caption at all.
  * Jobs from before the studio have no "style" step and keep the old
  * Subtitle style burn-in.
  */
@@ -38,10 +39,14 @@ interface SpeakingConfig {
   language?: string;
   mentionBusiness?: boolean;
   demoVideo?: Id<"assets">;
+  /** The "Add captions" switch. Off skips the studio; older jobs have none and are captioned. */
+  captions?: boolean;
   /** The Captions box: the on-screen line, word for word. Blank is what they say. */
   caption?: string;
   /** Before the studio, how the subtitles looked. Still read for older jobs. */
   captionStyle?: string;
+  /** Set by "Add captions" / "Edit captions again": a finished job's design, reopened in the studio. */
+  design?: unknown;
 }
 
 /** A spoken hook plays in full; this caps what one caption pass may encode. */
@@ -288,7 +293,7 @@ export const keepHook = internalAction({
       if (!res.ok) throw new Error(`fetch ${res.status}`);
       const blob = await res.blob();
       const storageId = await ctx.storage.store(blob);
-      await ctx.runMutation(internal.assets.record, {
+      const assetId = await ctx.runMutation(internal.assets.record, {
         clientId,
         storageId,
         mimeType: "video/mp4",
@@ -296,6 +301,13 @@ export const keepHook = internalAction({
         durationSec: avatar.durationSec,
         hookKind: "speaking",
         hookLine: line || undefined,
+      });
+      // Noted on the step, so "Add captions" / "Edit captions again" can
+      // reopen the studio on this clip rather than render the speaker again.
+      await ctx.runMutation(internal.jobs.patchStep, {
+        jobId,
+        stepId: "avatar",
+        output: { ...avatar, assetId },
       });
     } catch (e) {
       console.warn(`couldn't keep the hook for job ${jobId}:`, e instanceof Error ? e.message : e);
@@ -338,7 +350,7 @@ export const openStudio = internalAction({
       jobId,
       stepId: "style",
       output: {
-        design: hookCaptionDesign(line),
+        design: config.design ? sanitizeDesign(config.design) : hookCaptionDesign(line),
         videoUrl: await speakerClip(ctx, job, clientId),
         audioUrl: null,
         previewSeconds: null,
@@ -372,15 +384,16 @@ export const stitch = internalAction({
     if (!demoUrl) throw new Error("The demo video upload could not be read.");
 
     // The studio's design, when this run went through it: burned onto the
-    // speaker clip first, in a pass of its own. A job from before the studio
-    // has no "style" step, and keeps its Subtitle style burn-in ("None" being
-    // no subtitles at all).
+    // speaker clip first, in a pass of its own. Add captions switched off
+    // skips the studio and means no caption at all. A job from before the
+    // studio has no "style" step either, and keeps its Subtitle style burn-in
+    // ("None" being no subtitles at all).
     const approved = (job.steps.find((s) => s.id === "style")?.output as { design?: unknown } | undefined)
       ?.design;
     const design = approved ? sanitizeDesign(approved) : null;
     const captioned = design && hasText(design) ? await captionHook(ctx, hookUrl, design, MAX_HOOK_SECONDS) : null;
     const captionText =
-      approved || config.captionStyle === "None"
+      approved || config.captions === false || config.captionStyle === "None"
         ? ""
         : config.saying?.trim() ||
           ((job.steps.find((s) => s.id === "copy")?.output as { text?: string } | undefined)?.text ?? "");
