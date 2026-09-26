@@ -90,6 +90,18 @@ compliance rules above.
   Screen Meme captions, the fake-review rule, onboarding. Reviewed and left
   as they were: the rest of `convex/` as of that date.
 
+**Before deploying.** Deployment hasn't happened yet, and the README's
+*Deployment checklist* opens with step 0: approvals only a person can get
+(KLIPY's written confirmation, a Freesound commercial license, a privacy
+policy, a legal review, the scraping decision, the Zernio account setup).
+- Before any deployment step -- `npx convex deploy`, a Vercel or Railway
+  deploy, `--prod` env changes, pointing production at a service -- stop
+  and remind the user of every box in step 0 that is still open.
+- Don't go ahead while any is open unless the user says so explicitly for
+  that deploy.
+- When an approval arrives, tick it in step 0 and do what it says (e.g.
+  `KLIPY_SERVER_RENDER_APPROVED`).
+
 **Secrets.**
 - Server keys live in the Convex deployment (`npx convex env set`). Never put
   them in `.env.local` or in code.

@@ -310,7 +310,9 @@ https://freesound.org/apiv2/apply, then:
 npx convex env set FREESOUND_API_KEY <your key>
 ```
 
-Without it the tab says it isn't switched on, and uploads still work. A
+Without it the tab says it isn't switched on, and uploads still work. The
+free key is for non-commercial use: production needs a commercial license
+from Freesound first (*Deployment checklist*, step 0). A
 picked track is copied into `audioTemplates` once (`convex/music.ts`), so a
 job keeps its music even if the track later leaves Freesound.
 
@@ -428,6 +430,57 @@ anonymous local Convex backend, which has **no separate production
 deployment** -- `--prod` on it silently means the local one. Work through this
 in order when the repo is ready to host.
 
+**0. Approvals and decisions -- before anything goes live**
+
+Nothing below needs code; each one needs a person. Don't deploy for real users
+while any box here is open. Agents are told to stop and remind you of this list
+before any deployment step (AGENTS.md, *Before deploying*).
+
+- [ ] **KLIPY -- written confirmation for server-side use.** Email
+      developers@klipy.com and get their OK, *in writing*, for the render
+      service fetching a picked meme server-side to burn it into a video.
+      KLIPY's terms only cover showing their media in the browser. Until the
+      confirmation arrives, KLIPY memes are preview-only (*KLIPY memes (render
+      gate)* above). Once it's in hand, keep a copy with the project records
+      and run `npx convex env set --prod KLIPY_SERVER_RENDER_APPROVED true`.
+      Separately, request **Production access** for the KLIPY key in the
+      Partner Panel (Testing is 100 requests an hour for every user).
+- [ ] **Freesound -- a commercial license for the API.** The Freesound API is
+      free for non-commercial use only; commercial use is negotiated case by
+      case with UPF (Freesound's owner) through Freesound's contact page. The
+      Platform music tab searches Freesound and copies tracks into clients'
+      videos, which is commercial use. Until a license is agreed, either leave
+      `FREESOUND_API_KEY` unset on production (the tab then says it isn't
+      switched on; uploads and generated music still work) or get the license
+      first. The tracks themselves are CC0, so the sound licenses are fine.
+- [ ] **Privacy policy and terms of service.** Publish both before real users
+      sign up. The privacy policy has to name every processor that receives
+      users' data: fal.ai (image, video, voice and the LLM -- including the
+      photos people upload), Zernio (posting), Supabase (sign-in), Convex
+      (database and storage), Railway (render service), Vercel (the app), and
+      KLIPY, Pexels, Pixabay and Freesound (searches). Needed for GDPR, CCPA and
+      the platforms' own developer terms.
+- [ ] **Legal review of the AI disclosure and consent wording.** The app
+      implements New York's synthetic performer law (GBL § 396-b), the EU AI
+      Act art. 50, the FTC's endorsement and fake-review rules (16 CFR 255 and
+      465), COPPA and likeness consent (*AI disclosure and likeness consent*
+      above) -- but none of it has been reviewed by a lawyer. Have counsel check
+      the caption disclosure line, the consent checkbox texts and the
+      fake-review rule before launch.
+- [ ] **Decide on trending-clip scraping.** Ingesting TikToks through
+      ScrapeCreators is against TikTok's terms, whatever rights a client
+      confirms for a clip. Either drop it (leave `SCRAPECREATORS_API_KEY` unset
+      on production -- nothing else depends on it) or move to licensed clips.
+- [ ] **TikTok and Instagram accounts through Zernio.** Confirm the TikTok
+      connection Zernio uses is audited for Direct Post (unaudited clients can
+      only post privately), and connect Instagram accounts with Facebook Login
+      if you want the *Paid partnership* label (Instagram Login can't set it).
+- [ ] **Render service on Railway is current.** Before pointing production at
+      it: `curl https://<railway-url>/health` shows `"aiLabel":true` and
+      `"browserWarm"` (the label route and the meme studio). Without the label
+      route, scheduling a video post stops with a "redeploy the render
+      service" message.
+
 **1. Convex -- a hosted production deployment**
 
 - [ ] `npx convex login`, link this repo to a Convex cloud project, and
@@ -481,11 +534,8 @@ in order when the repo is ready to host.
 - [ ] Zernio: point its webhook at `https://<name>.convex.site/zernio/events`.
       (fal's training webhook needs nothing -- it's built from `CONVEX_SITE_URL`.)
 - [ ] Freesound: optionally update the app's URL to the production domain.
-- [ ] KLIPY:
-      - Production access for the key, with ads set the way you want them in
-        the Partner Panel.
-      - Written approval (developers@klipy.com) for the render service
-        fetching a picked meme server-side to burn it into the video.
+- [ ] KLIPY: ads set the way you want them in the Partner Panel. The written
+      confirmation and Production access are in step 0.
 
 **5. First run on production**
 
@@ -700,7 +750,9 @@ touching posting, the casting popup, influencers or Character Swap.
   (`convex/lib/klipyTerms.ts`). Uploaded memes always render. Once KLIPY
   approves: `npx convex env set KLIPY_SERVER_RENDER_APPROVED true`.
 - **Music.** Platform music comes from Freesound, CC0 only (`music.ts`), and
-  generated music from ElevenLabs via fal. Both are cleared for commercial use.
+  generated music from ElevenLabs via fal. The CC0 tracks and ElevenLabs
+  output are cleared for commercial use, but the Freesound *API* is
+  non-commercial unless licensed -- see *Deployment checklist*, step 0.
 - **API keys.** Server keys live only in Convex env (`npx convex env set`);
   `.env.local` holds only `NEXT_PUBLIC_*` values that are public by design
   (Supabase publishable key, KLIPY app key). No key is committed in either
@@ -762,7 +814,11 @@ the spend cap stops a run rather than warning about it.
   the render service should eventually take a signed URL and fetch bytes
   itself.
 - The clip, audio and gallery libraries have no admin UI; curation is CLI-only.
-- **KLIPY server-side fetch is not yet approved.** KLIPY's terms ask for
+- **Open approvals block launch.** KLIPY's written confirmation, a Freesound
+  commercial license, a privacy policy, a legal review and the scraping
+  decision are all still open -- see *Deployment checklist*, step 0.
+- **KLIPY server-side fetch is not yet approved: a written confirmation is
+  needed.** KLIPY's terms ask for
   browser-only use; burning a meme into a video needs the render service to
   fetch it, which needs KLIPY's written OK (developers@klipy.com). The code
   already keeps to everything else: URLs unaltered, never stored, fetched for
