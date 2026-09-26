@@ -31,7 +31,7 @@ export async function requireClient(
 ): Promise<Doc<"clients">> {
   const client = await currentClient(ctx);
   if (!client) {
-    throw new Error("Not authorised. This is an invite-only tool.");
+    throw new Error("Not authorized. This is an invite-only tool.");
   }
   if (client.archived) {
     throw new Error("This account has been archived.");

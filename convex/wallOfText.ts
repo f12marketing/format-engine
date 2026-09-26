@@ -6,6 +6,7 @@ import type { ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import { businessBrief } from "./brands";
+import { testimonialRule } from "./lib/businessContext";
 import { callTool, LLM_MODEL, submitWithContentPolicyFallback } from "./lib/fal";
 import { animateClip, clipModelFor, clipRate, MAX_CLIP_SECONDS, MIN_CLIP_SECONDS } from "./lib/klingClip";
 import { resolveRosterPersona } from "./lib/roster";
@@ -118,9 +119,12 @@ How these posts sound:
 - No hashtags, no markdown, no quotation marks around the whole text.
 
 When you are told to mention a business:
-- Mention it the way someone mentions an app or shop they actually use --
-  "mine is downloading X", "been using X for this" -- mid-thought or near
-  the end. Never as an ad, a slogan or a call to action.
+- Once, mid-thought or near the end, the way someone passes on a find --
+  never as an ad, a slogan or a call to action.
+- The profile comes with a rule on whether the speaker has used it. Follow
+  it exactly, even where first person pulls the other way: when they
+  haven't, the confession is about the problem, and the business is what
+  they just heard about ("apparently X can...").
 - Use only what the business profile says. Never invent prices, results,
   features or claims it doesn't state.`;
 
@@ -168,7 +172,7 @@ async function writeFor(
         "Mention your business is on, but there are no business details yet. Add them on the Business page.",
       );
     }
-    business = `Business profile:\n${businessBrief(brand)}\n\nMention the business naturally, by name.`;
+    business = `Business profile:\n${businessBrief(brand)}\n\nMention the business naturally, by name.${testimonialRule(brand)}`;
   }
 
   const userPrompt = [
@@ -235,11 +239,11 @@ export const rewrite = action({
   args: { jobId: v.id("jobs"), current: v.optional(v.string()) },
   handler: async (ctx, { jobId, current }): Promise<{ text: string }> => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
       authUserId: identity.subject,
     });
-    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
 
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job || job.clientId !== client._id || job.formatId !== "wall-of-text") {

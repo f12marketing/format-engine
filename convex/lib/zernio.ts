@@ -191,6 +191,27 @@ export interface ZernioMediaItem {
 export interface ZernioTarget {
   platform: string;
   accountId: string;
+  /**
+   * This entry's own settings. Zernio reads platform settings ONLY here: a
+   * root-level `platformSpecificData` keyed by platform is ignored (the 201
+   * just carries a warning), which silently dropped YouTube's
+   * containsSyntheticMedia, Instagram's isAiGenerated and TikTok's consent
+   * flags. TikTok's go one level further down, under `tiktokSettings` --
+   * see `zernioPlatformData`.
+   */
+  platformSpecificData?: Record<string, unknown>;
+}
+
+/** A stored target's settings in the shape Zernio reads on a `platforms[]` entry. */
+export function zernioPlatformData(
+  platform: string,
+  data: unknown,
+): Record<string, unknown> | undefined {
+  if (!data || typeof data !== "object") return undefined;
+  const fields = data as Record<string, unknown>;
+  // Posts saved before this fix hold TikTok's fields flat.
+  if (platform === "tiktok" && !("tiktokSettings" in fields)) return { tiktokSettings: fields };
+  return fields;
 }
 
 export interface CreatePostInput {
@@ -201,8 +222,6 @@ export interface CreatePostInput {
   scheduledFor?: string;
   timezone?: string;
   isDraft?: boolean;
-  /** Keyed by platform, e.g. `{ tiktok: {...}, youtube: {...} }`. */
-  platformSpecificData?: Record<string, unknown>;
 }
 
 export interface ZernioPost {

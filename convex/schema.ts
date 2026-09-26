@@ -71,6 +71,11 @@ export default defineSchema({
     onboardedAt: v.optional(v.number()),
     /** "Skip for now": stops the automatic redirect without pretending it was answered. */
     onboardingSkippedAt: v.optional(v.number()),
+    /**
+     * Keep scripts from reading as a real customer's review (FTC endorsement
+     * rules). Unset means on; the client switches it off on the Business page.
+     */
+    testimonialGuard: v.optional(v.boolean()),
   }).index("by_client", ["clientId"]),
 
   /**
@@ -128,6 +133,16 @@ export default defineSchema({
      * Green Screen Meme popup's "My memes" tab can offer it again.
      */
     meme: v.optional(v.boolean()),
+    /**
+     * A face this app generated (P10 avatar, influencer base, gallery face):
+     * a synthetic person, so using it needs no one's permission.
+     */
+    synthetic: v.optional(v.boolean()),
+    /**
+     * When the client confirmed that the real person in this upload agreed
+     * to their likeness being animated by AI. See convex/lib/likeness.ts.
+     */
+    likenessConsentAt: v.optional(v.number()),
   })
     .index("by_client", ["clientId"])
     // Absent sorts before every string, so a range over the kinds is exactly the hooks.
@@ -328,6 +343,16 @@ export default defineSchema({
     ),
     caption: v.string(),
     mediaAssetIds: v.array(v.id("assets")),
+    /**
+     * The composer's AI-label choices (see convex/lib/disclosure.ts): burn an
+     * "AI-generated" badge into the frame, and/or tag the file's metadata.
+     */
+    aiLabel: v.optional(v.object({ burn: v.boolean(), metadata: v.boolean() })),
+    /**
+     * The labeled copies of `mediaAssetIds` that are actually posted, made
+     * once when the post is scheduled. Absent when nothing was labeled.
+     */
+    postedMediaAssetIds: v.optional(v.array(v.id("assets"))),
     /** Provenance: which generation produced this. Drives Analytics' by-format breakdown. */
     jobId: v.optional(v.id("jobs")),
     scheduledFor: v.optional(v.number()),
@@ -559,4 +584,16 @@ export default defineSchema({
   })
     .index("by_source_url", ["sourceUrl"])
     .index("by_ingested_at", ["ingestedAt"]),
+
+  /**
+   * A client's confirmation that they may use a trending clip -- someone
+   * else's video -- in their own ad (the creator's permission, or a licence).
+   * One row per client and clip; `run.generate` refuses a job using a clip
+   * without one. See `assertClipRights` in clips.ts.
+   */
+  clipRights: defineTable({
+    clientId: v.id("clients"),
+    clipId: v.id("clips"),
+    confirmedAt: v.number(),
+  }).index("by_client_clip", ["clientId", "clipId"]),
 });

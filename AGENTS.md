@@ -55,6 +55,41 @@ with usage rules. The README lists each rule and the code that follows it.
 Keep them when touching `src/lib/klipy.ts`, `src/components/meme/`,
 `convex/lib/memeDesign.ts` or `convex/imageSets.ts`.
 
+**Compliance with every AI model and service.** Standing rule for all work.
+- Before adding or changing anything that uses a model (fal: Seedance, Kling,
+  Wan, OmniHuman, ElevenLabs, Nano Banana, the LLM) or a service (Zernio and
+  the platforms it posts to, KLIPY, Pexels, Pixabay, Freesound,
+  ScrapeCreators), check that provider's current terms and the laws that
+  apply: AI disclosure (New York GBL § 396-b, EU AI Act art. 50), FTC
+  endorsement and fake-review rules, COPPA, likeness consent, copyright.
+- Where the user should make the final call, make it a switch or checkbox
+  (the post composer's AI labels, *Paid partnership*, likeness consent).
+- Record each rule and the code that follows it in the README's *AI
+  disclosure and likeness consent* section.
+- Don't weaken what's there: likeness and clip-rights checks in
+  `run.generate`, the fake-review rule in `convex/lib/businessContext.ts`,
+  the per-platform settings shape in `convex/lib/zernio.ts`.
+
+**American English.** Every label, help text, error message and prompt is
+American English (color, center, analyze, license), and text over video is
+"captions", never "subtitles". Change only what people see: stored config
+keys, step ids and saved option values stay as they are, because old jobs
+hold them (the `subtitles` key stays; "Realising" is kept next to
+"Realizing" in `speechPrimitive.ts`).
+
+**Prompts.** Any prompt you add, change or come across that hasn't been
+tuned gets tuned: check it against how its output is used and against the
+compliance rules above.
+- Where a failure is plausible, measure it before and after with
+  `npm run prompt-eval` (`scripts/prompt-eval.mjs`), and add a case for the
+  prompt if it has none. Use `--ref HEAD` to score the committed version.
+- The script spends real fal credit, about a cent per sample, on LLM calls
+  only. Never test prompts by generating images or video without the user's
+  OK.
+- Prompts tuned on 2026-09-26: Wall of Text, Image Slideshow writer, Green
+  Screen Meme captions, the fake-review rule, onboarding. Reviewed and left
+  as they were: the rest of `convex/` as of that date.
+
 **Secrets.**
 - Server keys live in the Convex deployment (`npx convex env set`). Never put
   them in `.env.local` or in code.

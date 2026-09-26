@@ -13,6 +13,8 @@ import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireClient } from "./clients";
 import * as zernio from "./lib/zernio";
+import { jobShowsAiPerson } from "./lib/disclosure";
+import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 
 /**
  * Composed posts and their journey out to the platforms.
@@ -92,6 +94,29 @@ export const get = query({
   },
 });
 
+/**
+ * Whether the media being posted shows an AI-generated person, which turns
+ * the composer's caption disclosure on by default (see lib/disclosure.ts).
+ * Read from the job that made it -- the one the post names, or the one each
+ * asset was produced by, for a post composed from the Library.
+ */
+export const disclosure = query({
+  args: { jobId: v.optional(v.id("jobs")), mediaAssetIds: v.array(v.id("assets")) },
+  handler: async (ctx, { jobId, mediaAssetIds }): Promise<{ aiPerson: boolean }> => {
+    const client = await requireClient(ctx);
+    const jobIds = new Set<Id<"jobs">>(jobId ? [jobId] : []);
+    for (const assetId of mediaAssetIds) {
+      const asset = await ctx.db.get(assetId);
+      if (asset?.clientId === client._id && asset.producedByJobId) jobIds.add(asset.producedByJobId);
+    }
+    for (const id of jobIds) {
+      const job = await ctx.db.get(id);
+      if (job?.clientId === client._id && jobShowsAiPerson(job)) return { aiPerson: true };
+    }
+    return { aiPerson: false };
+  },
+});
+
 // ------------------------------------------------------------------- writing
 
 export const createDraft = mutation({
@@ -102,6 +127,7 @@ export const createDraft = mutation({
     targets: v.array(TARGET),
     scheduledFor: v.optional(v.number()),
     timezone: v.optional(v.string()),
+    aiLabel: v.optional(v.object({ burn: v.boolean(), metadata: v.boolean() })),
   },
   handler: async (ctx, args) => {
     const client = await requireClient(ctx);
@@ -126,21 +152,25 @@ export const createDraft = mutation({
       scheduledFor: args.scheduledFor,
       timezone: args.timezone,
       targets: args.targets.map((t) => ({ ...t, status: "pending" })),
+      aiLabel: args.aiLabel && (args.aiLabel.burn || args.aiLabel.metadata) ? args.aiLabel : undefined,
     });
   },
 });
 
+/** What is actually posted: the labeled copies once they exist, else the originals. */
 export const getForSchedule = internalQuery({
   args: { postId: v.id("socialPosts") },
   handler: async (ctx, { postId }) => {
     const post = await ctx.db.get(postId);
     if (!post) return null;
     const media = await Promise.all(
-      post.mediaAssetIds.map(async (id) => {
+      (post.postedMediaAssetIds ?? post.mediaAssetIds).map(async (id) => {
         const asset = await ctx.db.get(id);
         if (!asset) return null;
         return {
+          id,
           kind: asset.kind,
+          producedByJobId: asset.producedByJobId,
           // Convex storage URLs are permanent, unguessable and need no auth
           // header -- which is exactly Zernio's "publicly reachable HTTPS URL
           // that returns the file". The same trick already hands videos to
@@ -168,6 +198,74 @@ export const markScheduled = internalMutation({
   },
 });
 
+export const setPostedMedia = internalMutation({
+  args: { postId: v.id("socialPosts"), assetIds: v.array(v.id("assets")) },
+  handler: async (ctx, { postId, assetIds }) => {
+    await ctx.db.patch(postId, { postedMediaAssetIds: assetIds });
+  },
+});
+
+/**
+ * The composer's AI-label choices applied, once per post: each video (and,
+ * when burning, each image) goes through the render service's /label/ai and
+ * the copy is what gets posted. Anything left as it is keeps its own id.
+ */
+async function labelPostMedia(
+  ctx: ActionCtx,
+  clientId: Id<"clients">,
+  aiLabel: { burn: boolean; metadata: boolean },
+  media: { id: Id<"assets">; kind: string; url: string | null; producedByJobId?: Id<"jobs"> }[],
+): Promise<Id<"assets">[]> {
+  const base = renderServiceBase();
+  const health = await fetch(`${base}/health`)
+    .then((r) => (r.ok ? (r.json() as Promise<{ aiLabel?: boolean }>) : null))
+    .catch(() => null);
+  if (!health) throw new Error(`Could not reach the render service at ${base} to add the AI label.`);
+  if (health.aiLabel !== true) {
+    throw new Error(
+      "The render service is running old code that can't add the AI label. Restart it " +
+        "(cd ../render-service && npm start), or redeploy it, and schedule again.",
+    );
+  }
+
+  const ids: Id<"assets">[] = [];
+  for (const m of media) {
+    const kind = m.kind === "video" ? "video" : m.kind === "image" ? "image" : null;
+    // An image can't carry the metadata tag, so only a burned badge changes it.
+    if (!kind || !m.url || (kind === "image" && !aiLabel.burn)) {
+      ids.push(m.id);
+      continue;
+    }
+    const uploadUrl = await ctx.storage.generateUploadUrl();
+    const res = await fetch(`${base}/label/ai`, {
+      method: "POST",
+      headers: renderServiceHeaders(),
+      body: JSON.stringify({ mediaUrl: m.url, kind, burn: aiLabel.burn, metadata: aiLabel.metadata, uploadUrl }),
+    });
+    if (!res.ok) throw new Error(`Adding the AI label failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
+    const out = (await res.json()) as {
+      storageId: Id<"_storage">;
+      width: number;
+      height: number;
+      bytes: number;
+      contentType: string;
+    };
+    ids.push(
+      await ctx.runMutation(internal.assets.record, {
+        clientId,
+        // Same provenance as the original, so the copy still reads as that job's output.
+        producedByJobId: m.producedByJobId,
+        storageId: out.storageId,
+        mimeType: out.contentType,
+        bytes: out.bytes,
+        width: out.width,
+        height: out.height,
+      }),
+    );
+  }
+  return ids;
+}
+
 export const markFailed = internalMutation({
   args: { postId: v.id("socialPosts"), error: v.string() },
   handler: async (ctx, { postId, error }) => {
@@ -183,36 +281,37 @@ export const schedule = action({
   args: { postId: v.id("socialPosts") },
   handler: async (ctx, { postId }): Promise<{ zernioPostId: string }> => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
       authUserId: identity.subject,
     });
-    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
 
-    const loaded = await ctx.runQuery(internal.socialPosts.getForSchedule, { postId });
+    let loaded = await ctx.runQuery(internal.socialPosts.getForSchedule, { postId });
     if (!loaded || loaded.post.clientId !== client._id) throw new Error("Not found.");
+    if (!loaded.media.length) throw new Error("A post needs at least one video or image.");
+
+    // The AI label, if the composer asked for one: made once, then reused
+    // by every later attempt to schedule this post.
+    if (loaded.post.aiLabel && !loaded.post.postedMediaAssetIds) {
+      const assetIds = await labelPostMedia(ctx, client._id, loaded.post.aiLabel, loaded.media);
+      await ctx.runMutation(internal.socialPosts.setPostedMedia, { postId, assetIds });
+      loaded = await ctx.runQuery(internal.socialPosts.getForSchedule, { postId });
+      if (!loaded) throw new Error("Not found.");
+    }
     const { post, media } = loaded;
 
-    if (!media.length) throw new Error("A post needs at least one video or image.");
-
-    // Per-platform fields are keyed by platform name in one object, not
-    // carried per target, which is the shape Zernio's API expects.
-    const platformSpecificData: Record<string, unknown> = {};
-    for (const t of post.targets) {
-      if (t.platformSpecificData) platformSpecificData[t.platform] = t.platformSpecificData;
-    }
-
+    // Each target carries its own settings: Zernio reads them only on the
+    // `platforms[]` entry, never from a root-level object keyed by platform.
     const platforms = post.targets.map((t) => ({
       platform: t.platform,
       accountId: t.zernioAccountId,
+      platformSpecificData: zernio.zernioPlatformData(t.platform, t.platformSpecificData),
     }));
     const mediaItems = media.map((m) => ({
       url: m.url as string,
       type: m.kind === "video" ? ("video" as const) : ("image" as const),
     }));
-    const resolvedPlatformSpecificData = Object.keys(platformSpecificData).length
-      ? platformSpecificData
-      : undefined;
 
     try {
       // Dry-run Zernio's own publish pipeline before spending a real create
@@ -224,7 +323,6 @@ export const schedule = action({
         content: post.caption,
         platforms,
         mediaItems,
-        platformSpecificData: resolvedPlatformSpecificData,
       });
       if (!validation.valid) {
         throw new Error(validation.errors.map((e) => `${e.platform}: ${e.error}`).join("; "));
@@ -238,7 +336,6 @@ export const schedule = action({
           ? new Date(post.scheduledFor).toISOString()
           : undefined,
         timezone: post.timezone,
-        platformSpecificData: resolvedPlatformSpecificData,
       });
 
       await ctx.runMutation(internal.socialPosts.markScheduled, {
@@ -363,11 +460,11 @@ export const getInternal = internalQuery({
  */
 async function requireOwnPost(ctx: ActionCtx, postId: Id<"socialPosts">) {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+  if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
   const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
     authUserId: identity.subject,
   });
-  if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+  if (!client) throw new Error("Not authorized. This is an invite-only tool.");
 
   const post = await ctx.runQuery(internal.socialPosts.getInternal, { postId });
   if (!post || post.clientId !== client._id) throw new Error("Not found.");

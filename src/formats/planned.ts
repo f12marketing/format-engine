@@ -178,10 +178,12 @@ export const greenScreenMeme = defineFormat({
   phase: 3,
   /**
    * In the order the user works, as Video Hook & Demo's: what the meme goes
-   * on, the meme -- from Klipy's libraries or their own -- then the caption,
-   * typed, improvised, or left for P1 to write from the meme. Where the meme
-   * sits, how big, keyed or not, and how the text looks are all set
-   * afterwards, in the studio the run stops at.
+   * on, the meme -- from Klipy's libraries or their own -- then the caption:
+   * an Add captions switch, then a Hook caption box, typed, improvised, or
+   * left for P1 to write from the meme. Where the meme sits, how big, keyed
+   * or not, and how the text looks are all set afterwards, in the studio the
+   * run stops at. Switched off, the studio still opens, for the meme, with
+   * no caption on it.
    *
    * Jobs from before the studio hold `trendingClip`, `prompt` and `mode`, and
    * planned a "clip" step; convex/greenScreenMeme.ts still runs them.
@@ -197,6 +199,10 @@ export const greenScreenMeme = defineFormat({
       required: true,
       help: "GIFs, clips, stickers, memes and AI emojis, or one of your own.",
     }),
+    captions: field.captionOverlay({
+      label: "Add captions",
+      help: "A line of text over the meme. You edit and style it on the video once the meme is placed.",
+    }),
     caption: field.longText({
       label: "Hook caption",
       optional: true,
@@ -205,15 +211,17 @@ export const greenScreenMeme = defineFormat({
       words: { min: 5, max: 14 },
       placeholder: "me when the invoice pays itself before I've had my coffee",
       help: "The line over the meme. Improvise sharpens it; left blank, it's written from the meme.",
+      showWhen: { field: "captions", is: "present" },
     }),
     mentionBusiness: field.mentionBusiness(),
   },
   /**
    * "Render" absorbs the keying and the caption burn-in: the meme onto the
    * background and the approved text over both, in the one step that encodes.
+   * A typed caption still passes through "copy", which keeps it as it is.
    */
   pipeline: [
-    { id: "copy", primitive: "P1", label: "Write the hook caption", when: { field: "caption", is: "empty" } },
+    { id: "copy", primitive: "P1", label: "Write the hook caption", when: { field: "captions", is: "present" } },
     { id: "meme", primitive: "P9", label: "Fetch the meme" },
     // The studio: the run waits here while the meme and the text are placed.
     { id: "style", primitive: "P8", label: "Edit the meme", gate: true },
@@ -302,7 +310,7 @@ export const speakingHookDemo = defineFormat({
     }),
     delivery: field.choice({
       label: "How they say it",
-      options: ["Auto", "Shocked", "Outraged", "Realising", "Relieved", "Deadpan", "Excited", "Confused", "Smug"],
+      options: ["Auto", "Shocked", "Outraged", "Realizing", "Relieved", "Deadpan", "Excited", "Confused", "Smug"],
       default: "Auto",
       help: "Shapes the words, the voice and the performance.",
       showWhen: newSpeaker,
@@ -604,6 +612,15 @@ export const characterSwap = defineFormat({
       label: "Audio",
       options: ["Strip the audio", "Keep the original sound", "Convert the voice to the character"],
       default: "Keep the original sound",
+    }),
+    // A swap puts one person's face, and maybe voice, onto another's body:
+    // both have to have agreed. run.generate refuses a job without it.
+    likenessConsent: field.toggle({
+      label: "Permission from the people shown",
+      required: true,
+      help:
+        "Switch on to confirm everyone in the video and the image agreed to be swapped and " +
+        "used in AI-generated ads. Celebrities, customers or anyone from social media can't be used without it.",
     }),
   },
   pipeline: [

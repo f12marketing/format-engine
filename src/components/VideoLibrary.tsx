@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 
 /**
  * The casting popup's Videos tab: a clip from the trending library, one of
@@ -73,25 +74,82 @@ export function VideoLibrary({
   );
 }
 
+/**
+ * Other creators' videos: picking one records the client's confirmation that
+ * they may reuse it (convex/clips.ts), which the server checks again at
+ * Generate. The picked clip's creator and original post are shown, so it's
+ * clear whose permission that is.
+ */
 function TrendingGrid({ value, onPick }: { value: string | null; onPick: (ref: string) => void }) {
   const clips = useQuery(api.clips.list, { limit: 50 });
+  const confirmRights = useMutation(api.clips.confirmRights);
+  const [agreed, setAgreed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   if (clips === undefined) return <Note>Loading the trending library…</Note>;
   if (!clips.length) {
     return <Note>No trending clips yet. Upload your own, or ask whoever runs the deployment to ingest some.</Note>;
   }
+  const picked = clips.find((c) => value === `clip:${c.id}`);
+
+  async function pick(clipId: string) {
+    if (!agreed) {
+      setError("Tick the permission box first.");
+      return;
+    }
+    setError(null);
+    try {
+      await confirmRights({ clipId: clipId as Id<"clips"> });
+      onPick(`clip:${clipId}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   return (
-    <Grid>
-      {clips.map((c) => (
-        <Tile
-          key={c.id}
-          url={c.url}
-          selected={value === `clip:${c.id}`}
-          caption={c.creatorHandle ? `@${c.creatorHandle}` : c.source}
-          seconds={c.durationSec}
-          onPick={() => onPick(`clip:${c.id}`)}
+    <div className="space-y-3">
+      <label className="flex items-start gap-2 rounded-lg border border-accent bg-accent-soft p-3 text-xs">
+        <input
+          type="checkbox"
+          checked={agreed}
+          onChange={(e) => {
+            setAgreed(e.target.checked);
+            setError(null);
+          }}
+          className="mt-0.5"
         />
-      ))}
-    </Grid>
+        <span>
+          These are other creators&rsquo; videos. I have the creator&rsquo;s permission, or a license, to use
+          the clip I pick in my ad.
+        </span>
+      </label>
+      {error && <p className="text-sm text-accent">{error}</p>}
+      {picked && (
+        <p className="text-xs text-muted">
+          Picked: {picked.creatorHandle ? `@${picked.creatorHandle}` : picked.source} --{" "}
+          <a href={picked.sourceUrl} target="_blank" rel="noreferrer" className="text-accent underline">
+            original post
+          </a>
+          {picked.hasMusic && (
+            <span className="mt-1 block text-accent">
+              This clip has music in it. A song in someone else&rsquo;s clip isn&rsquo;t cleared for ads --
+              choose a Background music track to replace it.
+            </span>
+          )}
+        </p>
+      )}
+      <Grid>
+        {clips.map((c) => (
+          <Tile
+            key={c.id}
+            url={c.url}
+            selected={value === `clip:${c.id}`}
+            caption={c.creatorHandle ? `@${c.creatorHandle}` : c.source}
+            seconds={c.durationSec}
+            onPick={() => void pick(c.id)}
+          />
+        ))}
+      </Grid>
+    </div>
   );
 }
 

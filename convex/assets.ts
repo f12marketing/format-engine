@@ -56,6 +56,8 @@ export const record = internalMutation({
     durationSec: v.optional(v.number()),
     hookKind: v.optional(v.union(v.literal("speaking"), v.literal("reaction"))),
     hookLine: v.optional(v.string()),
+    /** A face the app generated rather than a real person's -- see lib/likeness.ts. */
+    synthetic: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<Id<"assets">> => {
     const kind = kindForMime(args.mimeType);

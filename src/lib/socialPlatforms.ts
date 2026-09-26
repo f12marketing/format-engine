@@ -145,7 +145,24 @@ export interface TikTokSettings {
   allow_stitch: boolean;
   content_preview_confirmed: boolean;
   express_consent_given: boolean;
+  /** TikTok's "AI-generated" label. Business-app accounts reject `true` on photo posts. */
+  video_made_with_ai: boolean;
+  commercialContentType: TikTokCommercialContent;
 }
+
+/**
+ * TikTok's commercial content disclosure, which TikTok requires on any post
+ * promoting a brand, product or service. "Your brand" shows a Promotional
+ * content label, "Branded content" a Paid partnership one. TikTok's posting
+ * guidelines have the switch start off, so it's the user's own declaration.
+ */
+export type TikTokCommercialContent = "none" | "brand_organic" | "brand_content";
+
+export const TIKTOK_COMMERCIAL_CONTENT: { value: TikTokCommercialContent; label: string }[] = [
+  { value: "none", label: "Not commercial" },
+  { value: "brand_organic", label: "Your brand (promotes your own business)" },
+  { value: "brand_content", label: "Branded content (paid partnership)" },
+];
 
 export const TIKTOK_PRIVACY_LEVELS = [
   { value: "PUBLIC_TO_EVERYONE", label: "Public" },

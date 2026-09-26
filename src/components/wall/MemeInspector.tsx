@@ -90,7 +90,7 @@ export function MemeInspector({
           ))}
         </div>
         <div className="flex flex-wrap gap-2">
-          <SmallButton onClick={() => update({ x: 0.5 }, `centre-${Date.now()}`)}>Centre</SmallButton>
+          <SmallButton onClick={() => update({ x: 0.5 }, `centre-${Date.now()}`)}>Center</SmallButton>
           <SmallButton onClick={() => update({ x: 0.5, w: 1 }, `fill-${Date.now()}`)}>Full width</SmallButton>
           <SmallButton onClick={() => update({ flip: !layer.flip }, `flip-${Date.now()}`)}>
             {layer.flip ? "Unflip" : "Flip ↔"}

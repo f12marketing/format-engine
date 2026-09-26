@@ -62,6 +62,10 @@ export const useFace = mutation({
       bytes: face.bytes,
       width: face.width,
       height: face.height,
+      // The gallery is curated by whoever runs this deployment (dev.ts):
+      // generated faces, or photos with a model release. Either way the
+      // client needs no consent of their own to cast one.
+      synthetic: true,
     });
   },
 });

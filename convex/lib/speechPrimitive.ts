@@ -66,6 +66,8 @@ async function voiceForSpeaker(
 const DELIVERY_TAGS: Record<string, string> = {
   Shocked: "[shocked] [gasps]",
   Outraged: "[outraged]",
+  Realizing: "[realizing] [slowly]",
+  // The option's spelling before the app went American English; older jobs hold it.
   Realising: "[realizing] [slowly]",
   Relieved: "[sighs] [relieved]",
   Deadpan: "[deadpan] [flat]",

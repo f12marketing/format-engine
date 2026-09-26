@@ -25,7 +25,7 @@ import { SCRIPT_MAX_CHARS } from "../../convex/lib/scriptTiming";
 export default defineFormat({
   id: "slideshow",
   name: "Slideshow",
-  blurb: "Script, voiceover and a new image every 3 seconds, with subtitles",
+  blurb: "Script, voiceover and a new image every 3 seconds, with captions",
   icon: "🖼️",
   group: "slides-text",
   preview: "video",
@@ -191,7 +191,7 @@ export default defineFormat({
       voiceoverBlurb:
         "Reads your Script aloud, in one take, before anything is drawn. Its length sets how many slides there are — one for every 3 seconds.",
       subtitlesBlurb:
-        "Word-by-word subtitles transcribed from the voiceover and burned in. They are the only text on the video, and they are on unless you switch them off.",
+        "Word-by-word captions transcribed from the voiceover and burned in. They are the only text on the video, and they are on unless you switch them off.",
     }),
     BRANDING_SECTION,
   ],
@@ -236,7 +236,7 @@ export default defineFormat({
     {
       id: "subtitles",
       primitive: "P8",
-      label: "Burn in subtitles",
+      label: "Burn in captions",
       when: { field: "subtitles", is: "present" },
     },
   ],

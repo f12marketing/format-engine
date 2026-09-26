@@ -7,6 +7,7 @@ import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { isVideoRef, VideoLibrary } from "./VideoLibrary";
 import { useVideoRefUrl } from "@/hooks/useVideoRefUrl";
+import { LikenessConsent } from "./LikenessConsent";
 
 /**
  * Who appears in the video -- "Who's walking", "Presenter", "Lead actor"
@@ -485,9 +486,12 @@ export function ImagesTab({ value, onPick }: { value: string | null; onPick: (re
   const images = useQuery(api.assets.mediaLibrary, { kind: "image" });
   const generateUploadUrl = useMutation(api.uploads.generateUploadUrl);
   const attach = useMutation(api.uploads.attach);
+  const confirmConsent = useMutation(api.uploads.confirmLikenessConsent);
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A real person is filmed from this photo, so it's never picked unconfirmed.
+  const [agreed, setAgreed] = useState(false);
 
   async function upload(file: File) {
     if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
@@ -501,7 +505,12 @@ export function ImagesTab({ value, onPick }: { value: string | null; onPick: (re
       const res = await fetch(url, { method: "POST", headers: { "Content-Type": file.type }, body: file });
       if (!res.ok) throw new Error(`upload failed (${res.status})`);
       const { storageId } = (await res.json()) as { storageId: string };
-      const assetId = await attach({ storageId: storageId as Id<"_storage">, mimeType: file.type, bytes: file.size });
+      const assetId = await attach({
+        storageId: storageId as Id<"_storage">,
+        mimeType: file.type,
+        bytes: file.size,
+        likenessConsent: true,
+      });
       onPick(`image:${assetId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -510,16 +519,35 @@ export function ImagesTab({ value, onPick }: { value: string | null; onPick: (re
     }
   }
 
+  async function pickExisting(assetId: string) {
+    if (!agreed) {
+      setError("Tick the permission box first.");
+      return;
+    }
+    setError(null);
+    try {
+      await confirmConsent({ assetIds: [assetId as Id<"assets">] });
+      onPick(`image:${assetId}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted">
-        A clear, front-facing photo in good light works best. Only use photos of people who&apos;ve agreed to appear.
-      </p>
+      <p className="text-sm text-muted">A clear, front-facing photo in good light works best.</p>
+      <LikenessConsent
+        checked={agreed}
+        onChange={(v) => {
+          setAgreed(v);
+          setError(null);
+        }}
+      />
       {error && <p className="text-sm text-accent">{error}</p>}
       <Grid>
         <button
           type="button"
-          onClick={() => input.current?.click()}
+          onClick={() => (agreed ? input.current?.click() : setError("Tick the permission box first."))}
           disabled={busy}
           className="flex aspect-[3/4] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-line-strong text-sm text-muted transition hover:border-accent hover:bg-accent-soft hover:text-accent disabled:opacity-60"
         >
@@ -536,7 +564,7 @@ export function ImagesTab({ value, onPick }: { value: string | null; onPick: (re
               url={img.url}
               title="Your photo"
               selected={value === `image:${img.id}`}
-              onClick={() => onPick(`image:${img.id}`)}
+              onClick={() => void pickExisting(img.id)}
             />
           ))
         )}

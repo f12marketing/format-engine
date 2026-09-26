@@ -352,7 +352,9 @@ export function fieldApplies(field: Field, config: Record<string, unknown>): boo
 
 /**
  * The fields a format marks `required` that are showing and still blank -- what
- * keeps Generate off. A field the panel is hiding is never required.
+ * keeps Generate off. A field the panel is hiding is never required. A
+ * required toggle is a statement the user has to make (Character Swap's
+ * consent), so it's blank until switched on.
  */
 export function missingRequired(
   format: FormatDefinition,
@@ -361,6 +363,7 @@ export function missingRequired(
   const blank = (v: unknown) =>
     v === undefined ||
     v === null ||
+    v === false ||
     (typeof v === "string" && v.trim() === "") ||
     (Array.isArray(v) && v.length === 0);
   return Object.entries(format.config)

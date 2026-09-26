@@ -78,11 +78,11 @@ export const startConnect = action({
   args: { platform: PLATFORM, redirectUrl: v.string() },
   handler: async (ctx, { platform, redirectUrl }): Promise<{ authUrl: string }> => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
       authUserId: identity.subject,
     });
-    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
 
     let profileId = client.zernioProfileId;
     if (!profileId) {
@@ -106,11 +106,11 @@ export const syncAccounts = action({
   args: {},
   handler: async (ctx): Promise<{ synced: number }> => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
       authUserId: identity.subject,
     });
-    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
     if (!client.zernioProfileId) return { synced: 0 };
 
     const remote = await zernio.listAccounts(client.zernioProfileId);
@@ -200,11 +200,11 @@ export const disconnect = action({
   args: { socialAccountId: v.id("socialAccounts") },
   handler: async (ctx, { socialAccountId }): Promise<void> => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
       authUserId: identity.subject,
     });
-    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
 
     // An id is not an authorisation -- confirm this row is actually theirs
     // before asking Zernio to drop the account behind it.
@@ -230,11 +230,11 @@ export const tiktokCreatorInfo = action({
   },
   handler: async (ctx, { socialAccountId, mediaType }): Promise<zernio.TikTokCreatorInfo> => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
       authUserId: identity.subject,
     });
-    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
 
     const account = await ctx.runQuery(internal.social.getAccount, { socialAccountId });
     if (!account || account.clientId !== client._id) throw new Error("Not found.");

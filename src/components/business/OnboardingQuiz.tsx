@@ -549,7 +549,7 @@ function SourceStep({
       canContinue={
         mode === "website" ? f.website.trim().length > 3 : filledTemplate
       }
-      continueLabel={mode === "website" ? "Analyse website" : "Continue"}
+      continueLabel={mode === "website" ? "Analyze website" : "Continue"}
       onBack={onBack}
       onContinue={run}
       footer={

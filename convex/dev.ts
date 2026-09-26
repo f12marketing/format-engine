@@ -227,6 +227,10 @@ export const addAudioTemplate = internalAction({
  * Curation entry point until there's an admin surface, exactly how the audio
  * and clip libraries started -- run it per photo:
  *   npx convex run dev:addGalleryFace '{"url":"https://…/face.jpg"}'
+ *
+ * Clients cast these without confirming consent (galleryFaces.useFace marks
+ * the copy synthetic), so a real person's photo belongs here only with a
+ * model release that covers AI-animated ads.
  */
 export const addGalleryFace = internalAction({
   args: { url: v.string() },
@@ -357,11 +361,19 @@ export const startJob = internalMutation({
   },
 });
 
-/** Triggers a TikTok clip ingestion from the CLI. Needs SCRAPECREATORS_API_KEY set. */
+/**
+ * Triggers a TikTok clip ingestion from the CLI. Needs SCRAPECREATORS_API_KEY
+ * set. Keeps TikTok's watermark unless `keepWatermark: false` -- only for a
+ * clip whose creator licensed it without one (see lib/clipIngest.ts).
+ */
 export const ingestTikTokClip = internalAction({
-  args: { sourceUrl: v.string(), tags: v.optional(v.array(v.string())) },
-  handler: async (ctx, { sourceUrl, tags }): Promise<Id<"clips">> =>
-    ctx.runAction(internal.lib.clipIngest.ingestTikTok, { sourceUrl, tags }),
+  args: {
+    sourceUrl: v.string(),
+    tags: v.optional(v.array(v.string())),
+    keepWatermark: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { sourceUrl, tags, keepWatermark }): Promise<Id<"clips">> =>
+    ctx.runAction(internal.lib.clipIngest.ingestTikTok, { sourceUrl, tags, keepWatermark }),
 });
 
 /** Auth-free equivalent of remix.remix, for exercising it from the CLI. */
@@ -488,20 +500,17 @@ export const validateSocialDraft = internalAction({
     const { post, media } = loaded;
     if (!media.length) throw new Error("A post needs at least one video or image.");
 
-    const platformSpecificData: Record<string, unknown> = {};
-    for (const t of post.targets) {
-      if (t.platformSpecificData) platformSpecificData[t.platform] = t.platformSpecificData;
-    }
     return zernio.validatePost({
       content: post.caption,
-      platforms: post.targets.map((t) => ({ platform: t.platform, accountId: t.zernioAccountId })),
+      platforms: post.targets.map((t) => ({
+        platform: t.platform,
+        accountId: t.zernioAccountId,
+        platformSpecificData: zernio.zernioPlatformData(t.platform, t.platformSpecificData),
+      })),
       mediaItems: media.map((m) => ({
         url: m.url as string,
         type: m.kind === "video" ? ("video" as const) : ("image" as const),
       })),
-      platformSpecificData: Object.keys(platformSpecificData).length
-        ? platformSpecificData
-        : undefined,
     });
   },
 });

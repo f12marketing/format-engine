@@ -156,7 +156,7 @@ function Editor({ brand }: { brand: Brand }) {
                 </button>
               </div>
             </Labelled>
-            <Labelled label="Logo & colours" optional>
+            <Labelled label="Logo & colors" optional>
               <LogoField logoUrl={f.logoUrl} palette={f.palette} onChange={(patch) => setF((p) => ({ ...p, ...patch }))} />
             </Labelled>
           </Card>
@@ -179,6 +179,27 @@ function Editor({ brand }: { brand: Brand }) {
             <Labelled label="Brand voice" optional>
               <ToneField value={f.tone} onChange={(v) => set("tone", v)} />
             </Labelled>
+          </Card>
+
+          <Card title="Content rules">
+            <label className="flex items-start gap-3 text-sm">
+              <input
+                type="checkbox"
+                checked={f.testimonialGuard}
+                onChange={(e) => set("testimonialGuard", e.target.checked)}
+                className="mt-1 size-4 accent-accent"
+              />
+              <span>
+                <span className="font-medium">Keep scripts clear of fake reviews</span>
+                <span className="mt-1 block text-xs text-muted">
+                  When a script mentions your business, the person on screen won&rsquo;t claim to have used
+                  it or say what it did for them &mdash; they&rsquo;re often AI-generated, and the FTC treats an
+                  invented customer experience as a fake review. They can still react to it, ask about it,
+                  or say what it does. Turn off only if the speaker is a real customer describing their own
+                  experience.
+                </span>
+              </span>
+            </label>
           </Card>
 
           <Card title="About you">

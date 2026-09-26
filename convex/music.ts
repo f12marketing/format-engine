@@ -51,11 +51,11 @@ function apiKey(): string | null {
 
 async function requireCaller(ctx: ActionCtx): Promise<Id<"clients">> {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+  if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
   const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
     authUserId: identity.subject,
   });
-  if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+  if (!client) throw new Error("Not authorized. This is an invite-only tool.");
   return client._id;
 }
 

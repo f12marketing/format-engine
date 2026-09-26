@@ -691,7 +691,7 @@ function TextInspector({
         </div>
       </Section>
 
-      <Section title="Colours">
+      <Section title="Colors">
         <div className="grid grid-cols-5 gap-1.5">
           {LOOKS.map((look) => {
             const preview = { ...design, ...look.patch };
@@ -744,14 +744,14 @@ function TextInspector({
             onChange={(align) => update({ align }, `align-${Date.now()}`)}
             options={[
               { value: "left", label: <AlignIcon side="left" />, title: "Left" },
-              { value: "center", label: <AlignIcon side="center" />, title: "Centre" },
+              { value: "center", label: <AlignIcon side="center" />, title: "Center" },
               { value: "right", label: <AlignIcon side="right" />, title: "Right" },
             ]}
           />
         </div>
       </Section>
 
-      <Section title="Colour">
+      <Section title="Color">
         <ColorField
           value={design.color}
           palette={palette}
@@ -770,7 +770,7 @@ function TextInspector({
           onChange={(stroke) => update({ stroke }, "stroke")}
         />
         <div className={design.stroke ? "" : "pointer-events-none opacity-40"}>
-          <p className="mb-1.5 text-xs font-medium text-muted">Stroke colour</p>
+          <p className="mb-1.5 text-xs font-medium text-muted">Stroke color</p>
           <ColorField
             value={design.strokeColor}
             palette={palette}
@@ -994,7 +994,7 @@ function OverlayInspector({
         />
         <div className="flex flex-wrap gap-2">
           <SmallButton onClick={() => update({ overlay: { ...o, x: 0.5 } }, `ov-centre-${Date.now()}`)}>
-            Centre
+            Center
           </SmallButton>
           <SmallButton onClick={onReplace}>Replace</SmallButton>
           <SmallButton
@@ -1108,7 +1108,7 @@ export function ColorField({
           value={value}
           onChange={(e) => onChange(e.target.value.toUpperCase())}
           className="h-8 w-10 cursor-pointer rounded-md border border-line bg-surface-sub p-0.5"
-          aria-label="Pick a custom colour"
+          aria-label="Pick a custom color"
         />
         <input
           type="text"

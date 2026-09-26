@@ -332,7 +332,7 @@ image is the reference photo of the character that was supposed to replace
 whoever was originally in the video.
 
 Judge only whether the person/character visible in the first image is
-recognisably the same person/character shown in the second image -- not
+recognizably the same person/character shown in the second image -- not
 image quality, not whether the scene looks good, just identity.
 
 The output frame may show a side profile, partial occlusion, or motion blur --

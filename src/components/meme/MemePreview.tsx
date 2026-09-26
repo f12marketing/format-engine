@@ -20,7 +20,9 @@ export function MemePreview({ values }: { values: Record<string, unknown> }) {
     api.assets.mediaInfo,
     pick?.source === "upload" ? { assetId: pick.assetId as Id<"assets"> } : "skip",
   );
-  const caption = typeof values.caption === "string" ? values.caption.trim() : "";
+  // Add captions off: no caption, and no empty caption bar either.
+  const captions = values.captions !== false;
+  const caption = captions && typeof values.caption === "string" ? values.caption.trim() : "";
 
   const meme: StageMeme | null =
     pick?.source === "klipy"
@@ -30,13 +32,14 @@ export function MemePreview({ values }: { values: Record<string, unknown> }) {
         : null;
 
   const hasSound = pick?.source === "klipy" ? pick.hasSound : Boolean(upload?.isVideo);
-  const design = memeCaptionDesign(
+  const start = memeCaptionDesign(
     caption,
     defaultMemeLayer({
       keyable: looksKeyable(pick),
       sound: hasSound ? "meme" : bg?.isVideo ? "background" : "meme",
     }),
   );
+  const design = captions ? start : { ...start, background: "none" as const };
 
   return (
     <div className="flex flex-col items-center gap-3">
@@ -46,12 +49,14 @@ export function MemePreview({ values }: { values: Record<string, unknown> }) {
         posterUrl={bg && !bg.isVideo ? bg.url : null}
         meme={meme}
         width={280}
-        placeholder={pick ? "Your hook caption — or we'll write one" : "Your hook caption"}
+        placeholder={!captions ? "" : pick ? "Your hook caption — or we'll write one" : "Your hook caption"}
       />
       <p className="max-w-[280px] text-center text-xs leading-snug text-muted">
         {!bgId && !pick
           ? "Pick a photo or video and a meme to see them together."
-          : "A starting point: you'll move, size and key the meme and style the caption in the editor before it renders."}
+          : captions
+            ? "A starting point: you'll move, size and key the meme and style the caption in the editor before it renders."
+            : "A starting point: you'll move, size and key the meme in the editor before it renders."}
       </p>
     </div>
   );

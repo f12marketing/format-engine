@@ -933,7 +933,7 @@ const PLACEHOLDER_NOTE: Record<string, string> = {
   image: "Upload — connect Convex to enable",
   images: "Uploads — connect Convex to enable",
   video: "Upload — connect Convex to enable",
-  color: "Colour picker",
+  color: "Color picker",
   avatar: "Roster picker — connect Convex to enable",
   trendingClip: "Clip library — connect Convex to enable",
   hook: "Hook picker — connect Convex to enable",

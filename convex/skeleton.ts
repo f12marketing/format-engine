@@ -175,7 +175,7 @@ const DEFAULT_CHARACTER_PROMPT =
   "friendly pose, facing the camera. Smooth, clean ivory-cream bones with subtle realistic " +
   "texture, anatomically accurate ribcage, spine and pelvis, and big, glossy, expressive " +
   "human eyeballs set in the eye sockets. No clothing, no hat, no headband, no accessories, " +
-  "no text or logos. Plain soft grey studio background, soft key light with a gentle rim " +
+  "no text or logos. Plain soft gray studio background, soft key light with a gentle rim " +
   "light, high-end cinematic 3D render, sharp focus.";
 
 export const houseImage = internalQuery({
@@ -215,7 +215,7 @@ async function characterReference(
     DEFAULT_CHARACTER_MODEL,
     (prompt) => ({ prompt, aspect_ratio: "3:4", num_images: 1 }),
     DEFAULT_CHARACTER_PROMPT,
-    () => "A photoreal 3D human skeleton standing, facing the camera, plain grey background.",
+    () => "A photoreal 3D human skeleton standing, facing the camera, plain gray background.",
   )) as { images?: { url?: string }[] };
   const url = result.images?.[0]?.url;
   if (!url) throw new Error("no default character image returned");

@@ -171,12 +171,12 @@ const LLM_OUTPUT_PER_1M = 10.0;
 
 const SLIDESHOW_SYSTEM = `You plan a short vertical slideshow video: a sequence of generated images,
 each on screen for exactly three seconds, cut to a voiceover that is already
-recorded. The only words on screen are the voiceover's own subtitles, added
+recorded. Any words on screen are the voiceover's own captions, added
 afterwards -- the slides themselves carry no text.
 
 For each slide, write:
 - imagePrompt: what the image shows. Concrete, visual, no text or lettering in
-  the image itself -- subtitles are added separately. One clear subject per
+  the image itself -- captions are added separately. One clear subject per
   slide; do not describe a whole scene of unrelated things. End it with a
   short technical tail covering quality and composition, e.g. "photorealistic,
   high detail, no text, no watermark, no UI elements" (adjust the style words
@@ -371,9 +371,9 @@ export const writePlan = internalAction({
         `supplied, so design them yourself. In \`characters\`, list only the ones the story ` +
         `genuinely needs: at most ${MAX_CAST}, usually 1-3. Give each a short \`name\` and a ` +
         "`prompt` for its reference image: for a person or creature, exact appearance (age, " +
-        "build, skin tone, hair, eyes, clothing and accessories, colours) in a neutral full-body " +
-        "standing pose; for an object, exact shape, materials, colours and markings, whole and " +
-        "centred. Plain white background, in this visual style: " +
+        "build, skin tone, hair, eyes, clothing and accessories, colors) in a neutral full-body " +
+        "standing pose; for an object, exact shape, materials, colors and markings, whole and " +
+        "centered. Plain white background, in this visual style: " +
         `${style}. End it with "soft even lighting, high detail, no text, no watermark". Every ` +
         "later slide is redrawn from this image, so be exact about distinguishing features. " +
         "Then, in each slide's imagePrompt, refer to them ONLY as Character 1, Character 2… in " +
@@ -673,9 +673,9 @@ export const compositeSubject = internalAction({
             `Image 1 is the scene. ${castNames} ` +
             `Redraw the scene with whichever characters it calls for present in it. ` +
             `Scene: ${slides[i]?.imagePrompt ?? ""}. ` +
-            "Keep each character's face, hair, build, colours, markings and costume exactly as in " +
+            "Keep each character's face, hair, build, colors, markings and costume exactly as in " +
             "their reference image -- do not redraw or restyle them. Match the scene's lighting " +
-            "direction, colour temperature, perspective and shadows so they belong in it. " +
+            "direction, color temperature, perspective and shadows so they belong in it. " +
             "Keep Image 1's framing and background. No text, no watermark, no UI elements.",
           image_urls: [slideUrl, ...refUrls],
           aspect_ratio: imageAspectRatio(config),
