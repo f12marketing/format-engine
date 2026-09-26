@@ -170,6 +170,10 @@ const SEEDANCE_PER_SEC: Record<string, Record<string, number>> = {
   "bytedance/seedance-2.0/reference-to-video": { "720p": 0.3034, "480p": 0.1406 },
 };
 
+// fal retires this endpoint on December 17, 2026. Its replacements
+// (fal-ai/elevenlabs/music/v2, v2.5) take the same input but weren't
+// published with a commercial license yet on 2026-09-26 -- see the README's
+// Deployment checklist, step 0, *Pending tasks*, for when and how to switch.
 const MUSIC_MODEL = "fal-ai/elevenlabs/music";
 /** Billed per started minute. */
 const MUSIC_PER_MINUTE = 0.6;

@@ -96,7 +96,9 @@ compliance rules above.
 policy, a legal review, the scraping decision, the Zernio account setup).
 - Before any deployment step -- `npx convex deploy`, a Vercel or Railway
   deploy, `--prod` env changes, pointing production at a service -- stop
-  and remind the user of every box in step 0 that is still open.
+  and remind the user of every box in step 0 that is still open --
+  approvals and *Pending tasks* alike. Drama's music endpoint retires on
+  December 17, 2026: flag it whenever work is near that date.
 - Don't go ahead while any is open unless the user says so explicitly for
   that deploy.
 - When an approval arrives, tick it in step 0 and do what it says (e.g.
