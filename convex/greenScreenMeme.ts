@@ -1,13 +1,14 @@
 import { v } from "convex/values";
 import type { WorkflowCtx } from "@convex-dev/workflow";
 import { internal } from "./_generated/api";
-import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery, query } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
 import { callTool, LLM_MODEL } from "./lib/fal";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 import { businessContext } from "./lib/businessContext";
+import { KLIPY_RENDER_BLOCKED, klipyServerRenderApproved } from "./lib/klipyTerms";
 import { enforceRateLimit } from "./lib/rateLimit";
 import { wallLayerHtml } from "./lib/wallOfTextDesign";
 import {
@@ -462,6 +463,10 @@ export const render = internalAction({
     if (!job) throw new Error("unknown job");
     const config = job.config as MemeConfig;
 
+    // Checked again here for jobs that reached the studio before the gate.
+    if (parseMemePick(config.meme)?.source === "klipy" && !klipyServerRenderApproved()) {
+      throw new Error(KLIPY_RENDER_BLOCKED);
+    }
     const meme = await resolveMeme(ctx, config.meme, clientId);
     const background = await resolveBackground(ctx, config.background, clientId);
     const design = approvedDesign(job, meme, background);
@@ -722,4 +727,10 @@ export const start = internalMutation({
     await ctx.db.patch(args.jobId, { workflowId: id });
     return id;
   },
+});
+
+/** Whether KLIPY memes can be rendered yet (lib/klipyTerms.ts) -- the meme popup says so when they can't. */
+export const klipyRenderAllowed = query({
+  args: {},
+  handler: async (): Promise<boolean> => klipyServerRenderApproved(),
 });

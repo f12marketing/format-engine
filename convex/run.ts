@@ -6,6 +6,8 @@ import { STARTERS, type RunnableFormatId } from "./starters";
 import { enforceRateLimit } from "./lib/rateLimit";
 import { assertLikenessConsent, uploadedPhotoRefs } from "./lib/likeness";
 import { assertClipRights, clipIdsIn } from "./clips";
+import { parseMemePick } from "./lib/memeDesign";
+import { KLIPY_RENDER_BLOCKED, klipyServerRenderApproved } from "./lib/klipyTerms";
 
 /**
  * The Generate button's single entry point, for every format.
@@ -39,6 +41,11 @@ export const generate = mutation({
     await assertLikenessConsent(ctx, client._id, uploadedPhotoRefs(args.config));
     // Someone else's video is only reused in an ad with their permission.
     await assertClipRights(ctx, client._id, clipIdsIn(args.config));
+    // A KLIPY meme is only rendered once KLIPY approves server-side use
+    // (lib/klipyTerms.ts) -- refused here, before any time goes into the studio.
+    if (args.formatId === "green-screen-meme" && parseMemePick(args.config?.meme)?.source === "klipy") {
+      if (!klipyServerRenderApproved()) throw new Error(KLIPY_RENDER_BLOCKED);
+    }
     if (args.formatId === "character-swap" && args.config?.likenessConsent !== true) {
       throw new Error("Confirm you have permission from the people in your video and image.");
     }
