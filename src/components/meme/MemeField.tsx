@@ -138,17 +138,21 @@ function MemeDialog({
   const [query, setQuery] = useState("");
   const customerId = useKlipyCustomerId();
   const klipy = tab !== "mine" && tab !== "upload";
+  // Until KLIPY approves server-side use, its memes are browse-and-preview only
+  // (convex/lib/klipyTerms.ts). Undefined while loading reads as blocked.
+  const klipyRenders = useQuery(api.greenScreenMeme.klipyRenderAllowed) === true;
 
   const use = useCallback(
     (c: Chosen) => {
       if (c.pick.source !== "klipy") return onPick(c.pick);
+      if (!klipyRenders) return;
       klipyShare(c.pick.type, c.pick.slug, customerId, c.q);
       // The share puts it on Recently used; the cached list no longer has it.
       pageCache.delete(`${c.pick.type}|${RECENT}`);
       // A search for a green screen finds ones whose titles never say so.
       onPick(GREEN_SCREEN.test(c.q ?? "") ? { ...c.pick, greenScreen: true } : c.pick);
     },
-    [customerId, onPick],
+    [customerId, onPick, klipyRenders],
   );
 
   const upload = useMediaUpload((assetId) => onPick({ source: "upload", assetId }), {
@@ -200,7 +204,7 @@ function MemeDialog({
             </button>
             <button
               type="button"
-              disabled={!chosen}
+              disabled={!chosen || (chosen.pick.source === "klipy" && !klipyRenders)}
               onClick={() => chosen && use(chosen)}
               className="rounded-full bg-accent px-4 py-1.5 text-sm font-semibold text-white shadow-[0_8px_20px_-10px_var(--accent)] hover:opacity-90 disabled:opacity-40"
             >
@@ -210,6 +214,12 @@ function MemeDialog({
         )
       }
     >
+      {klipy && !klipyRenders && (
+        <p className="mb-3 rounded-lg border border-accent bg-accent-soft px-3 py-2 text-xs">
+          Preview only for now: KLIPY&rsquo;s terms don&rsquo;t cover turning their memes into videos until
+          KLIPY approves it. Use one from <strong>My memes</strong>, or <strong>Upload new</strong>.
+        </p>
+      )}
       {klipy ? (
         <KlipyBrowser
           key={tab}

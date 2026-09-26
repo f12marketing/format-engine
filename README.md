@@ -692,6 +692,13 @@ touching posting, the casting popup, influencers or Character Swap.
   sent to fal.ai. The app's own privacy policy should name the processors
   too: fal.ai (image, video, voice and the LLM), Zernio (posting), Supabase
   (sign-in), Convex (storage), KLIPY, Pexels, Pixabay and Freesound.
+- **KLIPY memes (render gate).** KLIPY's terms have its media shown in the
+  browser; rendering a meme into a video means the render service fetching
+  it, which needs KLIPY's written OK. Until then the meme popup browses and
+  previews KLIPY but can't use a KLIPY meme, and says why; `run.generate`
+  refuses a Green Screen Meme job with one, and the render step checks again
+  (`convex/lib/klipyTerms.ts`). Uploaded memes always render. Once KLIPY
+  approves: `npx convex env set KLIPY_SERVER_RENDER_APPROVED true`.
 - **Music.** Platform music comes from Freesound, CC0 only (`music.ts`), and
   generated music from ElevenLabs via fal. Both are cleared for commercial use.
 - **API keys.** Server keys live only in Convex env (`npx convex env set`);
@@ -759,7 +766,9 @@ the spend cap stops a run rather than warning about it.
   browser-only use; burning a meme into a video needs the render service to
   fetch it, which needs KLIPY's written OK (developers@klipy.com). The code
   already keeps to everything else: URLs unaltered, never stored, fetched for
-  one render and deleted. Uploaded memes don't involve KLIPY at all.
+  one render and deleted. Uploaded memes don't involve KLIPY at all. Until
+  the OK arrives, KLIPY memes are preview-only: see *KLIPY memes (render
+  gate)* above, and set `KLIPY_SERVER_RENDER_APPROVED` once it does.
 - A KLIPY key stays in Testing (100 requests an hour, shared by every user)
   until Production access is granted. The popup caches pages and
   de-duplicates in-flight requests to stretch it.
