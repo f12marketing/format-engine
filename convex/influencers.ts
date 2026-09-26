@@ -15,6 +15,7 @@ import { submitWithWebhook, submitWithContentPolicyFallback } from "./lib/fal";
 import { referencePortraitPrompt, REFERENCE_PORTRAIT_FALLBACK } from "./lib/facePrompt";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 import { enforceRateLimit } from "./lib/rateLimit";
+import { assertLikenessConsent } from "./lib/likeness";
 
 /**
  * Trained personas -- see schema.ts's own comment on the `influencers` table
@@ -60,6 +61,9 @@ export const create = mutation({
     if (trainingImageAssetIds.length < MIN_TRAINING_IMAGES) {
       throw new Error(`At least ${MIN_TRAINING_IMAGES} training images are required.`);
     }
+    // Training on a real person's photos makes an AI double of them: only
+    // with their permission (lib/likeness.ts). Generated faces are exempt.
+    await assertLikenessConsent(ctx, client._id, trainingImageAssetIds);
     return ctx.db.insert("influencers", {
       clientId: client._id,
       name,
@@ -139,11 +143,11 @@ export const generateFaceImage = action({
   args: { personaNotes: v.string() },
   handler: async (ctx, { personaNotes }): Promise<Id<"assets">> => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
       authUserId: identity.subject,
     });
-    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
     await enforceRateLimit(ctx, "generateFaceImage", client._id);
     return ctx.runAction(internal.influencers.generateFaceImageForClient, {
       clientId: client._id,
@@ -183,6 +187,7 @@ export const generateFaceImageForClient = internalAction({
       storageId,
       mimeType: "image/png",
       bytes: bytes.byteLength,
+      synthetic: true,
     });
   },
 });
@@ -219,11 +224,11 @@ export const startTraining = action({
   args: { influencerId: v.id("influencers"), steps: v.optional(v.number()) },
   handler: async (ctx, { influencerId, steps }): Promise<null> => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
       authUserId: identity.subject,
     });
-    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
     return ctx.runAction(internal.influencers.startTrainingForClient, {
       influencerId,
       clientId: client._id,
@@ -245,7 +250,7 @@ export const startTrainingForClient = internalAction({
   handler: async (ctx, { influencerId, clientId, steps }): Promise<null> => {
     const influencer = await ctx.runQuery(internal.influencers.getInternal, { influencerId });
     if (!influencer) throw new Error("Influencer not found.");
-    if (influencer.clientId !== clientId) throw new Error("Not authorised for this influencer.");
+    if (influencer.clientId !== clientId) throw new Error("Not authorized for this influencer.");
     if (influencer.status === "training") throw new Error("This influencer is already training.");
     if (influencer.trainingImageAssetIds.length < MIN_TRAINING_IMAGES) {
       throw new Error(`At least ${MIN_TRAINING_IMAGES} training images are required.`);

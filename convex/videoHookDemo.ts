@@ -498,9 +498,9 @@ export const improveCaption = action({
   args: { caption: v.optional(v.string()), mentionBusiness: v.optional(v.boolean()) },
   handler: async (ctx, { caption, mentionBusiness }): Promise<{ caption: string }> => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, { authUserId: identity.subject });
-    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
 
     const current = (caption ?? "").trim().slice(0, MAX_CAPTION_CHARS);
     // The panel checks both of these before calling; these are the boundary.

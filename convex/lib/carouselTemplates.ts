@@ -13,7 +13,7 @@ export const CAROUSEL_TEMPLATES = [
   {
     id: "bold-statement",
     name: "Bold Statement",
-    blurb: "Huge type on flat colour. Punchy and opinionated.",
+    blurb: "Huge type on flat color. Punchy and opinionated.",
   },
   {
     id: "editorial-serif",

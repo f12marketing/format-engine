@@ -106,7 +106,7 @@ export const composeClayScene = internalAction({
           " High quality render, no text, no watermark, no UI elements."
         : `${artDirection} ${body} ${scene || `Scene: ${topic}.`} ` +
           `${config.style ? `Style: ${config.style}. ` : ""}` +
-          "Vertical 9:16 frame with the subject centred and fully in shot. Any figure has " +
+          "Vertical 9:16 frame with the subject centered and fully in shot. Any figure has " +
           "correctly formed hands, each holding or resting on something." +
           avoid +
           " High quality render, no text, no watermark, no UI elements.";

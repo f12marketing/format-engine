@@ -97,7 +97,7 @@ const HOOK_SYSTEM = `You write a single spoken line for a UGC-style video hook -
 someone says directly to camera before a product demo plays.
 
 - 10 to 12 words: one or two short sentences, written to be SPOKEN aloud,
-  not read. It is also the on-screen subtitle, so every word has to earn it.
+  not read. It may also be the on-screen caption, so every word has to earn it.
 - A bold claim, a relatable callout, or a sharp question -- never a title.
 - No markdown, no emoji, no hashtags, no stage directions.
 - Match the requested delivery style in wording, not just tone -- "Shocked"
@@ -201,9 +201,9 @@ export const personalizeLine = action({
     { saying, delivery, language },
   ): Promise<{ saying: string; business: string } | { needsBusiness: true }> => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, { authUserId: identity.subject });
-    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
 
     const brand = await ctx.runQuery(internal.brands.forClientInternal, { clientId: client._id });
     if (!brand?.description) return { needsBusiness: true };

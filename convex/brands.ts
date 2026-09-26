@@ -68,6 +68,7 @@ export const mine = query({
       heardFrom: b.heardFrom ?? [],
       quizStep: b.quizStep ?? "basics",
       onboarded: Boolean(b.onboardedAt),
+      testimonialGuard: b.testimonialGuard !== false,
     };
   },
 });
@@ -128,6 +129,7 @@ export const saveProfile = mutation({
     goals: v.optional(v.array(v.string())),
     heardFrom: v.optional(v.array(v.string())),
     quizStep: v.optional(v.string()),
+    testimonialGuard: v.optional(v.boolean()),
   },
   handler: async (ctx, a) => {
     const client = await requireClient(ctx);
@@ -162,6 +164,7 @@ export const saveProfile = mutation({
       goals: someOf(a.goals, GOALS),
       heardFrom: someOf(a.heardFrom, SOURCES),
       quizStep: oneOf(a.quizStep, QUIZ_STEPS) || undefined,
+      testimonialGuard: a.testimonialGuard,
     };
     // Only what was sent. An explicitly removed logo is the one field that
     // has to be cleared rather than left alone, so it is patched as undefined.

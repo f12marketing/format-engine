@@ -1,6 +1,58 @@
 import { v } from "convex/values";
-import { internalMutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { requireClient } from "./clients";
+
+/**
+ * Rights to a trending clip. The library holds other creators' videos, and
+ * reusing one in an ad needs their permission or a licence: copyright, and
+ * TikTok's terms, which don't grant reuse of downloaded videos. The client
+ * confirms it per clip when they pick one (`confirmRights`), and a job that
+ * uses a clip without that confirmation is refused.
+ */
+export const CLIP_RIGHTS_ERROR =
+  "Confirm you have the creator's permission (or a license) to use that trending clip in your ad.";
+
+export const confirmRights = mutation({
+  args: { clipId: v.id("clips") },
+  handler: async (ctx, { clipId }): Promise<null> => {
+    const client = await requireClient(ctx);
+    if (!(await ctx.db.get(clipId))) throw new Error("That clip is no longer in the library.");
+    const existing = await ctx.db
+      .query("clipRights")
+      .withIndex("by_client_clip", (q) => q.eq("clientId", client._id).eq("clipId", clipId))
+      .unique();
+    if (!existing) await ctx.db.insert("clipRights", { clientId: client._id, clipId, confirmedAt: Date.now() });
+    return null;
+  },
+});
+
+/** The trending clips a job's config uses: "clip:<id>" refs, and older jobs' `trendingClip`. */
+export function clipIdsIn(config: unknown): Id<"clips">[] {
+  if (!config || typeof config !== "object") return [];
+  const ids: Id<"clips">[] = [];
+  for (const [key, value] of Object.entries(config as Record<string, unknown>)) {
+    if (typeof value !== "string" || !value) continue;
+    if (value.startsWith("clip:")) ids.push(value.slice("clip:".length) as Id<"clips">);
+    else if (key === "trendingClip") ids.push(value as Id<"clips">);
+  }
+  return ids;
+}
+
+export async function assertClipRights(
+  ctx: MutationCtx,
+  clientId: Id<"clients">,
+  clipIds: Id<"clips">[],
+): Promise<void> {
+  for (const clipId of clipIds) {
+    const row = await ctx.db
+      .query("clipRights")
+      .withIndex("by_client_clip", (q) => q.eq("clientId", clientId).eq("clipId", clipId))
+      .unique();
+    if (!row) throw new Error(CLIP_RIGHTS_ERROR);
+  }
+}
 
 /**
  * The trending clip library, P9.

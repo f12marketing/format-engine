@@ -287,7 +287,7 @@ const STYLES: Record<string, { look: string; avoid: string }> = {
     look:
       "Live-action film still. Natural, motivated lighting; true-to-life skin with visible " +
       "texture; 35-50mm cinema lens with shallow depth of field; subtle grain and a restrained, " +
-      "filmic colour grade.",
+      "filmic color grade.",
     avoid:
       "Not illustrated, not animated, not a 3D render. No waxy or airbrushed skin, no distorted " +
       "hands or faces, no text, captions or watermarks.",
@@ -398,8 +398,8 @@ Beats:
 - seconds: 4-15. A dialogue beat needs about 1 second per 2.5 words, plus a moment to react.
 
 Characters:
-- look: fixed physical identity -- age, ethnicity, face shape, eyes, hair colour, length and style, build, any distinguishing mark. Specific enough that two artists would draw the same person.
-- wardrobe: exactly what they wear in this episode, with colours.
+- look: fixed physical identity -- age, ethnicity, face shape, eyes, hair color, length and style, build, any distinguishing mark. Specific enough that two artists would draw the same person.
+- wardrobe: exactly what they wear in this episode, with colors.
 - voice_preset: the closest match from the preset list for their gender, age and personality. No two speaking characters share one.
 - sample_line: 10-16 words this character might say in a calm moment; it is used to capture their voice.
 
@@ -584,7 +584,7 @@ export const writeScript = internalAction({
       `Genre: ${cfg.genre ?? "Revenge"}.\n` +
       `Visual style: ${cfg.style ?? "Realistic"}.\n` +
       `Target length: about ${targetSeconds} seconds, so about ${beatCount} beats whose seconds add up to roughly ${targetSeconds}.\n` +
-      `Frame: ${aspectRatio}${aspectRatio === "9:16" ? " vertical, so favour close-ups and medium shots" : ""}.\n` +
+      `Frame: ${aspectRatio}${aspectRatio === "9:16" ? " vertical, so favor close-ups and medium shots" : ""}.\n` +
       "Write every line of dialogue and narration in English.\n" +
       (lead
         ? `The lead character must be c1, played by this actor -- keep c1's look true to them: ${lead.description}\n`
@@ -676,7 +676,7 @@ export const castCharacters = internalAction({
         const sheet =
           `Full-body character reference sheet of ${c.name}: ${c.gender}, ${c.age}. ${c.look} ` +
           `Wearing ${c.wardrobe}. Standing straight, facing camera, neutral expression, arms relaxed, ` +
-          `plain light-grey studio background, even soft lighting. ${style.look} ${style.avoid}`;
+          `plain light-gray studio background, even soft lighting. ${style.look} ${style.avoid}`;
         const minimal = () =>
           `Full-body character reference sheet, ${c.gender}, ${c.age}, standing, neutral pose, ` +
           `plain background, soft even lighting. ${style.look}`;

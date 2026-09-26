@@ -30,6 +30,8 @@ export interface ProfileForm {
   signupIntent: string;
   goals: string[];
   heardFrom: string[];
+  /** Keep scripts from reading as a real customer's review -- see convex/lib/businessContext.ts. */
+  testimonialGuard: boolean;
 }
 
 export const EMPTY_PROFILE: ProfileForm = {
@@ -52,12 +54,20 @@ export const EMPTY_PROFILE: ProfileForm = {
   signupIntent: "",
   goals: [],
   heardFrom: [],
+  testimonialGuard: true,
 };
 
-/** Everything `saveProfile` accepts, from the form -- the logo URL is display-only. */
+/**
+ * Everything `saveProfile` accepts, from the form -- the logo URL is
+ * display-only. Only the form's own keys: the Business page's form is built
+ * from `brands.mine`, which also carries `onboarded` and `quizStep`, and an
+ * argument `saveProfile` doesn't declare makes Convex reject the whole save.
+ */
 export function toSave(f: Partial<ProfileForm>) {
-  const out: Record<string, unknown> = { ...f };
-  delete out.logoUrl;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(EMPTY_PROFILE) as (keyof ProfileForm)[]) {
+    if (key !== "logoUrl" && f[key] !== undefined) out[key] = f[key];
+  }
   return out as Omit<Partial<ProfileForm>, "logoUrl">;
 }
 
@@ -258,8 +268,8 @@ export function LogoField({
       <div className="min-w-0 flex-1 space-y-2">
         <p className="text-xs text-muted">
           {logoUrl
-            ? "We picked these colours from your logo — they'll show up as swatches when you style text."
-            : "Optional. We'll pull your brand colours from it."}
+            ? "We picked these colors from your logo — they'll show up as swatches when you style text."
+            : "Optional. We'll pull your brand colors from it."}
         </p>
         {palette.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">

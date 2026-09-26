@@ -220,11 +220,11 @@ export const syncNow = action({
   args: { days: v.optional(v.number()) },
   handler: async (ctx, { days }): Promise<SyncResult> => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
       authUserId: identity.subject,
     });
-    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
     if (!client.zernioProfileId) {
       return { ok: false, reason: "not_connected", message: "Connect an account first." };
     }

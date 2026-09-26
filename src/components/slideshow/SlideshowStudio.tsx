@@ -741,7 +741,7 @@ export function SlideshowStudio({
               />
               <div className="flex flex-wrap gap-2">
                 <SmallButton onClick={() => onPicture(selectedPicture.id, { x: 0.5 }, `pic-centre-${Date.now()}`)}>
-                  Centre
+                  Center
                 </SmallButton>
                 <SmallButton onClick={removeSelected}>Remove</SmallButton>
               </div>
@@ -824,7 +824,7 @@ export function SlideshowStudio({
                     <SmallButton
                       onClick={() => onOverlay(slide.id, { x: 0.5, y: 0.5 }, `overlay-centre-${Date.now()}`)}
                     >
-                      Centre
+                      Center
                     </SmallButton>
                     <SmallButton
                       onClick={() => onOverlay(slide.id, { rotation: 0 }, `overlay-straight-${Date.now()}`)}
@@ -1136,13 +1136,13 @@ function TextInspector({
           onChange={(align) => onChange({ align }, `align-${Date.now()}`)}
           options={[
             { value: "left", label: <AlignIcon side="left" />, title: "Left" },
-            { value: "center", label: <AlignIcon side="center" />, title: "Centre" },
+            { value: "center", label: <AlignIcon side="center" />, title: "Center" },
             { value: "right", label: <AlignIcon side="right" />, title: "Right" },
           ]}
         />
       </div>
 
-      <Field label="Colour">
+      <Field label="Color">
         <ColorField value={t.color} palette={palette} onChange={(color) => onChange({ color }, "color")} />
       </Field>
 
@@ -1156,7 +1156,7 @@ function TextInspector({
         onChange={(stroke) => onChange({ stroke }, "stroke")}
       />
       <div className={t.stroke ? "" : "pointer-events-none opacity-40"}>
-        <Field label="Stroke colour">
+        <Field label="Stroke color">
           <ColorField
             value={t.strokeColor}
             palette={palette}
@@ -1172,7 +1172,7 @@ function TextInspector({
               ["none", "None"],
               ["white", "White"],
               ["snapchat", "Snapchat"],
-              ["color", "Colour"],
+              ["color", "Color"],
             ] as const
           ).map(([bg, label]) => (
             <button
@@ -1208,7 +1208,7 @@ function TextInspector({
         </div>
       </Field>
       {t.background === "color" && (
-        <Field label="Background colour">
+        <Field label="Background color">
           <ColorField value={t.bgColor} palette={palette} onChange={(bgColor) => onChange({ bgColor }, "bgColor")} />
         </Field>
       )}

@@ -116,7 +116,7 @@ export const SLIDESHOW_TEMPLATES: SlideshowTemplate[] = [
       background: "linear-gradient(160deg,#d9b99b 0%,#8a6a55 55%,#3e2f2a 100%)",
       slides: [
         { heading: "", body: "planning my week didn't work for me until i stopped doing this 🦋👉" },
-        { heading: "", body: "i used to rewrite my to-do list 4 times a day. colour-coded, perfect, and completely ignored by 11am." },
+        { heading: "", body: "i used to rewrite my to-do list 4 times a day. color-coded, perfect, and completely ignored by 11am." },
         { heading: "", body: "then one sunday i wrote just 3 things on a sticky note. did all 3 before lunch. no app, no system." },
       ],
     },
@@ -264,7 +264,7 @@ export const SLIDESHOW_TEMPLATES: SlideshowTemplate[] = [
 - Every other slide: "heading" is "#1 ..." style (2-5 words), "body" is one or two
   sentences (12-26 words).`,
     imageLook:
-      "vivid, high-contrast, punchy photo related to the topic, bold colours, dynamic angle, sharp focus, " +
+      "vivid, high-contrast, punchy photo related to the topic, bold colors, dynamic angle, sharp focus, " +
       "no text, no watermark",
     sample: {
       background: "linear-gradient(160deg,#ff7a3d 0%,#c2185b 55%,#3a0d2e 100%)",

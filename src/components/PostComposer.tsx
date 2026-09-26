@@ -6,13 +6,18 @@ import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import {
   PLATFORMS,
+  TIKTOK_COMMERCIAL_CONTENT,
   TIKTOK_PRIVACY_LEVELS,
   YOUTUBE_TITLE_LIMIT,
   YOUTUBE_VISIBILITIES,
   preflight,
   type MediaFacts,
   type Platform,
+  type TikTokCommercialContent,
+  type TikTokSettings,
 } from "@/lib/socialPlatforms";
+import { AI_PERSON_DISCLOSURE, withAiDisclosure } from "../../convex/lib/disclosure";
+import type { TikTokCreatorInfo } from "../../convex/lib/zernio";
 
 export interface ComposerMedia {
   id: Id<"assets">;
@@ -29,9 +34,13 @@ export interface ComposerMedia {
  * `content_preview_confirmed` / `express_consent_given` are legal
  * attestations, so they are wired to a checkbox the user actually ticks
  * having seen the video -- never defaulted true. And every video this app
- * makes is AI-generated, so YouTube's `containsSyntheticMedia` and
- * Instagram's `isAiGenerated` default ON; turning them off is a deliberate
- * act, not the path of least resistance.
+ * makes is AI-generated, so YouTube's `containsSyntheticMedia`,
+ * Instagram's `isAiGenerated` and TikTok's `video_made_with_ai` default ON;
+ * turning them off is a deliberate act, not the path of least resistance.
+ * When the media shows an AI-generated person, the caption also opens with
+ * a disclosure line -- the one New York's synthetic performer law and the EU
+ * AI Act want in the ad itself (see convex/lib/disclosure.ts). TikTok's
+ * commercial content switch starts off, as TikTok's guidelines require.
  *
  * `media` is an array rather than a single item so a carousel (several
  * images posted together) is representable at all -- `mediaAssetIds` was
@@ -60,21 +69,55 @@ export function PostComposer({
   const [timezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
 
   // Per-platform extras, keyed by platform rather than by account: two
-  // TikTok accounts in one post share one set of TikTok settings, which is
-  // also the shape Zernio's `platformSpecificData` expects.
+  // TikTok accounts in one post share one set of TikTok settings. Each
+  // account's target gets its own copy, which is where Zernio reads them.
+  // TikTok's Content Sharing Guidelines: who can see it, and the comment /
+  // duet / stitch switches, start unset -- the creator picks every time.
   const [tiktok, setTiktok] = useState({
-    privacy_level: "PUBLIC_TO_EVERYONE",
-    allow_comment: true,
-    allow_duet: true,
-    allow_stitch: true,
+    privacy_level: "",
+    allow_comment: false,
+    allow_duet: false,
+    allow_stitch: false,
     consent: false,
+    // Business-app accounts reject the label on photo posts, so a carousel
+    // starts without it; a video always starts with it.
+    madeWithAi: media[0]?.facts.kind !== "image",
+    commercial: "none" as TikTokCommercialContent,
   });
+  // Null until the user touches it: then it follows what the media shows.
+  const [aiDisclosureChoice, setAiDisclosureChoice] = useState<boolean | null>(null);
+  const disclosure = useQuery(api.socialPosts.disclosure, {
+    jobId,
+    mediaAssetIds: media.map((m) => m.id),
+  });
+  const aiDisclosure = aiDisclosureChoice ?? disclosure?.aiPerson ?? false;
   const [youtube, setYoutube] = useState({
     title: "",
     visibility: "public",
     containsSyntheticMedia: true,
+    // COPPA: YouTube wants every upload's audience declared, so there's no
+    // default -- the user answers it. Unset blocks posting to YouTube.
+    madeForKids: null as boolean | null,
   });
-  const [instagram, setInstagram] = useState({ shareToFeed: true, isAiGenerated: true });
+  const [instagram, setInstagram] = useState({
+    shareToFeed: true,
+    isAiGenerated: true,
+    paidPartnership: false,
+    sponsors: "",
+  });
+  // A paid partnership has to say so where people read it (FTC endorsement
+  // guides): "#ad" opens the caption unless the user takes it off.
+  const paidPartnership = tiktok.commercial === "brand_content" || instagram.paidPartnership;
+  const [adTagChoice, setAdTagChoice] = useState(true);
+  const adTag = paidPartnership && adTagChoice;
+  const body = adTag && !/^#ad\b/i.test(caption.trim()) ? `#ad ${caption.trim()}` : caption;
+  const postedCaption = aiDisclosure ? withAiDisclosure(body) : body;
+  // The same idea in the media itself: a badge burned into the frame (on by
+  // default when it shows an AI person) and a tag in the video's metadata.
+  const [burnChoice, setBurnChoice] = useState<boolean | null>(null);
+  const burnLabel = burnChoice ?? disclosure?.aiPerson ?? false;
+  const hasVideo = media.some((m) => m.facts.kind === "video");
+  const [metadataTag, setMetadataTag] = useState(true);
   const [linkedin, setLinkedin] = useState({ organizationUrn: "" });
 
   const [busy, setBusy] = useState<"draft" | "schedule" | null>(null);
@@ -106,9 +149,10 @@ export function PostComposer({
   const mediaKind = media.length === 0 ? undefined : media[0].facts.kind === "video" ? "video" : "photo";
 
   const fetchTiktokCreatorInfo = useAction(api.social.tiktokCreatorInfo);
-  const [tiktokPrivacyLevels, setTiktokPrivacyLevels] = useState<
-    { value: string; label: string }[] | null
-  >(null);
+  // Each selected TikTok account's creator info, fresh per compose: TikTok's
+  // guidelines have the composer show who is posting and honour what that
+  // creator allows (privacy levels, interactions, length, daily limit).
+  const [tiktokInfos, setTiktokInfos] = useState<TikTokCreatorInfo[] | null>(null);
 
   useEffect(() => {
     // No synchronous setState in the effect body itself -- even the "nothing
@@ -125,35 +169,42 @@ export function PostComposer({
       ),
     ).then((results) => {
       if (cancelled) return;
-      const lists = results.filter((r) => r !== null).map((r) => r.privacyLevels);
-      if (lists.length === 0) {
-        // Nothing selected, or every lookup failed -- fall back to the
-        // static list rather than block posting over a Zernio hiccup.
-        setTiktokPrivacyLevels(null);
-        return;
-      }
-      // A level must be valid for every selected TikTok account, not just
-      // one of them, so intersect rather than union.
-      const [first, ...rest] = lists;
-      setTiktokPrivacyLevels(
-        first.filter((level) => rest.every((list) => list.some((l) => l.value === level.value))),
-      );
+      const infos = results.filter((r) => r !== null);
+      // Nothing selected, or every lookup failed -- fall back to the static
+      // lists rather than block posting over a Zernio hiccup.
+      setTiktokInfos(infos.length ? infos : null);
     });
     return () => {
       cancelled = true;
     };
   }, [tiktokIdsKey, mediaKind, fetchTiktokCreatorInfo]);
 
-  // Derived, not stored: if the creator's real options don't include
-  // whatever's currently selected (their first load, or a stricter set for
-  // a newly-added second account), fall back to the first real option
-  // instead of sending a value TikTok will reject.
+  // A level must be valid for every selected TikTok account, not just one of
+  // them, so intersect rather than union.
+  const tiktokPrivacyLevels = useMemo(() => {
+    if (!tiktokInfos) return null;
+    const [first, ...rest] = tiktokInfos.map((i) => i.privacyLevels);
+    return first.filter((level) => rest.every((list) => list.some((l) => l.value === level.value)));
+  }, [tiktokInfos]);
   const tiktokPrivacyOptions = tiktokPrivacyLevels ?? TIKTOK_PRIVACY_LEVELS;
-  const effectiveTiktokPrivacyLevel = tiktokPrivacyOptions.some(
-    (l) => l.value === tiktok.privacy_level,
-  )
+  // Never a default: a choice the creator's real options don't include (or
+  // no choice yet) is no choice, and posting waits for one.
+  const effectiveTiktokPrivacyLevel = tiktokPrivacyOptions.some((l) => l.value === tiktok.privacy_level)
     ? tiktok.privacy_level
-    : (tiktokPrivacyOptions[0]?.value ?? tiktok.privacy_level);
+    : "";
+  // An interaction the creator switched off in the TikTok app can't be offered.
+  const tiktokInteractionOff = (key: "allow_comment" | "allow_duet" | "allow_stitch") =>
+    Boolean(tiktokInfos?.some((i) => i.postingLimits.interactionSettings[key]?.enabled === false));
+  const tiktokCommercialOptions = tiktokInfos
+    ? TIKTOK_COMMERCIAL_CONTENT.filter(
+        (c) =>
+          c.value === "none" ||
+          tiktokInfos.every((i) => (i.commercialContentTypes ?? []).some((t) => t.value === c.value)),
+      )
+    : TIKTOK_COMMERCIAL_CONTENT;
+  const tiktokMaxSec = tiktokInfos
+    ? Math.min(...tiktokInfos.map((i) => i.postingLimits.maxVideoDurationSec || Infinity))
+    : Infinity;
 
   const issues = useMemo(() => {
     // A Set, not an array: preflight() re-checks the caption against the
@@ -163,15 +214,40 @@ export function PostComposer({
     const out = new Set<string>();
     for (const platform of platforms) {
       if (media.length === 0) {
-        for (const issue of preflight(platform, caption, null)) out.add(issue);
+        for (const issue of preflight(platform, postedCaption, null)) out.add(issue);
         continue;
       }
       for (const item of media) {
-        for (const issue of preflight(platform, caption, item.facts)) out.add(issue);
+        for (const issue of preflight(platform, postedCaption, item.facts)) out.add(issue);
+      }
+    }
+    if (platforms.includes("tiktok") && !effectiveTiktokPrivacyLevel) {
+      out.add("Choose who can see this on TikTok.");
+    }
+    for (const info of tiktokInfos ?? []) {
+      if (platforms.includes("tiktok") && info.creator.canPostMore === false) {
+        out.add(`@${info.creator.nickname} has reached TikTok's posting limit for now -- try again later.`);
+      }
+    }
+    if (platforms.includes("tiktok")) {
+      for (const item of media) {
+        if (item.facts.kind === "video" && (item.facts.durationSec ?? 0) > tiktokMaxSec) {
+          out.add(`TikTok lets this account post videos up to ${Math.floor(tiktokMaxSec)}s.`);
+        }
       }
     }
     if (platforms.includes("tiktok") && !tiktok.consent) {
       out.add("TikTok requires confirming the preview and consent before posting.");
+    }
+    if (platforms.includes("youtube") && youtube.madeForKids === null) {
+      out.add("Say whether the YouTube video is made for kids.");
+    }
+    if (
+      platforms.includes("tiktok") &&
+      tiktok.commercial === "brand_content" &&
+      effectiveTiktokPrivacyLevel === "SELF_ONLY"
+    ) {
+      out.add("TikTok doesn't allow branded content to be private -- pick who can see it.");
     }
     if (platforms.includes("tiktok") && tiktokPrivacyLevels?.length === 0) {
       out.add(
@@ -182,31 +258,55 @@ export function PostComposer({
       out.add(`YouTube title is over ${YOUTUBE_TITLE_LIMIT} characters.`);
     }
     return [...out];
-  }, [platforms, caption, media, tiktok.consent, tiktokPrivacyLevels, youtube.title]);
+  }, [
+    platforms,
+    postedCaption,
+    media,
+    tiktok.consent,
+    tiktok.commercial,
+    effectiveTiktokPrivacyLevel,
+    tiktokPrivacyLevels,
+    tiktokInfos,
+    tiktokMaxSec,
+    youtube.title,
+    youtube.madeForKids,
+  ]);
 
   function buildTargets() {
     return chosen.map((account) => {
       const platform = account.platform as Platform;
       let platformSpecificData: Record<string, unknown> | undefined;
       if (platform === "tiktok") {
-        platformSpecificData = {
+        const tiktokSettings: TikTokSettings = {
           privacy_level: effectiveTiktokPrivacyLevel,
-          allow_comment: tiktok.allow_comment,
-          allow_duet: tiktok.allow_duet,
-          allow_stitch: tiktok.allow_stitch,
+          allow_comment: tiktok.allow_comment && !tiktokInteractionOff("allow_comment"),
+          allow_duet: tiktok.allow_duet && !tiktokInteractionOff("allow_duet"),
+          allow_stitch: tiktok.allow_stitch && !tiktokInteractionOff("allow_stitch"),
           content_preview_confirmed: tiktok.consent,
           express_consent_given: tiktok.consent,
+          video_made_with_ai: tiktok.madeWithAi,
+          commercialContentType: tiktok.commercial,
         };
+        platformSpecificData = { tiktokSettings };
       } else if (platform === "youtube") {
         platformSpecificData = {
           title: youtube.title || caption.split("\n")[0].slice(0, YOUTUBE_TITLE_LIMIT),
           visibility: youtube.visibility,
           containsSyntheticMedia: youtube.containsSyntheticMedia,
+          madeForKids: youtube.madeForKids === true,
         };
       } else if (platform === "instagram") {
+        const sponsors = instagram.sponsors
+          .split(/[\s,]+/)
+          .map((s) => s.replace(/^@/, "").trim())
+          .filter(Boolean)
+          .slice(0, 2);
         platformSpecificData = {
           shareToFeed: instagram.shareToFeed,
           isAiGenerated: instagram.isAiGenerated,
+          ...(instagram.paidPartnership
+            ? { isPaidPartnership: true, ...(sponsors.length ? { brandedContentSponsors: sponsors } : {}) }
+            : {}),
         };
       } else if (platform === "linkedin" && linkedin.organizationUrn.trim()) {
         platformSpecificData = { organizationUrn: linkedin.organizationUrn.trim() };
@@ -228,12 +328,13 @@ export function PostComposer({
     setError(null);
     try {
       const postId = await createDraft({
-        caption,
+        caption: postedCaption,
         mediaAssetIds: media.map((m) => m.id),
         jobId,
         targets: buildTargets(),
         scheduledFor: when ? new Date(when).getTime() : undefined,
         timezone,
+        aiLabel: { burn: burnLabel, metadata: hasVideo && metadataTag },
       });
       if (mode === "schedule") await schedule({ postId });
       onClose();
@@ -351,12 +452,61 @@ export function PostComposer({
             {platforms.map((p) => (
               <span
                 key={p}
-                className={caption.length > PLATFORMS[p].captionLimit ? "text-accent" : ""}
+                className={postedCaption.length > PLATFORMS[p].captionLimit ? "text-accent" : ""}
               >
-                {PLATFORMS[p].name} {caption.length}/{PLATFORMS[p].captionLimit}
+                {PLATFORMS[p].name} {postedCaption.length}/{PLATFORMS[p].captionLimit}
               </span>
             ))}
           </p>
+        )}
+        <label className="mt-2 flex items-start gap-2 rounded-lg border border-line bg-surface-sub p-3 text-xs">
+          <input
+            type="checkbox"
+            checked={aiDisclosure}
+            onChange={(e) => setAiDisclosureChoice(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            Open the caption with &ldquo;{AI_PERSON_DISCLOSURE}&rdquo;.
+            <span className="mt-0.5 block text-muted">
+              {disclosure?.aiPerson
+                ? "This video shows an AI-generated person. Ads that do must say so in New York, and in the EU under the AI Act -- leave this on unless you've disclosed it another way."
+                : "Turn on if this shows an AI-generated person: ads that do must say so in New York and the EU."}
+            </span>
+          </span>
+        </label>
+        <label className="mt-2 flex items-start gap-2 rounded-lg border border-line bg-surface-sub p-3 text-xs">
+          <input
+            type="checkbox"
+            checked={burnLabel}
+            onChange={(e) => setBurnChoice(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            Burn an &ldquo;AI-generated&rdquo; label into the {hasVideo ? "video" : "image"}.
+            <span className="mt-0.5 block text-muted">
+              A small badge in the top-left corner. Unlike the caption, it stays on the{" "}
+              {hasVideo ? "video" : "image"} when it&rsquo;s downloaded or reposted. Posting takes a
+              little longer while it&rsquo;s added; the original stays as it is.
+            </span>
+          </span>
+        </label>
+        {hasVideo && (
+          <label className="mt-2 flex items-start gap-2 rounded-lg border border-line bg-surface-sub p-3 text-xs">
+            <input
+              type="checkbox"
+              checked={metadataTag}
+              onChange={(e) => setMetadataTag(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Tag the video file as AI-generated.
+              <span className="mt-0.5 block text-muted">
+                Written into the file&rsquo;s metadata, where AI-detection tools look. Most platforms
+                strip it on upload, so it complements the labels above rather than replacing them.
+              </span>
+            </span>
+          </label>
         )}
 
         <Label>When</Label>
@@ -372,6 +522,14 @@ export function PostComposer({
 
         {platforms.includes("tiktok") && (
           <Panel title="TikTok">
+            {tiktokInfos && (
+              <p className="text-xs">
+                Posting as{" "}
+                <span className="font-semibold">
+                  {tiktokInfos.map((i) => `@${i.creator.nickname}`).join(", ")}
+                </span>
+              </p>
+            )}
             <Row>
               <span className="flex-1">Who can see this</span>
               <select
@@ -379,6 +537,9 @@ export function PostComposer({
                 onChange={(e) => setTiktok({ ...tiktok, privacy_level: e.target.value })}
                 className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm"
               >
+                <option value="" disabled>
+                  Choose…
+                </option>
                 {tiktokPrivacyOptions.map((p) => (
                   <option key={p.value} value={p.value}>
                     {p.label}
@@ -395,18 +556,63 @@ export function PostComposer({
             <Toggle
               label="Allow comments"
               checked={tiktok.allow_comment}
+              disabled={tiktokInteractionOff("allow_comment")}
               onChange={(v) => setTiktok({ ...tiktok, allow_comment: v })}
             />
+            {/* TikTok doesn't apply duet or stitch to photo posts. */}
+            {mediaKind !== "photo" && (
+              <>
+                <Toggle
+                  label="Allow duet"
+                  checked={tiktok.allow_duet}
+                  disabled={tiktokInteractionOff("allow_duet")}
+                  onChange={(v) => setTiktok({ ...tiktok, allow_duet: v })}
+                />
+                <Toggle
+                  label="Allow stitch"
+                  checked={tiktok.allow_stitch}
+                  disabled={tiktokInteractionOff("allow_stitch")}
+                  onChange={(v) => setTiktok({ ...tiktok, allow_stitch: v })}
+                />
+              </>
+            )}
+            {(["allow_comment", "allow_duet", "allow_stitch"] as const).some(tiktokInteractionOff) && (
+              <p className="text-xs text-muted">Grayed out: switched off in this creator&rsquo;s TikTok settings.</p>
+            )}
             <Toggle
-              label="Allow duet"
-              checked={tiktok.allow_duet}
-              onChange={(v) => setTiktok({ ...tiktok, allow_duet: v })}
+              label="Label as AI-generated"
+              checked={tiktok.madeWithAi}
+              onChange={(v) => setTiktok({ ...tiktok, madeWithAi: v })}
             />
-            <Toggle
-              label="Allow stitch"
-              checked={tiktok.allow_stitch}
-              onChange={(v) => setTiktok({ ...tiktok, allow_stitch: v })}
-            />
+            {tiktok.madeWithAi && mediaKind === "photo" && (
+              <p className="text-xs text-muted">
+                TikTok Business accounts can&rsquo;t label photo posts through the API -- if this
+                fails, turn the label off here and add it in the TikTok app.
+              </p>
+            )}
+            <Row>
+              <span className="flex-1">Commercial content</span>
+              <select
+                value={tiktok.commercial}
+                onChange={(e) =>
+                  setTiktok({ ...tiktok, commercial: e.target.value as TikTokCommercialContent })
+                }
+                className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm"
+              >
+                {tiktokCommercialOptions.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </Row>
+            <p className="text-xs text-muted">
+              {tiktok.commercial === "none"
+                ? "TikTok requires disclosing any post that promotes a business, product or service -- including your own."
+                : tiktok.commercial === "brand_organic"
+                  ? "Your video will be labeled “Promotional content”."
+                  : "Your video will be labeled “Paid partnership”."}
+            </p>
             <label className="mt-2 flex items-start gap-2 rounded-lg border border-accent bg-accent-soft p-3 text-xs">
               <input
                 type="checkbox"
@@ -415,8 +621,30 @@ export function PostComposer({
                 className="mt-0.5"
               />
               <span>
-                I have reviewed this video and agree to TikTok&rsquo;s Music Usage
-                Confirmation. TikTok requires this for every post.
+                I have reviewed this video and agree to TikTok&rsquo;s{" "}
+                {tiktok.commercial === "brand_content" && (
+                  <>
+                    <a
+                      href="https://www.tiktok.com/legal/page/global/bc-policy/en"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline"
+                    >
+                      Branded Content Policy
+                    </a>{" "}
+                    and{" "}
+                  </>
+                )}
+                <a
+                  href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  Music Usage Confirmation
+                </a>
+                . TikTok requires this for every post. It can take a few minutes to appear on the
+                profile after posting.
               </span>
             </label>
           </Panel>
@@ -449,6 +677,24 @@ export function PostComposer({
               checked={youtube.containsSyntheticMedia}
               onChange={(v) => setYoutube({ ...youtube, containsSyntheticMedia: v })}
             />
+            <Row>
+              <span className="flex-1">Made for kids?</span>
+              <select
+                value={youtube.madeForKids === null ? "" : youtube.madeForKids ? "yes" : "no"}
+                onChange={(e) => setYoutube({ ...youtube, madeForKids: e.target.value === "yes" })}
+                className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm"
+              >
+                <option value="" disabled>
+                  Choose…
+                </option>
+                <option value="no">No, it&apos;s not made for kids</option>
+                <option value="yes">Yes, it&apos;s made for kids</option>
+              </select>
+            </Row>
+            <p className="text-xs text-muted">
+              Required by US law (COPPA) for every YouTube upload. &ldquo;Yes&rdquo; permanently turns
+              off comments and personalized ads on the video.
+            </p>
           </Panel>
         )}
 
@@ -464,7 +710,43 @@ export function PostComposer({
               checked={instagram.isAiGenerated}
               onChange={(v) => setInstagram({ ...instagram, isAiGenerated: v })}
             />
+            <Toggle
+              label="Paid partnership"
+              checked={instagram.paidPartnership}
+              onChange={(v) => setInstagram({ ...instagram, paidPartnership: v })}
+            />
+            {instagram.paidPartnership && (
+              <>
+                <input
+                  value={instagram.sponsors}
+                  onChange={(e) => setInstagram({ ...instagram, sponsors: e.target.value })}
+                  placeholder="Sponsor's Instagram username (up to 2, optional)"
+                  className="w-full rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-accent"
+                />
+                <p className="text-xs text-muted">
+                  Shows Instagram&rsquo;s &ldquo;Paid partnership&rdquo; label. Needs the account connected with
+                  Facebook login, and doesn&rsquo;t apply to Stories.
+                </p>
+              </>
+            )}
           </Panel>
+        )}
+        {paidPartnership && (
+          <label className="mt-2 flex items-start gap-2 rounded-lg border border-line bg-surface-sub p-3 text-xs">
+            <input
+              type="checkbox"
+              checked={adTagChoice}
+              onChange={(e) => setAdTagChoice(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Start the caption with &ldquo;#ad&rdquo;.
+              <span className="mt-0.5 block text-muted">
+                A paid partnership has to be disclosed where people read it (FTC endorsement guides) --
+                including on YouTube and LinkedIn, which have no partnership label here.
+              </span>
+            </span>
+          </label>
         )}
 
         {platforms.includes("linkedin") && (
@@ -535,14 +817,21 @@ function Toggle({
   label,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string;
   checked: boolean;
   onChange: (value: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
-    <label className="flex items-center gap-2 text-sm">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    <label className={`flex items-center gap-2 text-sm ${disabled ? "opacity-50" : ""}`}>
+      <input
+        type="checkbox"
+        checked={checked && !disabled}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
       <span>{label}</span>
     </label>
   );

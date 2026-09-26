@@ -42,6 +42,11 @@ interface MemeConfig {
   background?: Id<"assets">;
   /** The meme popup's pick -- see MemePick. */
   meme?: unknown;
+  /**
+   * The Add captions switch. Off means no caption, even one typed before it
+   * was switched off. Unset on jobs from before the switch: captions on.
+   */
+  captions?: boolean;
   /** The Hook caption box, word for word. Blank asks P1 to write one. */
   caption?: string;
   mentionBusiness?: boolean;
@@ -217,9 +222,17 @@ relatable situation and the meme is the reaction to it. Patterns that work:
 - No hashtags, no quotation marks, no markdown. At most one emoji.
 - Play off what the meme shows -- you're told its title -- rather than
   describing it back.
-- If told to mention a business, make the situation one its customers live
-  (the problem it solves, the moment before or after using it) and weave its
-  name in only if it lands naturally. Never an advert; it has to still be a meme.
+- If told to mention a business, the caption names it: the poster switched
+  that on so it would be. Make the situation the problem it solves -- the
+  moment its customers know too well -- and let the name be the twist inside
+  whichever pattern you pick, not a tag on the end. The profile comes with a rule
+  on whether "me" has used it; follow it exactly. When they haven't, the
+  business is a discovery, said as what it CAN do -- never as something that
+  already happened to "me" ("me when X already did it", "X turned my pile
+  into..."). Only what the profile says it does: no speed, savings or
+  results it doesn't state. Never an advert; it has to still be a meme.
+- Use the whole range of patterns above -- whichever fits this meme best,
+  not "me finding..." by default.
 - Asked to improve a caption: keep the situation it's getting at and make it
   land harder. Don't swap in a different joke.`;
 
@@ -271,7 +284,9 @@ function memeTitleOf(raw: unknown): string {
 }
 
 /**
- * P1, planned when the Hook caption box is blank. With nothing to write from
+ * P1, planned while Add captions is on (on jobs from before the switch, while
+ * the Hook caption box is blank). A typed caption is kept as it is, for free.
+ * With nothing to write from
  * -- an uploaded meme has no title, and no business to mention -- the studio
  * opens with no caption rather than the run failing: the caption is typed
  * there instead.
@@ -331,9 +346,9 @@ export const improveCaption = action({
   },
   handler: async (ctx, { caption, memeTitle, mentionBusiness }): Promise<{ caption: string }> => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, { authUserId: identity.subject });
-    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
 
     const current = (caption ?? "").trim().slice(0, MAX_CAPTION_CHARS);
     const title = (memeTitle ?? "").trim().slice(0, 200);
@@ -392,7 +407,7 @@ export const openStudio = internalAction({
     const meme = await resolveMeme(ctx, config.meme, clientId);
     const background = await resolveBackground(ctx, config.background, clientId);
     const written = (job.steps.find((s) => s.id === "copy")?.output as { caption?: string } | undefined)?.caption;
-    const caption = (written ?? config.caption ?? "").trim();
+    const caption = config.captions === false ? "" : (written ?? config.caption ?? "").trim();
     const pick = parseMemePick(config.meme) as MemePick;
 
     const design = config.design

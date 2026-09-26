@@ -290,7 +290,14 @@ export interface ToolCallResult {
  * `model` exists for Drama, which runs on the model DramaClaw itself is
  * tuned for rather than the app-wide default -- fal's OpenRouter passthrough
  * serves any OpenRouter model id through the same endpoint and key.
+ *
+ * Everything these calls write ends up on screen or in a caption, and the
+ * app is American English, so English copy is spelled that way ("color",
+ * "realize") whatever the model leans to. Other languages are untouched.
  */
+const AMERICAN_ENGLISH =
+  "\n\nWhen you write in English, use American English spelling and vocabulary (color, realize, center, favorite).";
+
 export async function callTool(
   system: string,
   userPrompt: string,
@@ -305,7 +312,7 @@ export async function callTool(
       body: JSON.stringify({
         model: opts.model ?? LLM_MODEL,
         messages: [
-          { role: "system", content: system },
+          { role: "system", content: system + AMERICAN_ENGLISH },
           { role: "user", content: userPrompt },
         ],
         tools: [
@@ -648,7 +655,7 @@ export async function rewritePromptNeutrally(
 Rules:
 - Keep every @imageN reference tag exactly as written, in the same order.
 - Keep the art style, framing, lighting and camera notes unchanged.
-- Replace depictions of injury, blood, wounds, violence, death, weapons or physical suffering with restrained visual equivalents (posture, expression, symbolism, colour, shadow).
+- Replace depictions of injury, blood, wounds, violence, death, weapons or physical suffering with restrained visual equivalents (posture, expression, symbolism, color, shadow).
 - The checker sometimes flags phrasing rather than content -- if nothing in the prompt is actually graphic, just simplify the wording (shorter sentences, plainer verbs, fewer intensifiers) rather than inventing something to tone down.
 - Do not add new characters, objects or narrative.
 - Never try to disguise or smuggle prohibited content; if a scene cannot be shown acceptably, describe it symbolically instead.

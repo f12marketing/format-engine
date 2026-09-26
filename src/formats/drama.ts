@@ -107,7 +107,7 @@ export default defineFormat({
       default: "Auto",
       help: "Auto scores the episode to its own mood.",
     }),
-    captionOverlay: field.captionOverlay({ label: "Subtitles" }),
+    captionOverlay: field.captionOverlay({ label: "Captions" }),
     captionStyle: field.captionStyle(),
     language: field.language(),
     mentionBusiness: field.mentionBusiness(),
@@ -131,6 +131,6 @@ export default defineFormat({
       label: "Score the episode",
       when: { field: "music", notEquals: "None" },
     },
-    { id: "cut", primitive: "P7", label: "Cut, subtitle and mix" },
+    { id: "cut", primitive: "P7", label: "Cut, caption and mix" },
   ],
 });

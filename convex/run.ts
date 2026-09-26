@@ -4,6 +4,8 @@ import type { Id } from "./_generated/dataModel";
 import { requireClient } from "./clients";
 import { STARTERS, type RunnableFormatId } from "./starters";
 import { enforceRateLimit } from "./lib/rateLimit";
+import { assertLikenessConsent, uploadedPhotoRefs } from "./lib/likeness";
+import { assertClipRights, clipIdsIn } from "./clips";
 
 /**
  * The Generate button's single entry point, for every format.
@@ -29,6 +31,16 @@ export const generate = mutation({
     const starter = STARTERS[args.formatId as RunnableFormatId];
     if (!starter) {
       throw new Error(`${args.formatId} has no pipeline yet.`);
+    }
+
+    // A real person is only animated with their permission (lib/likeness.ts):
+    // a photo picked from My images carries it on the asset, and Character
+    // Swap -- which transforms whoever is in the uploaded clip -- asks per job.
+    await assertLikenessConsent(ctx, client._id, uploadedPhotoRefs(args.config));
+    // Someone else's video is only reused in an ad with their permission.
+    await assertClipRights(ctx, client._id, clipIdsIn(args.config));
+    if (args.formatId === "character-swap" && args.config?.likenessConsent !== true) {
+      throw new Error("Confirm you have permission from the people in your video and image.");
     }
 
     const jobId = await ctx.db.insert("jobs", {

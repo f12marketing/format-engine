@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "prompt-eval": "node scripts/prompt-eval.mjs"
   },
   "dependencies": {
     "@convex-dev/rate-limiter": "^0.4.0",

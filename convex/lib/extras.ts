@@ -435,7 +435,7 @@ export async function subtitlesStep(
     enable_animation: config.subtitleAnimation !== false,
   })) as { video?: { url?: string } };
   const subtitledUrl = result.video?.url;
-  if (!subtitledUrl) throw new Error("no subtitled video returned");
+  if (!subtitledUrl) throw new Error("no captioned video returned");
 
   await replaceOutput(ctx, {
     jobId,

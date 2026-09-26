@@ -111,9 +111,11 @@ Every slide gets:
 The slides together are one arc: a hook that earns the swipe, a middle that
 delivers, and a last slide that lands it. No hashtags, no markdown.
 
-When you are told to mention a business, work it in the way someone mentions
-an app or shop they actually use -- once, mid-deck or near the end -- never as
-a slogan or a call to action.`;
+When you are told to mention a business, work it in once, mid-deck or near
+the end, the way someone passes on a find -- never as a slogan or a call to
+action. The profile comes with a rule on whether the poster has used it;
+follow it exactly. When they haven't, the deck's story is the problem and the
+business is what they just found out about ("apparently X can...").`;
 
 function writerTool(count: number, photos: number) {
   return {
@@ -364,11 +366,11 @@ export const openEditor = internalAction({
  */
 async function clientOf(ctx: ActionCtx): Promise<Doc<"clients">> {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+  if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
   const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
     authUserId: identity.subject,
   });
-  if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+  if (!client) throw new Error("Not authorized. This is an invite-only tool.");
   return client;
 }
 
@@ -543,7 +545,7 @@ key points or story beats. Two to four sentences, plain text, written as the
 person's own instruction ("A slideshow about...").
 
 The writing style you are shown is context for choosing a topic and angle
-that suit it. Do not repeat or summarise it: slide counts, word counts,
+that suit it. Do not repeat or summarize it: slide counts, word counts,
 casing, emoji and layout rules are applied separately and must not appear in
 your brief. Invent no facts, numbers or claims about a business.
 

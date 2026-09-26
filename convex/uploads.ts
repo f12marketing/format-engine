@@ -1,9 +1,10 @@
 import { v } from "convex/values";
-import { mutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireClient } from "./clients";
 import { kindForMime } from "./assets";
 import { enforceRateLimit } from "./lib/rateLimit";
+import { needsLikenessConsent } from "./lib/likeness";
 
 /**
  * Browser uploads go straight to Convex storage, not through a mutation.
@@ -31,14 +32,44 @@ export const attach = mutation({
     width: v.optional(v.number()),
     height: v.optional(v.number()),
     durationSec: v.optional(v.number()),
+    /** The uploader confirmed the person in it agreed to be animated -- see lib/likeness.ts. */
+    likenessConsent: v.optional(v.boolean()),
   },
-  handler: async (ctx, args): Promise<Id<"assets">> => {
+  handler: async (ctx, { likenessConsent, ...args }): Promise<Id<"assets">> => {
     const client = await requireClient(ctx);
     return ctx.db.insert("assets", {
       ...args,
       clientId: client._id,
       kind: kindForMime(args.mimeType),
+      ...(likenessConsent ? { likenessConsentAt: Date.now() } : {}),
     });
+  },
+});
+
+/** Records likeness consent for photos already uploaded, when one is picked to be animated. */
+export const confirmLikenessConsent = mutation({
+  args: { assetIds: v.array(v.id("assets")) },
+  handler: async (ctx, { assetIds }): Promise<null> => {
+    const client = await requireClient(ctx);
+    for (const assetId of assetIds) {
+      const asset = await ctx.db.get(assetId);
+      if (!asset || asset.clientId !== client._id) throw new Error("Unknown asset.");
+      if (needsLikenessConsent(asset)) await ctx.db.patch(assetId, { likenessConsentAt: Date.now() });
+    }
+    return null;
+  },
+});
+
+/** Whether any of these photos is a real person's upload still waiting on consent. */
+export const likenessConsentNeeded = query({
+  args: { assetIds: v.array(v.id("assets")) },
+  handler: async (ctx, { assetIds }): Promise<boolean> => {
+    const client = await requireClient(ctx);
+    for (const assetId of assetIds) {
+      const asset = await ctx.db.get(assetId);
+      if (asset?.clientId === client._id && needsLikenessConsent(asset)) return true;
+    }
+    return false;
   },
 });
 

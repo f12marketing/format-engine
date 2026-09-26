@@ -17,16 +17,29 @@ import type { Id } from "../_generated/dataModel";
  * which some scrapers pass through unflattened) -- so the first real
  * ingestion has a real chance of working, but this is exactly the kind of
  * thing to re-check against an actual response the moment a key exists.
+ *
+ * By default only TikTok's own download (`download_addr`), which carries the
+ * TikTok watermark and the creator's @handle. That watermark is the clip's
+ * attribution: stripping it can count as removing copyright management
+ * information (17 U.S.C. § 1202), on top of the reuse itself needing the
+ * creator's permission (see clips.ts). `keepWatermark: false` is there for a
+ * clip whose creator has licensed it clean.
  */
-function pickDownloadUrl(body: unknown): string | null {
-  const candidates = [
-    pickField(body, [["download_no_watermark_addr"]]),
-    pickField(body, [["video", "download_no_watermark_addr"]]),
-    pickField(body, [["aweme_detail", "video", "download_no_watermark_addr"]]),
-    pickField(body, [["play_addr"]]),
-    pickField(body, [["video", "play_addr"]]),
-    pickField(body, [["aweme_detail", "video", "play_addr"]]),
-  ];
+function pickDownloadUrl(body: unknown, keepWatermark: boolean): string | null {
+  const candidates = keepWatermark
+    ? [
+        pickField(body, [["download_addr"]]),
+        pickField(body, [["video", "download_addr"]]),
+        pickField(body, [["aweme_detail", "video", "download_addr"]]),
+      ]
+    : [
+        pickField(body, [["download_no_watermark_addr"]]),
+        pickField(body, [["video", "download_no_watermark_addr"]]),
+        pickField(body, [["aweme_detail", "video", "download_no_watermark_addr"]]),
+        pickField(body, [["play_addr"]]),
+        pickField(body, [["video", "play_addr"]]),
+        pickField(body, [["aweme_detail", "video", "play_addr"]]),
+      ];
   for (const c of candidates) {
     if (typeof c === "string" && c) return c;
     const fromList = pickField(c, [["url_list", "0"], ["urlList", "0"]]);
@@ -55,8 +68,13 @@ function pickField(body: unknown, paths: string[][]): unknown {
  * render-service output.
  */
 export const ingestTikTok = internalAction({
-  args: { sourceUrl: v.string(), tags: v.optional(v.array(v.string())) },
-  handler: async (ctx, { sourceUrl, tags }): Promise<Id<"clips">> => {
+  args: {
+    sourceUrl: v.string(),
+    tags: v.optional(v.array(v.string())),
+    /** Default true: keep TikTok's watermark (the creator's attribution). See pickDownloadUrl. */
+    keepWatermark: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { sourceUrl, tags, keepWatermark = true }): Promise<Id<"clips">> => {
     const apiKey = (process.env.SCRAPECREATORS_API_KEY ?? "").trim();
     if (!apiKey) {
       throw new Error(
@@ -76,11 +94,12 @@ export const ingestTikTok = internalAction({
       );
     }
 
-    const downloadUrl = pickDownloadUrl(metaBody);
+    const downloadUrl = pickDownloadUrl(metaBody, keepWatermark);
     if (!downloadUrl) {
       throw new Error(
-        `ScrapeCreators response had no recognised download URL field. Top-level keys: ` +
-          `${Object.keys((metaBody as object) ?? {}).join(", ")}`,
+        `ScrapeCreators response had no recognized ${keepWatermark ? "watermarked " : ""}download URL ` +
+          `field. Top-level keys: ${Object.keys((metaBody as object) ?? {}).join(", ")}` +
+          (keepWatermark ? ". Pass keepWatermark: false only for a clip licensed without it." : ""),
       );
     }
 

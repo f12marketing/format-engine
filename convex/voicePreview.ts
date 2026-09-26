@@ -30,11 +30,11 @@ export const preview = action({
     // Same auth-resolution shape as influencers.generateFaceImage: a public
     // action has no ctx.db, so the admitted client is looked up by identity.
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
       authUserId: identity.subject,
     });
-    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
 
     const name = voice.trim();
     if (!name || name.length > MAX_VOICE_LENGTH) throw new Error("Pick a voice to preview.");

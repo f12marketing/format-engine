@@ -106,11 +106,11 @@ export const generate = action({
     // An action gets `ctx.auth` but not `ctx.db` -- `requireClient` needs
     // both, so this is its lookup half done via `ctx.runQuery` instead.
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
       authUserId: identity.subject,
     });
-    if (!client) throw new Error("Not authorised. This is an invite-only tool.");
+    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
     await enforceRateLimit(ctx, "generateFaceImage", client._id);
 
     return ctx.runAction(internal.avatars.generateForClient, {
@@ -158,6 +158,7 @@ export const generateForClient = internalAction({
       storageId,
       mimeType: "image/png",
       bytes: bytes.byteLength,
+      synthetic: true,
     });
 
     // Not recorded in spend_ledger: every row there is scoped to a jobId, and

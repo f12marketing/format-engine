@@ -68,8 +68,8 @@ A few things are worth knowing about before you touch them:
   set's photos to each slide from what the photo shows -- no image
   generation, so a run costs about a cent. It then pauses in an editor on the
   job page: dimensions (1:1, 4:5, 3:4, 9:16), text boxes you drag, resize,
-  double-click to type in and style (font, weight, size, colour, stroke,
-  background none / white / Snapchat / colour, with *Apply to all slides*,
+  double-click to type in and style (font, weight, size, color, stroke,
+  background none / white / Snapchat / color, with *Apply to all slides*,
   which gives every slide this slide's text style box by box), swap image
   (one slide, or *Use on every slide* to re-theme the whole deck from another
   set, restyling the text to match), add images, add overlay (built-in tints
@@ -142,6 +142,8 @@ A few things are worth knowing about before you touch them:
     AI Emojis), then **My memes** and **Upload new**. The KLIPY side has
     search with autocomplete, related searches, categories, Recently used, a
     "green screen" shortcut and Report.
+  - **Add captions**: a switch, on by default, as in Video Hook & Demo. Off
+    hides the Hook caption box, and the studio opens with no caption.
   - **Hook caption**: a 5-14 word line whose **Improvise** reads the meme's
     title, and which is written from the meme when left blank.
   - **Mention your business**.
@@ -177,7 +179,7 @@ A few things are worth knowing about before you touch them:
     the video, which KLIPY only allows with their written approval. See
     *Known gaps*.
 - **The business profile** is collected by a quiz every new client is sent
-  to once after sign-up (`/onboarding`): name and logo (brand colours are read
+  to once after sign-up (`/onboarding`): name and logo (brand colors are read
   out of the logo), their website -- read server-side and drafted into a
   profile by the LLM (`convex/onboarding.ts`), or described by hand when the
   site blocks readers -- then role, team, business type, goals and how they
@@ -199,9 +201,9 @@ A few things are worth knowing about before you touch them:
   at 1,500 characters (about 100 seconds, 34 scenes) and a video at 40 scenes,
   because every 3 seconds is a paid image or clip: a 60-second Slideshow is
   around $1.75, and a 60-second Video Animation (Kling Standard) about $6.50.
-- The rest of the production extras — music, upscale, subtitles, branding — come
+- The rest of the production extras — music, upscale, captions, branding — come
   from `convex/lib/extras.ts`, and the voiceover is always on for those two
-  formats (it is what they are cut to), so it has no switch. Subtitles — the
+  formats (it is what they are cut to), so it has no switch. Captions (the setting was called Subtitles before) — the
   word-by-word text burned in from the voiceover — are the only text on those
   two videos (there are no separate per-slide or per-shot captions) and start
   switched on.
@@ -364,7 +366,7 @@ where the app does it:
 - **No mass downloading** -- 20 photos per set at most; searched photos are
   stored only when picked.
 
-The licences allow commercial use without credit in the posts themselves, but
+The licenses allow commercial use without credit in the posts themselves, but
 not selling a photo unaltered or implying that people or brands shown endorse
 you; the popup says so.
 
@@ -539,7 +541,7 @@ convex/
                          avatar, scene, animate)
   lib/grounding.ts       makes a topic true to the real world before any image
                          model draws it
-  lib/extras.ts          music, upscale, subtitles, branding
+  lib/extras.ts          music, upscale, captions, branding
   lib/scriptTiming.ts    script -> scene count (X / 3) and the words in each scene
   lib/scriptVoice.ts     writes a script from an idea; records it with word timings
   lib/carouselPrompt.ts  the tuned prompt, ported unchanged — three eval rounds
@@ -616,6 +618,94 @@ npx convex dev   # the backend, in a second terminal
 npx tsc --noEmit # typecheck
 npm run lint     # eslint
 ```
+
+## AI disclosure and likeness consent
+
+Every video here is AI-made, and many show a person who doesn't exist. These
+are the rules that apply, and the code that follows each. Keep them when
+touching posting, the casting popup, influencers or Character Swap.
+
+- **Platform AI labels.** TikTok's AIGC policy, YouTube's altered/synthetic
+  content policy and Meta's AI labels. The composer sets TikTok's
+  `video_made_with_ai`, YouTube's `containsSyntheticMedia` and Instagram's
+  `isAiGenerated`, all on by default (`src/components/PostComposer.tsx`).
+  Zernio reads settings only on each `platforms[]` entry, and TikTok's under
+  `tiktokSettings` (`zernioPlatformData` in `convex/lib/zernio.ts`); a
+  root-level `platformSpecificData` is silently ignored, which dropped these
+  labels and TikTok's consent flags on every post before the fix.
+- **TikTok commercial content disclosure.** TikTok requires it on any post
+  promoting a business, including the creator's own. The composer offers
+  *Your brand* / *Branded content* (`commercialContentType`), off by default
+  as TikTok's guidelines require, blocks branded content set to private, and
+  names the Branded Content Policy in the consent line when it applies.
+- **New York synthetic performer law (GBL § 396-b, from 9 June 2026) and EU
+  AI Act art. 50(4) (from 2 August 2026).** An ad showing an AI-generated
+  person must say so, visibly, in the ad. When the posted media came from a
+  job that filmed, lip-synced or swapped a person (P3/P5/P6), the caption
+  opens with "Made with AI · features an AI-generated person"; the switch
+  starts on for those and off otherwise (`convex/lib/disclosure.ts`,
+  `socialPosts.disclosure`). Two more switches sit under it:
+  - *Burn an "AI-generated" label* (same default): a badge in the top-left
+    corner that survives downloads and reposts.
+  - *Tag the video file as AI-generated* (on): a metadata tag, which most
+    platforms strip.
+
+  Either one makes `socialPosts.schedule` run the media through the render
+  service's `POST /label/ai` (`../render-service/label.mjs`) once, save the
+  copies as `postedMediaAssetIds`, and post those. The original render is
+  left alone. A service without the route (its `/health` lacks
+  `aiLabel: true`) stops the schedule with a message to restart it.
+- **Likeness consent.** A real person's photo is only animated, lip-synced or
+  trained into an influencer with their permission (right of publicity; fal
+  and ByteDance usage rules; Seedance rejects real faces outright). The
+  client ticks `LikenessConsent` when picking or uploading a photo in My
+  images and before training on uploads; it's recorded on the asset as
+  `likenessConsentAt`. `run.generate` and `influencers.create` refuse
+  unconfirmed photos (`convex/lib/likeness.ts`). Faces the app generated
+  (`synthetic: true`) and job outputs are exempt. Character Swap asks per job
+  with a required *Permission from the people shown* switch. Gallery faces
+  added with `dev:addGalleryFace` need a model release.
+- **TikTok Content Sharing Guidelines** (a condition of TikTok's Direct Post
+  API). The composer shows the creator's nickname from creator info; who can
+  see the post and the comment / duet / stitch switches start unset; an
+  interaction the creator switched off in TikTok is greyed out; duet and
+  stitch are hidden for photo posts; commercial content options are the ones
+  the account offers; and it blocks a post over the account's max video
+  length or daily limit. The consent line links TikTok's Music Usage
+  Confirmation (and Branded Content Policy when it applies).
+- **YouTube audience (COPPA).** "Made for kids?" has no default and must be
+  answered before posting to YouTube (`madeForKids`).
+- **Paid partnerships (FTC endorsement guides).** Instagram gets a *Paid
+  partnership* switch (`isPaidPartnership`, optional `brandedContentSponsors`;
+  needs Facebook login). When that or TikTok's *Branded content* is on, the
+  caption opens with "#ad" unless the user unticks it -- the only disclosure
+  YouTube and LinkedIn get here.
+- **Trending clips (copyright; TikTok's terms).** The library is other
+  creators' videos. Picking one needs *I have the creator's permission, or a
+  license*, recorded per client and clip in `clipRights`; `run.generate`
+  refuses a job using a clip without it (`convex/clips.ts`). The picker links
+  the original post and warns when the clip has music. Ingestion keeps
+  TikTok's watermark (the creator's attribution) unless run with
+  `keepWatermark: false` for a clip licensed without it
+  (`convex/lib/clipIngest.ts`).
+- **Third-party AI processing.** The likeness consent box says the photo is
+  sent to fal.ai. The app's own privacy policy should name the processors
+  too: fal.ai (image, video, voice and the LLM), Zernio (posting), Supabase
+  (sign-in), Convex (storage), KLIPY, Pexels, Pixabay and Freesound.
+- **Music.** Platform music comes from Freesound, CC0 only (`music.ts`), and
+  generated music from ElevenLabs via fal. Both are cleared for commercial use.
+- **API keys.** Server keys live only in Convex env (`npx convex env set`);
+  `.env.local` holds only `NEXT_PUBLIC_*` values that are public by design
+  (Supabase publishable key, KLIPY app key). No key is committed in either
+  repo's history.
+- **FTC endorsement rules (16 CFR 255, 465).** An AI person may not pose as a
+  real customer describing a real experience. The Business page's *Keep
+  scripts clear of fake reviews* switch (`brands.testimonialGuard`, on unless
+  switched off) adds a rule to every prompt that mentions the business: the
+  speaker may react, ask or say what it does, but never claim to have used
+  it or what it did for them (`testimonialRule` in
+  `convex/lib/businessContext.ts`; Wall of Text builds its own business
+  prompt and appends it there).
 
 ## Decisions worth not re-litigating
 

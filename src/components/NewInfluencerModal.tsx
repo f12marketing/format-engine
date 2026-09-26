@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAction, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { LikenessConsent } from "./LikenessConsent";
 
 /**
  * The Influencer creation popup -- three steps: persona, training photos,
@@ -884,12 +885,18 @@ function TrainStep({
   const thumbs = useQuery(api.assets.urlsFor, { assetIds: trainingAssetIds });
   const createInfluencer = useMutation(api.influencers.create);
   const startTraining = useAction(api.influencers.startTraining);
+  // Uploaded photos of a real person train an AI double of them: only with
+  // their permission. Generated and gallery faces never ask.
+  const consentNeeded = useQuery(api.uploads.likenessConsentNeeded, { assetIds: trainingAssetIds });
+  const confirmConsent = useMutation(api.uploads.confirmLikenessConsent);
+  const [agreed, setAgreed] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const cost = config?.defaultCostUsd ?? 0;
   const overCap = spend !== undefined && cost > spend.remainingUsd;
+  const blockedOnConsent = consentNeeded === true && !agreed;
 
   async function start() {
     setBusy(true);
@@ -897,6 +904,7 @@ function TrainStep({
     try {
       let id = influencerId;
       if (!id) {
+        if (consentNeeded) await confirmConsent({ assetIds: trainingAssetIds });
         id = await createInfluencer({ name, personaNotes, trainingImageAssetIds: trainingAssetIds });
         onCreated(id);
       }
@@ -958,6 +966,7 @@ function TrainStep({
           30-day window to roll forward.
         </p>
       )}
+      {consentNeeded && !influencerId && <LikenessConsent checked={agreed} onChange={setAgreed} />}
       {error && <p className="text-xs text-accent">{error}</p>}
 
       <div className="flex justify-between pt-2">
@@ -972,7 +981,7 @@ function TrainStep({
         <button
           type="button"
           onClick={start}
-          disabled={busy || overCap}
+          disabled={busy || overCap || (blockedOnConsent && !influencerId)}
           className="rounded-md bg-accent px-4 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-40"
         >
           {busy ? "Starting…" : "Start training"}
