@@ -26,7 +26,10 @@ const PLATFORMS = [
     id: "instagram" as const,
     name: "Instagram",
     blurb: "Reels, feed video and Stories",
-    caveat: "Requires a Business or Creator account — personal accounts cannot post via API.",
+    caveat:
+      "Requires a Business or Creator account — personal accounts cannot post via API. " +
+      "Connect with Facebook to use the Paid partnership label: the account must be linked to a " +
+      "Facebook Page you manage. Instagram login needs no Page, but Instagram won't let it add the label.",
   },
   {
     id: "youtube" as const,
@@ -76,7 +79,7 @@ function ConnectionsBody() {
   const [error, setError] = useState<string | null>(null);
   // A plain projection of the URL, not state that needs syncing in an
   // effect -- a click-to-connect failure (below) still wins once it happens.
-  const displayError = error ?? (connectError ? `Zernio couldn't complete that connection: ${connectError}` : null);
+  const displayError = error ?? (connectError ? connectErrorText(connectError) : null);
 
   // Coming back from the platform's OAuth screen: Zernio has the account by
   // now, so pull the authoritative list rather than trusting the query string.
@@ -84,7 +87,10 @@ function ConnectionsBody() {
     if (justConnected) syncAccounts({}).catch(() => {});
   }, [justConnected, syncAccounts]);
 
-  async function connect(platform: (typeof PLATFORMS)[number]["id"]) {
+  async function connect(
+    platform: (typeof PLATFORMS)[number]["id"],
+    loginMethod?: "instagram_login" | "facebook_login",
+  ) {
     setBusy(platform);
     setError(null);
     try {
@@ -92,7 +98,7 @@ function ConnectionsBody() {
       // platform's OAuth screen finishes -- without one it has nowhere to
       // send the user, and the flow dead-ends on Zernio's own side.
       const redirectUrl = `${window.location.origin}/connections`;
-      const { authUrl } = await startConnect({ platform, redirectUrl });
+      const { authUrl } = await startConnect({ platform, redirectUrl, loginMethod });
       window.location.assign(authUrl);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -128,28 +134,54 @@ function ConnectionsBody() {
                   <span className="block text-sm font-medium">{platform.name}</span>
                   <span className="block text-xs text-muted">{platform.blurb}</span>
                 </span>
+                {/* Instagram: Facebook Login first, since it's the one that can
+                    set the Paid partnership label. */}
                 <button
-                  onClick={() => connect(platform.id)}
+                  onClick={() =>
+                    connect(platform.id, platform.id === "instagram" ? "facebook_login" : undefined)
+                  }
                   disabled={busy === platform.id}
                   className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
                 >
                   {busy === platform.id
                     ? "Opening…"
-                    : connected.length
-                      ? "Connect another"
-                      : "Connect"}
+                    : platform.id === "instagram"
+                      ? "Connect with Facebook"
+                      : connected.length
+                        ? "Connect another"
+                        : "Connect"}
                 </button>
               </div>
 
               {connected.length > 0 && (
                 <ul className="mt-3 space-y-1.5 border-t border-line pt-3">
                   {connected.map((account) => (
-                    <AccountRow key={account._id} id={account._id} username={account.username} />
+                    <AccountRow
+                      key={account._id}
+                      id={account._id}
+                      username={account.username}
+                      note={
+                        platform.id !== "instagram"
+                          ? undefined
+                          : account.loginMethod === "facebook_login"
+                            ? "Connected with Facebook"
+                            : "Connected with Instagram login: no Paid partnership label. Connect with Facebook to add it."
+                      }
+                    />
                   ))}
                 </ul>
               )}
 
               <p className="mt-2 text-xs text-muted">{platform.caveat}</p>
+              {platform.id === "instagram" && (
+                <button
+                  onClick={() => connect("instagram", "instagram_login")}
+                  disabled={busy === "instagram"}
+                  className="mt-1 text-xs text-muted underline hover:text-foreground disabled:opacity-60"
+                >
+                  Connect with Instagram login instead
+                </button>
+              )}
             </li>
           );
         })}
@@ -158,13 +190,37 @@ function ConnectionsBody() {
   );
 }
 
-function AccountRow({ id, username }: { id: Id<"socialAccounts">; username: string }) {
+/**
+ * Zernio's failure codes, in words. Anything unlisted falls back to the code
+ * itself -- Zernio says the list grows without notice.
+ */
+function connectErrorText(code: string): string {
+  const known: Record<string, string> = {
+    oauth_denied: "The connection was canceled or refused on the platform's screen.",
+    no_facebook_pages:
+      "That Facebook login manages no Page with a linked Instagram Business or Creator account. " +
+      "Link the Instagram account to a Facebook Page in Meta Business Suite, then connect again.",
+    personal_account_not_supported:
+      "That's a personal Instagram account. Switch it to a Business or Creator account in the Instagram app, then connect again.",
+    missing_tiktok_permissions:
+      "TikTok didn't grant every permission, so nothing changed. Connect again and accept all of them on TikTok's screen.",
+    instagram_login_method_mismatch:
+      "That Instagram account is connected with Facebook, so nothing changed. To switch it to Instagram login, disconnect it first.",
+    account_limit_exceeded: "Your Zernio plan has no room for another account.",
+  };
+  return known[code] ?? `Zernio couldn't complete that connection: ${code}`;
+}
+
+function AccountRow({ id, username, note }: { id: Id<"socialAccounts">; username: string; note?: string }) {
   const disconnect = useAction(api.social.disconnect);
   const [busy, setBusy] = useState(false);
 
   return (
     <li className="flex items-center gap-3 text-sm">
-      <span className="min-w-0 flex-1 truncate">@{username}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">@{username}</span>
+        {note && <span className="block text-xs text-muted">{note}</span>}
+      </span>
       <button
         onClick={async () => {
           setBusy(true);

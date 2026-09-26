@@ -73,10 +73,17 @@ export const setProfileId = internalMutation({
  * Lazy rather than created at admission so existing clients need no backfill,
  * and so a deployment without a Zernio key still works for everything that
  * isn't social.
+ *
+ * `loginMethod` picks Instagram's connection: Facebook Login (needed for the
+ * Paid partnership label) or Instagram Login. Ignored for other platforms.
  */
 export const startConnect = action({
-  args: { platform: PLATFORM, redirectUrl: v.string() },
-  handler: async (ctx, { platform, redirectUrl }): Promise<{ authUrl: string }> => {
+  args: {
+    platform: PLATFORM,
+    redirectUrl: v.string(),
+    loginMethod: v.optional(v.union(v.literal("instagram_login"), v.literal("facebook_login"))),
+  },
+  handler: async (ctx, { platform, redirectUrl, loginMethod }): Promise<{ authUrl: string }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
     const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
@@ -93,7 +100,7 @@ export const startConnect = action({
       });
     }
 
-    return { authUrl: await zernio.connectUrl(platform, profileId, redirectUrl) };
+    return { authUrl: await zernio.connectUrl(platform, profileId, redirectUrl, loginMethod) };
   },
 });
 
@@ -127,6 +134,7 @@ export const syncAccounts = action({
           displayName: a.displayName,
           avatarUrl: a.avatarUrl,
           isActive: a.isActive,
+          loginMethod: a.loginMethod,
         })),
     });
     return { synced: remote.length };
@@ -149,6 +157,7 @@ export const applyAccountSync = internalMutation({
         displayName: v.optional(v.string()),
         avatarUrl: v.optional(v.string()),
         isActive: v.boolean(),
+        loginMethod: v.optional(v.string()),
       }),
     ),
   },
@@ -170,6 +179,8 @@ export const applyAccountSync = internalMutation({
           displayName: remote.displayName,
           avatarUrl: remote.avatarUrl,
           isActive: remote.isActive,
+          // Unset when absent: reconnecting through Instagram Login drops it.
+          loginMethod: remote.loginMethod,
           lastCheckedAt: now,
           disconnectedAt: undefined,
         });
@@ -182,6 +193,7 @@ export const applyAccountSync = internalMutation({
           displayName: remote.displayName,
           avatarUrl: remote.avatarUrl,
           isActive: remote.isActive,
+          loginMethod: remote.loginMethod,
           connectedAt: now,
           lastCheckedAt: now,
         });

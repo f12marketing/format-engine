@@ -106,16 +106,25 @@ export async function createProfile(name: string): Promise<string> {
  * side, but the user is left stranded on whatever Zernio shows instead of
  * returning to this app. On success Zernio appends
  * `?connected=&profileId=&accountId=&username=`; on failure `?error=&platform=`.
+ *
+ * `loginMethod` is Instagram only. Zernio defaults to Instagram Login, which
+ * can't set the Paid partnership label (a 400,
+ * `instagram_paid_partnership_requires_facebook_login`); Facebook Login can,
+ * and adds a Page-picking step Zernio hosts before it redirects back.
  */
 export async function connectUrl(
   platform: ZernioPlatform,
   profileId: string,
   redirectUrl: string,
+  loginMethod?: InstagramLoginMethod,
 ): Promise<string> {
   const qs = new URLSearchParams({ profileId, redirect_url: redirectUrl });
+  if (platform === "instagram" && loginMethod) qs.set("loginMethod", loginMethod);
   const out = await zernioFetch<{ authUrl: string }>(`/connect/${platform}?${qs.toString()}`);
   return out.authUrl;
 }
+
+export type InstagramLoginMethod = "instagram_login" | "facebook_login";
 
 export interface ZernioAccount {
   _id: string;
@@ -125,6 +134,8 @@ export interface ZernioAccount {
   displayName?: string;
   avatarUrl?: string;
   profileId?: string;
+  /** "facebook_login" on Instagram accounts connected through Facebook Login; absent otherwise. */
+  loginMethod?: string;
 }
 
 export async function listAccounts(profileId?: string): Promise<ZernioAccount[]> {
