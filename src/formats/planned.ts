@@ -285,9 +285,10 @@ export const speakingHookDemo = defineFormat({
   // has its words, so everything that writes and voices a line steps aside.
   //
   // No separate topic box: the line is typed, or P1 writes it from the
-  // business profile. The caption is Video Hook & Demo's too -- a Captions
-  // box with Improvise, styled in the studio the run stops at once the
-  // speaker is rendered.
+  // business profile. The caption is Video Hook & Demo's too -- an Add
+  // captions switch, then a Captions box with Improvise, styled in the studio
+  // the run stops at once the speaker is rendered. Switched off, the run
+  // skips the studio and the speaker goes onto the demo as it is.
   config: {
     speaker: field.hook({ label: "Hook video", default: "cast:any", hookMode: "speaking" }),
     demoVideo: field.video({ label: "Demo video", videoOnly: true, library: true }),
@@ -316,6 +317,11 @@ export const speakingHookDemo = defineFormat({
       showWhen: newSpeaker,
       section: "Voice",
     }),
+    captions: field.captionOverlay({
+      label: "Add captions",
+      help: "A line of text over the speaker. You edit and style it on the video once the speaker is ready.",
+      section: "On screen",
+    }),
     caption: field.longText({
       label: "Captions",
       optional: true,
@@ -324,6 +330,7 @@ export const speakingHookDemo = defineFormat({
       words: { min: 10, max: 12 },
       placeholder: "wait why did NOBODY tell me an app could write my invoices??",
       help: "On screen over the speaker. Left blank, it's what they say. You style it once the video's ready.",
+      showWhen: { field: "captions", is: "present" },
       section: "On screen",
     }),
     mentionBusiness: {
@@ -344,7 +351,7 @@ export const speakingHookDemo = defineFormat({
     { id: "speech", primitive: "P4", label: "Generate the voice", when: newSpeaker },
     { id: "avatar", primitive: "P5", label: "Render the speaker", when: newSpeaker },
     // The studio: the run waits here while the caption is edited on the speaker.
-    { id: "style", primitive: "P8", label: "Edit the captions", gate: true },
+    { id: "style", primitive: "P8", label: "Edit the captions", gate: true, when: { field: "captions", is: "present" } },
     { id: "stitch", primitive: "P7", label: "Stitch onto the demo" },
   ],
 });
