@@ -453,6 +453,8 @@ before any deployment step (AGENTS.md, *Before deploying*).
       `FREESOUND_API_KEY` unset on production (the tab then says it isn't
       switched on; uploads and generated music still work) or get the license
       first. The tracks themselves are CC0, so the sound licenses are fine.
+      Planned instead: replace Freesound with a CassetteAI house library
+      (*Pending tasks* below), which makes this license unnecessary.
 - [ ] **Privacy policy and terms of service.** Publish both before real users
       sign up. The privacy policy has to name every processor that receives
       users' data: fal.ai (image, video, voice and the LLM -- including the
@@ -480,6 +482,31 @@ before any deployment step (AGENTS.md, *Before deploying*).
       `"browserWarm"` (the label route and the meme studio). Without the label
       route, scheduling a video post stops with a "redeploy the render
       service" message.
+
+Pending tasks -- build work to finish before launch (the same reminder rule
+applies):
+
+- [ ] **Replace Freesound with a CassetteAI house library.** Generate about 50
+      instrumental tracks once with `cassetteai/music-generator` on fal
+      (active, licensed for commercial use, $0.02 per minute -- about $1-2 for
+      the whole set), across moods such as upbeat, chill, dramatic, corporate,
+      lo-fi and cinematic, and store them as `audioTemplates` so the audio
+      popup's **Platform** tab browses them instead of Freesound. Then remove
+      the Freesound search (`convex/music.ts`) and `FREESOUND_API_KEY`. That
+      also closes the Freesound license item above. Optional later: a
+      "describe the mood" Generate button, charged against the spend cap.
+- [ ] **Move Drama's score off `fal-ai/elevenlabs/music` before December 17,
+      2026**, when fal retires that endpoint. The replacements,
+      `fal-ai/elevenlabs/music/v2` and `v2.5`, take the same inputs Drama sends
+      (`prompt`, `music_length_ms`, `force_instrumental`), but on 2026-09-26
+      fal still listed them as private previews, with no commercial license
+      and no published price. Switch to `v2.5` once
+      `https://api.fal.ai/v1/models?endpoint_id=fal-ai/elevenlabs/music/v2.5`
+      shows `"license_type": "commercial"` and a price: change `MUSIC_MODEL`
+      and `MUSIC_PER_MINUTE` in `convex/drama.ts` and `musicPerMinute` in
+      `src/lib/estimate.ts`. If it isn't published by early December, move
+      Drama to CassetteAI instead (as Slideshow uses it; it accepts 10-180 s,
+      so loop or trim the bed like `convex/lib/extras.ts` does).
 
 **1. Convex -- a hosted production deployment**
 
@@ -817,6 +844,9 @@ the spend cap stops a run rather than warning about it.
 - **Open approvals block launch.** KLIPY's written confirmation, a Freesound
   commercial license, a privacy policy, a legal review and the scraping
   decision are all still open -- see *Deployment checklist*, step 0.
+- **Drama's music endpoint retires on December 17, 2026.** Its v2/v2.5
+  replacements weren't commercially published on fal yet; the plan and the
+  fallback are in step 0's *Pending tasks*.
 - **KLIPY server-side fetch is not yet approved: a written confirmation is
   needed.** KLIPY's terms ask for
   browser-only use; burning a meme into a video needs the render service to
