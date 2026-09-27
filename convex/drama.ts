@@ -14,6 +14,7 @@ import {
   submitQueued,
   submitWithContentPolicyFallback,
 } from "./lib/fal";
+import { GROUNDING_RULES } from "./lib/grounding";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 import { resolveRosterPersona } from "./lib/roster";
 import { businessContext } from "./lib/businessContext";
@@ -407,7 +408,9 @@ Characters:
 - voice_preset: the closest match from the preset list for their gender, age and personality. No two speaking characters share one.
 - sample_line: 10-16 words this character might say in a calm moment; it is used to capture their voice.
 
-Also give the episode a short, punchy title; a one-sentence logline; and score, a one-line brief for its instrumental background music (instruments, tempo, mood).`;
+Also give the episode a short, punchy title; a one-sentence logline; and score, a one-line brief for its instrumental background music (instruments, tempo, mood).
+
+${GROUNDING_RULES}`;
 
 function scriptTool(voiceIds: string[]) {
   return {
@@ -810,7 +813,13 @@ For every beat write:
 - frame_prompt: the single still that OPENS the beat, for an image model that is given the location and each on-screen character's reference sheet. Describe composition and staging -- who stands where, facing whom, posture, expression, what's in their hands, shot size, lens feel, light. Refer to characters by name. Don't describe their faces or clothes; the reference sheets carry that.
 - motion_prompt: what happens DURING the beat, for a video model that starts from that still. Performance first -- gestures, a turn of the head, a reaction building -- then how the camera moves. Refer to characters by name. Don't re-describe how anyone or anything looks, and don't quote the dialogue.
 
-Keep continuity: a character's position and props carry from one beat to the next unless the beat changes them.`;
+Keep continuity: a character's position and props carry from one beat to the next unless the beat changes them.
+
+Wardrobe and physical look are already fixed by the cast sheets, so apply the
+rules below to the setting, the props, the tools and what people actually do --
+not to how anyone looks.
+
+${GROUNDING_RULES}`;
 
 const DIRECTOR_TOOL = {
   name: "save_direction",
