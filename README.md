@@ -473,10 +473,16 @@ before any deployment step (AGENTS.md, *Before deploying*).
       ScrapeCreators is against TikTok's terms, whatever rights a client
       confirms for a clip. Either drop it (leave `SCRAPECREATORS_API_KEY` unset
       on production -- nothing else depends on it) or move to licensed clips.
-- [ ] **TikTok and Instagram accounts through Zernio.** Confirm the TikTok
-      connection Zernio uses is audited for Direct Post (unaudited clients can
-      only post privately), and connect Instagram accounts with Facebook Login
-      if you want the *Paid partnership* label (Instagram Login can't set it).
+- [ ] **TikTok and Instagram accounts through Zernio.** The app side is done:
+      *Connections* connects Instagram with Facebook Login by default
+      (`loginMethod=facebook_login`), and TikTok through Zernio's TikTok for
+      Business app, the lane every new connection gets. That lane direct-posts
+      videos as public only; other levels go out only as a draft to the TikTok
+      app. Still to do, by hand: reconnect @inside.f12 with *Connect with
+      Facebook* (it's on Instagram Login, which can't set *Paid
+      partnership*; the account must be linked to a Facebook Page you manage),
+      connect the TikTok account, and on production set `ZERNIO_API_KEY` and
+      `ZERNIO_WEBHOOK_SECRET` with `--prod`.
 - [ ] **Render service on Railway is current.** Before pointing production at
       it: `curl https://<railway-url>/health` shows `"aiLabel":true` and
       `"browserWarm"` (the label route and the meme studio). Without the label
@@ -753,8 +759,11 @@ touching posting, the casting popup, influencers or Character Swap.
 - **YouTube audience (COPPA).** "Made for kids?" has no default and must be
   answered before posting to YouTube (`madeForKids`).
 - **Paid partnerships (FTC endorsement guides).** Instagram gets a *Paid
-  partnership* switch (`isPaidPartnership`, optional `brandedContentSponsors`;
-  needs Facebook login). When that or TikTok's *Branded content* is on, the
+  partnership* switch (`isPaidPartnership`, optional `brandedContentSponsors`).
+  Instagram only sets it on accounts connected with Facebook Login, so the
+  switch is off for any account whose `socialAccounts.loginMethod` isn't
+  `facebook_login`, and *Connections* offers Facebook first
+  (`convex/social.ts` `startConnect`). When that or TikTok's *Branded content* is on, the
   caption opens with "#ad" unless the user unticks it -- the only disclosure
   YouTube and LinkedIn get here.
 - **Trending clips (copyright; TikTok's terms).** The library is other

@@ -107,7 +107,13 @@ export function PostComposer({
   });
   // A paid partnership has to say so where people read it (FTC endorsement
   // guides): "#ad" opens the caption unless the user takes it off.
-  const paidPartnership = tiktok.commercial === "brand_content" || instagram.paidPartnership;
+  // Instagram only sets the label on accounts connected with Facebook Login;
+  // Zernio rejects it on Instagram Login ones.
+  const igPaidAllowed = (accounts ?? [])
+    .filter((a) => selected.has(a._id) && a.platform === "instagram")
+    .every((a) => a.loginMethod === "facebook_login");
+  const igPaidPartnership = instagram.paidPartnership && igPaidAllowed;
+  const paidPartnership = tiktok.commercial === "brand_content" || igPaidPartnership;
   const [adTagChoice, setAdTagChoice] = useState(true);
   const adTag = paidPartnership && adTagChoice;
   const body = adTag && !/^#ad\b/i.test(caption.trim()) ? `#ad ${caption.trim()}` : caption;
@@ -304,7 +310,7 @@ export function PostComposer({
         platformSpecificData = {
           shareToFeed: instagram.shareToFeed,
           isAiGenerated: instagram.isAiGenerated,
-          ...(instagram.paidPartnership
+          ...(igPaidPartnership
             ? { isPaidPartnership: true, ...(sponsors.length ? { brandedContentSponsors: sponsors } : {}) }
             : {}),
         };
@@ -712,10 +718,20 @@ export function PostComposer({
             />
             <Toggle
               label="Paid partnership"
-              checked={instagram.paidPartnership}
+              checked={igPaidPartnership}
+              disabled={!igPaidAllowed}
               onChange={(v) => setInstagram({ ...instagram, paidPartnership: v })}
             />
-            {instagram.paidPartnership && (
+            {!igPaidAllowed && (
+              <p className="text-xs text-muted">
+                Needs the Instagram account connected with Facebook. Reconnect it under{" "}
+                <a href="/connections" className="underline">
+                  Connections
+                </a>{" "}
+                to use the label; until then, disclose a paid partnership in the caption.
+              </p>
+            )}
+            {igPaidPartnership && (
               <>
                 <input
                   value={instagram.sponsors}
@@ -724,8 +740,7 @@ export function PostComposer({
                   className="w-full rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-accent"
                 />
                 <p className="text-xs text-muted">
-                  Shows Instagram&rsquo;s &ldquo;Paid partnership&rdquo; label. Needs the account connected with
-                  Facebook login, and doesn&rsquo;t apply to Stories.
+                  Shows Instagram&rsquo;s &ldquo;Paid partnership&rdquo; label. Doesn&rsquo;t apply to Stories.
                 </p>
               </>
             )}

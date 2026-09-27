@@ -311,6 +311,12 @@ export default defineSchema({
     connectedAt: v.number(),
     lastCheckedAt: v.optional(v.number()),
     disconnectedAt: v.optional(v.number()),
+    /**
+     * Zernio's `loginMethod`: "facebook_login" on an Instagram account
+     * connected through Facebook Login, which the Paid partnership label
+     * needs. Unset for Instagram Login and every other platform.
+     */
+    loginMethod: v.optional(v.string()),
   })
     .index("by_client", ["clientId"])
     .index("by_zernio_account", ["zernioAccountId"]),
