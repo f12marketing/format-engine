@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Sidebar } from "@/components/Sidebar";
-import { convexConfigured } from "@/app/ConvexClientProvider";
+import { backendConfigured } from "@/app/ConvexClientProvider";
 
 /**
  * Auth screens are full-page and deliberately chrome-less -- showing a nav
@@ -21,7 +21,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      {convexConfigured && <OnboardingGate />}
+      {/* useConvexAuth throws unless ConvexProviderWithAuth is mounted, and
+          that needs Supabase Auth as well as Convex. */}
+      {backendConfigured && <OnboardingGate />}
       <Sidebar />
       <div className="min-w-0 flex-1">{children}</div>
     </div>

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AuthStatus } from "@/components/AuthStatus";
-import { authConfigured } from "@/app/ConvexClientProvider";
+import { backendConfigured } from "@/app/ConvexClientProvider";
 
 /**
  * The app shell's left nav.
@@ -62,7 +62,10 @@ export function Sidebar() {
         })}
       </nav>
 
-      {authConfigured && (
+      {/* AuthStatus calls useConvexAuth, which throws unless
+          ConvexProviderWithAuth is mounted -- and that needs Convex too, not
+          just Supabase. */}
+      {backendConfigured && (
         <div className="hidden border-t border-line px-4 py-3 md:block">
           <AuthStatus />
         </div>

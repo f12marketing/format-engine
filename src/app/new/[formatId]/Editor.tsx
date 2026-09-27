@@ -25,12 +25,12 @@ function initialValues(format: FormatDefinition): Record<string, unknown> {
   return out;
 }
 
+const buttonClass =
+  "mt-4 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60";
+
 export function Editor({ format }: { format: FormatDefinition }) {
-  const router = useRouter();
   const [values, setValues] = useState(() => initialValues(format));
   const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const generate = useMutation(api.run.generate);
 
   // What runs is what is on screen: a field the panel is hiding contributes
   // nothing to the estimate, the steps or the config frozen onto the job.
@@ -42,32 +42,6 @@ export function Editor({ format }: { format: FormatDefinition }) {
   // cut to it) keeps Generate off until it has text -- a job started without
   // it would only fail on its first step.
   const missing = missingRequired(format, values);
-  // "Mention your business" writes from the saved profile in every format, so
-  // with no profile there is nothing for it to mention -- the card under the
-  // toggle asks for one, and Generate waits for it.
-  const brand = useQuery(api.brands.mine, convexConfigured ? {} : "skip");
-  const needsProfile =
-    Boolean(effective.mentionBusiness) && brand !== undefined && !brand?.description;
-  const blocked = missing.length > 0 || needsProfile;
-
-  async function onGenerate() {
-    if (blocked) return;
-    setError(null);
-    setRunning(true);
-    try {
-      // Only the steps that will actually run are sent, so the job's step list
-      // matches what happens rather than what the format could do.
-      const steps = format.pipeline
-        .filter((step) => stepApplies(step, effective))
-        .map((step) => ({ id: step.id, primitive: step.primitive, label: step.label }));
-
-      const jobId = await generate({ formatId: format.id, config: effective, steps });
-      router.push(`/jobs/${jobId}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setRunning(false);
-    }
-  }
 
   return (
     <main className="mx-auto w-full max-w-5xl px-6 py-8">
@@ -119,32 +93,31 @@ export function Editor({ format }: { format: FormatDefinition }) {
             </ul>
           </div>
 
-          <button
-            onClick={onGenerate}
-            disabled={!backendConfigured || running || blocked}
-            title={backendConfigured ? undefined : "Needs Convex and Supabase Auth — see README"}
-            className="mt-4 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {running ? "Starting…" : `Generate · $${estimate.totalUsd.toFixed(2)}`}
-          </button>
-          {missing.length > 0 && (
-            <p className="mt-2 text-center text-xs text-muted">
-              Add {missing.map((m) => m.label).join(" and ")} to generate.
-            </p>
-          )}
-          {missing.length === 0 && needsProfile && (
-            <p className="mt-2 text-center text-xs text-muted">
-              Take the business quiz above, or switch Mention your business off.
-            </p>
-          )}
-          {error && <p className="mt-2 text-sm text-accent">{error}</p>}
-          {!backendConfigured && (
-            <p className="mt-2 text-center text-xs text-muted">
-              {convexConfigured && !authConfigured
-                ? "Needs Supabase Auth — a job belongs to a signed-in client."
-                : "Connect Convex to enable."}{" "}
-              The estimate above is live.
-            </p>
+          {backendConfigured ? (
+            <GenerateControls
+              format={format}
+              effective={effective}
+              missing={missing}
+              totalUsd={estimate.totalUsd}
+              running={running}
+              onRunningChange={setRunning}
+            />
+          ) : (
+            <>
+              <button
+                disabled
+                title="Needs Convex and Supabase Auth — see README"
+                className={buttonClass}
+              >
+                {`Generate · $${estimate.totalUsd.toFixed(2)}`}
+              </button>
+              <p className="mt-2 text-center text-xs text-muted">
+                {convexConfigured && !authConfigured
+                  ? "Needs Supabase Auth — a job belongs to a signed-in client."
+                  : "Connect Convex to enable."}{" "}
+                The estimate above is live.
+              </p>
+            </>
           )}
         </section>
 
@@ -156,5 +129,78 @@ export function Editor({ format }: { format: FormatDefinition }) {
         </aside>
       </div>
     </main>
+  );
+}
+
+/**
+ * The Generate button and what can block it. Split out so its Convex hooks
+ * (the mutation and the saved-profile query) only mount when there is a
+ * backend: without NEXT_PUBLIC_CONVEX_URL, ConvexClientProvider renders no
+ * provider, and calling them from `Editor` threw "Could not find Convex
+ * client" -- taking the config panel and the live estimate down with it.
+ */
+function GenerateControls({
+  format,
+  effective,
+  missing,
+  totalUsd,
+  running,
+  onRunningChange,
+}: {
+  format: FormatDefinition;
+  effective: Record<string, unknown>;
+  missing: { label: string }[];
+  totalUsd: number;
+  running: boolean;
+  onRunningChange: (running: boolean) => void;
+}) {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const generate = useMutation(api.run.generate);
+
+  // "Mention your business" writes from the saved profile in every format, so
+  // with no profile there is nothing for it to mention -- the card under the
+  // toggle asks for one, and Generate waits for it.
+  const brand = useQuery(api.brands.mine);
+  const needsProfile =
+    Boolean(effective.mentionBusiness) && brand !== undefined && !brand?.description;
+  const blocked = missing.length > 0 || needsProfile;
+
+  async function onGenerate() {
+    if (blocked) return;
+    setError(null);
+    onRunningChange(true);
+    try {
+      // Only the steps that will actually run are sent, so the job's step list
+      // matches what happens rather than what the format could do.
+      const steps = format.pipeline
+        .filter((step) => stepApplies(step, effective))
+        .map((step) => ({ id: step.id, primitive: step.primitive, label: step.label }));
+
+      const jobId = await generate({ formatId: format.id, config: effective, steps });
+      router.push(`/jobs/${jobId}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      onRunningChange(false);
+    }
+  }
+
+  return (
+    <>
+      <button onClick={onGenerate} disabled={running || blocked} className={buttonClass}>
+        {running ? "Starting…" : `Generate · $${totalUsd.toFixed(2)}`}
+      </button>
+      {missing.length > 0 && (
+        <p className="mt-2 text-center text-xs text-muted">
+          Add {missing.map((m) => m.label).join(" and ")} to generate.
+        </p>
+      )}
+      {missing.length === 0 && needsProfile && (
+        <p className="mt-2 text-center text-xs text-muted">
+          Take the business quiz above, or switch Mention your business off.
+        </p>
+      )}
+      {error && <p className="mt-2 text-sm text-accent">{error}</p>}
+    </>
   );
 }
