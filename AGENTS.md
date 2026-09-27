@@ -40,7 +40,23 @@ runs locally on `:4000`:
 **Don't break old jobs.** When a format changes shape, jobs created earlier
 still run their old path. For example, Green Screen Meme's `clip` step and
 Speaking Hook & Demo's `captionStyle` burn-in are still handled. Keep these
-branches unless the old jobs are gone.
+branches unless the old jobs are gone. Check with `npx convex data jobs`
+before removing one: as of 2026-09-26 the local database still holds a
+`clip`-step Green Screen Meme job, and no `captionStyle` job.
+
+**The database.** Everything runs on the anonymous local Convex backend
+(`127.0.0.1:3210`); there is no production data yet. The README's *Database*
+section lists every table and what is in it now.
+- It is shared test data. The working account is the client *Zeeshan*; the
+  `dev:`-prefixed clients are test fixtures. Don't delete or rewrite rows you
+  didn't create.
+- Jobs stuck at "running" with no `workflowId` are `dev:seedBareJob`
+  fixtures, not a bug.
+- Read with `npx convex data <table>` and `npx convex run dev:inspect`.
+  Seeding and test helpers are the `internal*` functions in `convex/dev.ts`.
+- A schema change must accept every row already stored: add fields as
+  `v.optional`, and never narrow a union a stored row uses. `npx convex dev`
+  refuses to push a schema the data doesn't fit.
 
 **Money.**
 - Every paid call is checked against the client's spend cap (`convex/ledger.ts`).
