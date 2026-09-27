@@ -17,7 +17,7 @@ import { AudioClipField } from "./AudioClipField";
 import { VoicePreview } from "./VoicePreview";
 import { AuthorisedBoundary } from "./AuthorisedBoundary";
 import { ImageSetField } from "./slideshow/ImageSetPicker";
-import { convexConfigured } from "@/app/ConvexClientProvider";
+import { authConfigured, backendConfigured, convexConfigured } from "@/app/ConvexClientProvider";
 import { fieldApplies } from "@/formats/types";
 import { LANGUAGES } from "@/formats/fields";
 import type { AdvancedCard, AdvancedSection, Field, FormatDefinition } from "@/formats/types";
@@ -392,7 +392,8 @@ function Control({
 
       // A voice plays a sample from the deployment, so without one there is
       // nothing to call -- the plain select is the whole control.
-      if (field.preview !== "voice" || !convexConfigured) return select;
+      // VoicePreview reads the signed-in client, so it needs auth as well.
+      if (field.preview !== "voice" || !backendConfigured) return select;
 
       const voice = String(value ?? field.default ?? "");
       const stability = typeof values.voiceStability === "string" ? values.voiceStability : undefined;
@@ -517,7 +518,7 @@ function Control({
           </label>
           {/* The toggle is only as good as what it mentions -- so the profile
               it reads sits right under it, and gets filled in there. */}
-          {id === "mentionBusiness" && on && convexConfigured && (
+          {id === "mentionBusiness" && on && backendConfigured && (
             <AuthorisedBoundary>
               <BusinessProfileCard />
             </AuthorisedBoundary>
@@ -562,23 +563,19 @@ function Control({
       );
 
     case "images":
-      return convexConfigured ? (
-        <AuthorisedBoundary>
+      return (
+        <AuthorisedBoundary unconfigured={<Placeholder kind={field.kind} needsAuth />}>
           <MultiUploadField value={value} onChange={onChange} maxItems={field.maxItems} />
         </AuthorisedBoundary>
-      ) : (
-        <Placeholder kind={field.kind} />
       );
 
     case "image":
     case "video":
       if (field.kind === "video" && field.library) {
-        return convexConfigured ? (
-          <AuthorisedBoundary>
+        return (
+          <AuthorisedBoundary unconfigured={<Placeholder kind={field.kind} needsAuth />}>
             <DemoVideoField value={value} onChange={onChange} label={field.label} />
           </AuthorisedBoundary>
-        ) : (
-          <Placeholder kind={field.kind} />
         );
       }
       // Needs a deployment to upload to; without one the control would fail on
@@ -596,12 +593,10 @@ function Control({
       );
 
     case "imageSource":
-      return convexConfigured ? (
-        <AuthorisedBoundary>
+      return (
+        <AuthorisedBoundary unconfigured={<Placeholder kind={field.kind} needsAuth />}>
           <ImageSetField value={value ?? field.default} onChange={onChange} />
         </AuthorisedBoundary>
-      ) : (
-        <Placeholder kind={field.kind} />
       );
 
     case "trendingClip":
@@ -612,35 +607,29 @@ function Control({
       );
 
     case "media":
-      return convexConfigured ? (
-        <AuthorisedBoundary>
+      return (
+        <AuthorisedBoundary unconfigured={<Placeholder kind={field.kind} needsAuth />}>
           <BackgroundField value={value} onChange={onChange} />
         </AuthorisedBoundary>
-      ) : (
-        <Placeholder kind={field.kind} />
       );
 
     case "meme":
-      return convexConfigured ? (
-        <AuthorisedBoundary>
+      return (
+        <AuthorisedBoundary unconfigured={<Placeholder kind={field.kind} needsAuth />}>
           <MemeField value={value} onChange={onChange} />
         </AuthorisedBoundary>
-      ) : (
-        <Placeholder kind={field.kind} />
       );
 
     case "hook":
-      return convexConfigured ? (
-        <AuthorisedBoundary>
+      return (
+        <AuthorisedBoundary unconfigured={<Placeholder kind={field.kind} needsAuth />}>
           <HookField value={value} onChange={onChange} label={field.label} mode={field.hookMode} />
         </AuthorisedBoundary>
-      ) : (
-        <Placeholder kind={field.kind} />
       );
 
     case "avatar":
-      return convexConfigured ? (
-        <AuthorisedBoundary>
+      return (
+        <AuthorisedBoundary unconfigured={<Placeholder kind={field.kind} needsAuth />}>
           <AvatarField
             value={value}
             onChange={onChange}
@@ -652,17 +641,13 @@ function Control({
             }}
           />
         </AuthorisedBoundary>
-      ) : (
-        <Placeholder kind={field.kind} />
       );
 
     case "audioClip":
-      return convexConfigured ? (
-        <AuthorisedBoundary>
+      return (
+        <AuthorisedBoundary unconfigured={<Placeholder kind={field.kind} needsAuth />}>
           <AudioClipField value={value} onChange={onChange} emptyLabel={field.emptyLabel} label={field.label} />
         </AuthorisedBoundary>
-      ) : (
-        <Placeholder kind={field.kind} />
       );
 
     default:
@@ -930,22 +915,37 @@ function WordCount({ text, min, max }: { text: string; min: number; max: number 
 }
 
 const PLACEHOLDER_NOTE: Record<string, string> = {
-  image: "Upload — connect Convex to enable",
-  images: "Uploads — connect Convex to enable",
-  video: "Upload — connect Convex to enable",
-  color: "Color picker",
-  avatar: "Roster picker — connect Convex to enable",
-  trendingClip: "Clip library — connect Convex to enable",
-  hook: "Hook picker — connect Convex to enable",
-  media: "Photo or video — connect Convex to enable",
-  meme: "Meme library — connect Convex to enable",
-  imageSource: "Image sets — connect Convex to enable",
+  image: "Upload",
+  images: "Uploads",
+  video: "Upload",
+  avatar: "Roster picker",
+  trendingClip: "Clip library",
+  hook: "Hook picker",
+  media: "Photo or video",
+  meme: "Meme library",
+  imageSource: "Image sets",
+  audioClip: "Audio library",
 };
 
-function Placeholder({ kind }: { kind: string }) {
+/**
+ * What a field shows when the backend it needs isn't configured. `needsAuth`
+ * is for the ones that list the signed-in client's own library, which need
+ * Supabase Auth as well as Convex.
+ */
+function Placeholder({ kind, needsAuth = false }: { kind: string; needsAuth?: boolean }) {
+  const note = PLACEHOLDER_NOTE[kind];
+  const missing = [!convexConfigured && "Convex", needsAuth && !authConfigured && "Supabase Auth"]
+    .filter(Boolean)
+    .join(" and ");
   return (
     <div className="rounded-lg border border-dashed border-line px-3 py-2.5 text-xs text-muted">
-      {PLACEHOLDER_NOTE[kind] ?? kind}
+      {kind === "color"
+        ? "Color picker"
+        : note
+          ? missing
+            ? `${note} — connect ${missing} to enable`
+            : note
+          : kind}
     </div>
   );
 }

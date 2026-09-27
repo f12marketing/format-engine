@@ -3,9 +3,19 @@
 import { ReactNode } from "react";
 import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import {
+  authConfigured,
+  backendConfigured,
+  convexConfigured,
+} from "@/app/ConvexClientProvider";
 
 interface Props {
   children: ReactNode;
+  /**
+   * Shown instead when Convex or Supabase Auth isn't configured. Defaults to
+   * a page-level notice; a single form field passes something smaller.
+   */
+  unconfigured?: ReactNode;
 }
 
 /**
@@ -17,8 +27,32 @@ interface Props {
  * full "Runtime Error" screen regardless -- so the fix is to never make the
  * throwing call at all. `clients.me` is the one query here that's always
  * safe to call: it returns `null` for "not a client" instead of throwing.
+ *
+ * The same applies one level up: `useConvexAuth` throws unless
+ * ConvexProviderWithAuth is mounted, which ConvexClientProvider only does
+ * when both services are configured. So check that first, and only mount the
+ * hooks once there's something to ask.
  */
-export function AuthorisedBoundary({ children }: Props) {
+export function AuthorisedBoundary({ children, unconfigured }: Props) {
+  // Module-level constants, so this branch never flips between renders.
+  if (!backendConfigured) {
+    const missing = [!convexConfigured && "Convex", !authConfigured && "Supabase Auth"]
+      .filter(Boolean)
+      .join(" and ");
+    return (
+      unconfigured ?? (
+        <div className="mt-2 rounded-xl border border-dashed border-line p-6 text-sm text-muted">
+          <p className="font-medium text-foreground">Sign-in isn&rsquo;t set up yet.</p>
+          <p className="mt-1">Needs {missing} -- see the README.</p>
+        </div>
+      )
+    );
+  }
+
+  return <AdmittedGate>{children}</AdmittedGate>;
+}
+
+function AdmittedGate({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const me = useQuery(api.clients.me, isAuthenticated ? {} : "skip");
 
