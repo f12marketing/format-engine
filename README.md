@@ -530,6 +530,7 @@ applies):
       | `RENDER_SERVICE_API_KEY` | the same long random string Railway is given |
       | `SUPABASE_JWT_ISSUER`, `SUPABASE_JWKS_URL` | as in Setup §2 |
       | `FREESOUND_API_KEY` | the key from your Freesound app page (Platform music) |
+      | `PEXELS_API_KEY`, `PIXABAY_API_KEY` | Image Slideshow's image sets and photo search |
       | `ZERNIO_API_KEY`, `ZERNIO_WEBHOOK_SECRET` | posting, calendar, analytics |
       | `SCRAPECREATORS_API_KEY` | optional: trending-clip ingestion |
 
@@ -549,8 +550,11 @@ applies):
         slideshow export fails
       - `/render/green-screen-meme`'s `layerHtml` + `memeUrl` path, without
         which every Green Screen Meme render fails with the "old code" message
+      - `POST /label/ai` (`label.mjs`), without which scheduling a post with
+        either AI-label switch on stops with a restart message
 - [ ] Set `RENDER_SERVICE_API_KEY` to the same value as Convex's.
-- [ ] `curl https://<railway-url>/health` returns `"ok":true` and `"voiceover":true`.
+- [ ] `curl https://<railway-url>/health` returns `"ok":true`, `"voiceover":true`
+      and `"aiLabel":true`.
 
 **3. App -- Vercel**
 
@@ -593,7 +597,8 @@ convex/
   schema.ts              clients, brands, avatars, assets, jobs, spend_ledger,
                          influencers, galleryFaces, houseImages, stockImages,
                          stockSearches, audioTemplates, clips, socialAccounts,
-                         socialPosts, postAnalytics, zernioWebhookEvents
+                         socialPosts, postAnalytics, zernioWebhookEvents,
+                         clipRights (see Database below)
   auth.config.ts         Supabase JWT verification (customJwt provider)
   clients.ts             invite-only resolution: JWT subject -> clients row
   ledger.ts              spend tracking + the pre-spend cap assertion
@@ -639,7 +644,15 @@ convex/
   lib/memeDesign.ts      Green Screen Meme: MemePick, parseMemePick (KLIPY URL
                          allow-list), default placement, sanitizeMemeDesign
   lib/voiceLanguages.ts  the languages a spoken line can be written and voiced in
-  lib/businessContext.ts every "Mention your business" toggle's prompt text
+  lib/businessContext.ts every "Mention your business" toggle's prompt text,
+                         including the fake-review rule (testimonialRule)
+  lib/likeness.ts        likeness consent: which photos need it, the check
+                         run.generate and influencers.create make
+  lib/disclosure.ts      which jobs show an AI person, so the composer's AI
+                         disclosure starts on
+  lib/roster.ts          who is on screen: an avatar id, or "influencer:",
+                         "gallery:", "image:" or "cast:any|woman|man"
+  jobs.ts                job queries, step progress, approving a gate
   lib/imageSets.ts, lib/imageSlideshowDesign.ts, lib/imageSlideshowTemplates.ts
                          Image Slideshow's sets, editor/export design and styles
   lib/nodeStorage.ts     the one "use node" place that decodes and stores
@@ -677,7 +690,9 @@ src/
                          shared PickerDialog / useMediaUpload
     slideshow/           Image Slideshow's set picker and slide editor
     business/            the onboarding quiz and the Business page
-    PostComposer.tsx     scheduling and posting through Zernio
+    PostComposer.tsx     scheduling and posting through Zernio, with the AI
+                         labels, disclosures and TikTok/YouTube/Instagram rules
+    LikenessConsent.tsx  the "I have their permission" box for real photos
     AuthStatus.tsx       sign-in state + the owner bootstrap
   hooks/useSupabaseAuth.ts   the ConvexProviderWithAuth contract, for Supabase
   lib/
@@ -690,6 +705,8 @@ src/
                          the job page: progress, gates, which studio a
                          gate opens (STUDIO_STEP), Edit … again / Render again
   proxy.ts               Next 16's middleware: redirects signed-out visitors
+scripts/prompt-eval.mjs  scores the app's prompts on real LLM calls
+                         (npm run prompt-eval; about a cent a sample)
 ../render-service/       sibling repo, deploys separately to Railway
 ```
 
@@ -700,7 +717,77 @@ npm run dev      # the app
 npx convex dev   # the backend, in a second terminal
 npx tsc --noEmit # typecheck
 npm run lint     # eslint
+npm run prompt-eval  # score prompts on real LLM calls (spends fal credit)
 ```
+
+## Database
+
+Convex, one schema in `convex/schema.ts` (every table has a doc comment there
+explaining why it exists). Two rules shape it: a job stores a **copy** of its
+config, never a reference, and every paid step writes a `spend_ledger` row in
+the same transaction that records the step.
+
+| Table | Holds | Scope |
+| --- | --- | --- |
+| `clients` | one row per admitted person: Supabase `authUserId`, spend cap, Zernio profile | per client |
+| `brands` | the business profile and quiz answers, `testimonialGuard` | per client |
+| `assets` | every upload and every output, with `hookKind`, `meme`, `synthetic`, `likenessConsentAt` | per client |
+| `jobs` | one per run: frozen `config`, `steps` progress, `workflowId`, `castFaces` | per client |
+| `spend_ledger` | one row per paid call; `reversalOfId` for refunds | per client |
+| `avatars`, `influencers` | stored characters, and LoRA-trained personas | per client |
+| `socialAccounts`, `socialPosts`, `postAnalytics` | Zernio mirror: accounts, posts with per-platform `targets`, daily metrics | per client |
+| `clipRights` | a client's confirmation they may use a trending clip | per client + clip |
+| `galleryFaces`, `houseImages`, `audioTemplates`, `clips`, `stockImages` | shared libraries | everyone |
+| `stockSearches`, `zernioWebhookEvents` | a 24-hour photo search cache, webhook dedupe | system |
+
+Every read of a per-client table checks `row.clientId` against the caller;
+shared libraries live in their own tables so that check never has to loosen.
+The `@convex-dev/workflow` component keeps each run's own state in its
+component tables (`npx convex data --component workflow`).
+
+**Inspecting it.** `npx convex data` lists tables; `npx convex data jobs
+--limit 20` prints rows; `npx convex run dev:inspect '{"jobId":"…"}'` shows a
+job with its ledger rows. The dashboard (`npx convex dashboard`) works on the
+local backend too.
+
+**What's in the local database** (snapshot 2026-09-26; everything is test
+data on the anonymous local backend, nothing is on production):
+
+- **Clients**: 9. *Zeeshan* is the only one tied to a real Supabase sign-in,
+  and the working account: 35 jobs, $11.22 spent, the only brand row
+  (onboarding skipped), the connected Instagram account. Seven more (`Owner`,
+  `phase3-test`, `phase5-test`, `va-int`, `popup-test`, `influencer-test`,
+  `VideoTest`) were made by `dev:seedClient` for tests (`authUserId`
+  `dev:<name>`), and `probe` is a leftover check row. 9 jobs and 25 assets
+  belong to a client row that has since been deleted.
+- **Jobs**: 93 across 19 formats, 2026-09-06 to 2026-09-25: 33 done, 14
+  failed, 7 waiting at a gate, 39 "running". The 39 have no `workflowId`: they
+  are `dev:seedBareJob` fixtures for testing one step, never advance, and can
+  be ignored. Formats never run here yet: Felt, Talking Objects, AI News
+  Anchor, Product Spokesperson, Talking Head Green Screen, Green Screen Mobile
+  with App.
+- **Old-shape jobs still present**: one Green Screen Meme job with the
+  pre-studio `clip` step, so keep that path in `convex/greenScreenMeme.ts`.
+- **Spend**: $15.20 in 196 ledger rows (one reversal). Most of it is Nano
+  Banana images, Vidu and Kling clips.
+- **Assets**: 179 (112 images, 54 videos, 7 text, 6 PDF; 287 MB). 102 are job
+  outputs. **No upload has `likenessConsentAt` yet**, because consent came in
+  after they were uploaded: using an old uploaded photo of a person in a new
+  job is refused until the client ticks the box on it
+  (`uploads.confirmLikenessConsent`). No asset is a saved hook yet.
+- **Shared libraries**: 24 gallery faces, all labeled (13 woman, 11 man); 992
+  stock images across all 51 sets (16-20 each, all with thumbnails) plus 1
+  photo adopted from search; 3 Freesound tracks; 1 house image
+  (`skeleton-default-v1`); 1 placeholder clip from `dev:seedClip` and no
+  `clipRights`. No real trending clip has been ingested.
+- **Social**: one Instagram account (Zeeshan) and one draft post. No
+  analytics rows or webhook events yet.
+- **Local Convex env**: `FAL_API_KEY`, `RENDER_SERVICE_URL`,
+  `RENDER_SERVICE_API_KEY`, both Supabase values, `FREESOUND_API_KEY`,
+  `PEXELS_API_KEY`, `PIXABAY_API_KEY`, `ZERNIO_API_KEY`,
+  `ZERNIO_WEBHOOK_SECRET`. Not set: `SCRAPECREATORS_API_KEY`.
+  `CLERK_JWT_ISSUER_DOMAIN` is left over from before Supabase and nothing
+  reads it.
 
 ## AI disclosure and likeness consent
 
@@ -850,6 +937,10 @@ the spend cap stops a run rather than warning about it.
   the render service should eventually take a signed URL and fetch bytes
   itself.
 - The clip, audio and gallery libraries have no admin UI; curation is CLI-only.
+- Six formats have never been run on this database: Felt, Talking Objects,
+  AI News Anchor, Product Spokesperson, Talking Head Green Screen and Green
+  Screen Mobile with App. Their pipelines typecheck, but the first real run of
+  each is its first test (see *Database*).
 - **Open approvals block launch.** KLIPY's written confirmation, a Freesound
   commercial license, a privacy policy, a legal review and the scraping
   decision are all still open -- see *Deployment checklist*, step 0.
