@@ -6,13 +6,17 @@ import type { FormatDefinition } from "@/formats/types";
 
 /**
  * The format picker, as the app's landing page rather than a modal over a
- * dashboard. Flat grid, no group headings: the reference layout puts every
- * format on one wall and lets the thumbnails do the sorting.
+ * dashboard. Recently added formats (`isNew`) get their own "New" group up
+ * top; everything else stays on one wall and lets the thumbnails do the
+ * sorting.
  *
  * Planned formats stay visible but unclickable -- the registry lists itself,
  * and a visible roadmap beats a hidden one.
  */
 export default function ContentPage() {
+  const fresh = FORMATS.filter((f) => f.isNew);
+  const rest = FORMATS.filter((f) => !f.isNew);
+
   return (
     <main className="mx-auto w-full max-w-6xl px-6 py-10">
       <h1 className="text-xl font-semibold tracking-tight">Create new content</h1>
@@ -20,12 +24,24 @@ export default function ContentPage() {
         Pick a format to get started. You can switch anytime.
       </p>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {FORMATS.map((format) => (
+      {fresh.length > 0 && <FormatGroup title="New" formats={fresh} />}
+      <FormatGroup title={fresh.length > 0 ? "All formats" : undefined} formats={rest} />
+    </main>
+  );
+}
+
+function FormatGroup({ title, formats }: { title?: string; formats: FormatDefinition[] }) {
+  return (
+    <section className="mt-6">
+      {title && (
+        <h2 className="mb-3 font-mono text-xs uppercase tracking-wide text-muted">{title}</h2>
+      )}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {formats.map((format) => (
           <FormatCard key={format.id} format={format} />
         ))}
       </div>
-    </main>
+    </section>
   );
 }
 
