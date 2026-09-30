@@ -296,6 +296,8 @@ export interface FormatDefinition {
   preview: PreviewMode;
   /** True for the three modes that already ship in the old app. */
   shipsToday?: boolean;
+  /** A recently added format: the content page lists it in the "New" group. */
+  isNew?: boolean;
   /**
    * "ready" means the step runners for its pipeline exist. Planned formats
    * still appear in the picker -- the registry lists itself, and showing the
