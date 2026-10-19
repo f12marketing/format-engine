@@ -5,6 +5,7 @@ import { action, internalAction, internalMutation } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
+import { requireClientForAction } from "./clients";
 import { callTool, LLM_MODEL, submitWithContentPolicyFallback } from "./lib/fal";
 import { businessContext } from "./lib/businessContext";
 import { enforceDailyImageCap, enforceRateLimit } from "./lib/rateLimit";
@@ -365,13 +366,7 @@ export const openEditor = internalAction({
  * since an action has no db to hand to `requireClient`.
  */
 async function clientOf(ctx: ActionCtx): Promise<Doc<"clients">> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
-  const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
-    authUserId: identity.subject,
-  });
-  if (!client) throw new Error("Not authorized. This is an invite-only tool.");
-  return client;
+  return requireClientForAction(ctx);
 }
 
 /**

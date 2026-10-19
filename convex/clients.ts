@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { internalQuery, mutation, query } from "./_generated/server";
-import type { QueryCtx, MutationCtx } from "./_generated/server";
+import type { ActionCtx, QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 
 /**
  * Invite-only, enforced in two places on purpose.
@@ -15,15 +16,36 @@ import type { Doc } from "./_generated/dataModel";
 /** Default cap for a newly admitted client. Deliberately low; raise per client. */
 const DEFAULT_MONTHLY_CAP_USD = 50;
 
+/**
+ * Temporary: sign-in is switched off (see AUTH_DISABLED in
+ * ConvexClientProvider.tsx), so there is no real identity to look up. Falls
+ * back to the one real client row instead of a `dev:`-prefixed test fixture
+ * or the `__probe__` row. Flip back to `false` to re-enable sign-in.
+ */
+const AUTH_DISABLED = true;
+
+/** Shared with `getByAuthUserId`: the stand-in client while AUTH_DISABLED. */
+async function fallbackClient(ctx: QueryCtx | MutationCtx): Promise<Doc<"clients"> | null> {
+  if (!AUTH_DISABLED) return null;
+  const clients = await ctx.db.query("clients").collect();
+  return (
+    clients.find(
+      (c) => !c.archived && !c.authUserId.startsWith("dev:") && c.authUserId !== "__probe__",
+    ) ?? null
+  );
+}
+
 export async function currentClient(
   ctx: QueryCtx | MutationCtx,
 ): Promise<Doc<"clients"> | null> {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity) return null;
-  return ctx.db
-    .query("clients")
-    .withIndex("by_auth_user", (q) => q.eq("authUserId", identity.subject))
-    .unique();
+  if (identity) {
+    return ctx.db
+      .query("clients")
+      .withIndex("by_auth_user", (q) => q.eq("authUserId", identity.subject))
+      .unique();
+  }
+  return fallbackClient(ctx);
 }
 
 export async function requireClient(
@@ -42,19 +64,36 @@ export async function requireClient(
 /**
  * `requireClient` needs `ctx.db`, which an action doesn't have -- an action
  * only gets `ctx.auth`. This is the same lookup, reachable via `ctx.runQuery`
- * from the one place so far that needs client identity inside an action
- * (`avatars.generate`, which calls fal directly and so must be an action).
+ * from any action that needs client identity. `authUserId` is optional so a
+ * signed-out caller (AUTH_DISABLED) can still resolve to the fallback client.
  */
 export const getByAuthUserId = internalQuery({
-  args: { authUserId: v.string() },
+  args: { authUserId: v.optional(v.string()) },
   handler: async (ctx, { authUserId }) => {
-    const client = await ctx.db
-      .query("clients")
-      .withIndex("by_auth_user", (q) => q.eq("authUserId", authUserId))
-      .unique();
-    return client && !client.archived ? client : null;
+    if (authUserId) {
+      const client = await ctx.db
+        .query("clients")
+        .withIndex("by_auth_user", (q) => q.eq("authUserId", authUserId))
+        .unique();
+      if (client) return client.archived ? null : client;
+    }
+    return fallbackClient(ctx);
   },
 });
+
+/**
+ * `requireClient` for an action. Looks the client up through
+ * `getByAuthUserId` (actions have no `ctx.db`) and throws the same
+ * invite-only error `requireClient` does when there is none.
+ */
+export async function requireClientForAction(ctx: ActionCtx): Promise<Doc<"clients">> {
+  const identity = await ctx.auth.getUserIdentity();
+  const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
+    authUserId: identity?.subject,
+  });
+  if (!client) throw new Error("Not authorized. This is an invite-only tool.");
+  return client;
+}
 
 /**
  * Every client with a Zernio profile -- the cron's worklist. A client with no

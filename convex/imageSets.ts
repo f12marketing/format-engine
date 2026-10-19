@@ -10,7 +10,7 @@ import {
 import type { ActionCtx, MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { requireClient } from "./clients";
+import { requireClient, requireClientForAction } from "./clients";
 import { enforceRateLimit, takeApiBudget } from "./lib/rateLimit";
 import { IMAGE_SETS, imageSetById } from "./lib/imageSets";
 
@@ -382,10 +382,7 @@ function interleave<T>(a: T[], b: T[]): T[] {
 
 /** The client, from an action's auth -- an action has no db to hand to `requireClient`. */
 async function clientIdOf(ctx: ActionCtx): Promise<Id<"clients">> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
-  const client = await ctx.runQuery(internal.clients.getByAuthUserId, { authUserId: identity.subject });
-  if (!client) throw new Error("Not authorized. This is an invite-only tool.");
+  const client = await requireClientForAction(ctx);
   return client._id;
 }
 

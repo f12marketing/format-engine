@@ -10,7 +10,7 @@ import {
 } from "./_generated/server";
 import type { ActionCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireClient } from "./clients";
+import { requireClient, requireClientForAction } from "./clients";
 import { submitWithWebhook, submitWithContentPolicyFallback } from "./lib/fal";
 import { referencePortraitPrompt, REFERENCE_PORTRAIT_FALLBACK } from "./lib/facePrompt";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
@@ -142,12 +142,7 @@ export const config = query({
 export const generateFaceImage = action({
   args: { personaNotes: v.string() },
   handler: async (ctx, { personaNotes }): Promise<Id<"assets">> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
-    const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
-      authUserId: identity.subject,
-    });
-    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
+    const client = await requireClientForAction(ctx);
     await enforceRateLimit(ctx, "generateFaceImage", client._id);
     return ctx.runAction(internal.influencers.generateFaceImageForClient, {
       clientId: client._id,
@@ -223,12 +218,7 @@ export const listStuckTraining = internalQuery({
 export const startTraining = action({
   args: { influencerId: v.id("influencers"), steps: v.optional(v.number()) },
   handler: async (ctx, { influencerId, steps }): Promise<null> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
-    const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
-      authUserId: identity.subject,
-    });
-    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
+    const client = await requireClientForAction(ctx);
     return ctx.runAction(internal.influencers.startTrainingForClient, {
       influencerId,
       clientId: client._id,

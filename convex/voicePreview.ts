@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { requireClientForAction } from "./clients";
 import { callSync } from "./lib/fal";
 import { stabilityOf } from "./lib/extras";
 import { enforceRateLimit } from "./lib/rateLimit";
@@ -27,14 +28,7 @@ export const preview = action({
     language: v.optional(v.string()),
   },
   handler: async (ctx, { voice, voiceStability, language }): Promise<{ url: string }> => {
-    // Same auth-resolution shape as influencers.generateFaceImage: a public
-    // action has no ctx.db, so the admitted client is looked up by identity.
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
-    const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
-      authUserId: identity.subject,
-    });
-    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
+    const client = await requireClientForAction(ctx);
 
     const name = voice.trim();
     if (!name || name.length > MAX_VOICE_LENGTH) throw new Error("Pick a voice to preview.");

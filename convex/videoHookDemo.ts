@@ -5,6 +5,7 @@ import { action, internalAction, internalMutation, internalQuery } from "./_gene
 import type { ActionCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
+import { requireClientForAction } from "./clients";
 import { callTool, LLM_MODEL, submitWithContentPolicyFallback } from "./lib/fal";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 import { businessContext } from "./lib/businessContext";
@@ -497,10 +498,7 @@ export const writeCaption = internalAction({
 export const improveCaption = action({
   args: { caption: v.optional(v.string()), mentionBusiness: v.optional(v.boolean()) },
   handler: async (ctx, { caption, mentionBusiness }): Promise<{ caption: string }> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
-    const client = await ctx.runQuery(internal.clients.getByAuthUserId, { authUserId: identity.subject });
-    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
+    const client = await requireClientForAction(ctx);
 
     const current = (caption ?? "").trim().slice(0, MAX_CAPTION_CHARS);
     // The panel checks both of these before calling; these are the boundary.
