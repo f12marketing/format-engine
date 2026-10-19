@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { requireClientForAction } from "./clients";
 import { callTool, LLM_MODEL } from "./lib/fal";
 import { enforceRateLimit } from "./lib/rateLimit";
 import { BUSINESS_MODELS, CATEGORIES, TEXT_LIMITS, TONES } from "./lib/businessQuiz";
@@ -82,12 +83,7 @@ const MAX_BYTES = 2_000_000;
 export const analyze = action({
   args: { url: v.optional(v.string()), text: v.optional(v.string()) },
   handler: async (ctx, { url, text }): Promise<Result> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
-    const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
-      authUserId: identity.subject,
-    });
-    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
+    const client = await requireClientForAction(ctx);
     await enforceRateLimit(ctx, "analyzeBusiness", client._id);
 
     let source: "website" | "text";

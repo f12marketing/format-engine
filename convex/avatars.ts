@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery, mutation, query, action } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { requireClient } from "./clients";
+import { requireClient, requireClientForAction } from "./clients";
 import { submitWithContentPolicyFallback } from "./lib/fal";
 import { referencePortraitPrompt, REFERENCE_PORTRAIT_FALLBACK } from "./lib/facePrompt";
 import { enforceRateLimit } from "./lib/rateLimit";
@@ -105,12 +105,7 @@ export const generate = action({
   handler: async (ctx, { name, lookNotes }): Promise<Id<"avatars">> => {
     // An action gets `ctx.auth` but not `ctx.db` -- `requireClient` needs
     // both, so this is its lookup half done via `ctx.runQuery` instead.
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
-    const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
-      authUserId: identity.subject,
-    });
-    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
+    const client = await requireClientForAction(ctx);
     await enforceRateLimit(ctx, "generateFaceImage", client._id);
 
     return ctx.runAction(internal.avatars.generateForClient, {

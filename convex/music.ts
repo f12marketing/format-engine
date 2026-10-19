@@ -3,7 +3,7 @@ import { action, query } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { currentClient } from "./clients";
+import { currentClient, requireClientForAction } from "./clients";
 import { enforceRateLimit } from "./lib/rateLimit";
 import { MOODS } from "./lib/musicMoods";
 
@@ -50,12 +50,7 @@ function apiKey(): string | null {
 }
 
 async function requireCaller(ctx: ActionCtx): Promise<Id<"clients">> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
-  const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
-    authUserId: identity.subject,
-  });
-  if (!client) throw new Error("Not authorized. This is an invite-only tool.");
+  const client = await requireClientForAction(ctx);
   return client._id;
 }
 

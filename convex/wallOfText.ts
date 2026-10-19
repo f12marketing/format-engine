@@ -5,6 +5,7 @@ import { action, internalAction, internalMutation } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
+import { requireClientForAction } from "./clients";
 import { businessBrief } from "./brands";
 import { testimonialRule } from "./lib/businessContext";
 import { callTool, LLM_MODEL, submitWithContentPolicyFallback } from "./lib/fal";
@@ -238,12 +239,7 @@ export const writeText = internalAction({
 export const rewrite = action({
   args: { jobId: v.id("jobs"), current: v.optional(v.string()) },
   handler: async (ctx, { jobId, current }): Promise<{ text: string }> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
-    const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
-      authUserId: identity.subject,
-    });
-    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
+    const client = await requireClientForAction(ctx);
 
     const job = await ctx.runMutation(internal.jobs.getInternal, { jobId });
     if (!job || job.clientId !== client._id || job.formatId !== "wall-of-text") {

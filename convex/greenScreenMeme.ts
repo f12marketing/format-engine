@@ -5,6 +5,7 @@ import { action, internalAction, internalMutation, internalQuery, query } from "
 import type { ActionCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
+import { requireClientForAction } from "./clients";
 import { callTool, LLM_MODEL } from "./lib/fal";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 import { businessContext } from "./lib/businessContext";
@@ -346,10 +347,7 @@ export const improveCaption = action({
     mentionBusiness: v.optional(v.boolean()),
   },
   handler: async (ctx, { caption, memeTitle, mentionBusiness }): Promise<{ caption: string }> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
-    const client = await ctx.runQuery(internal.clients.getByAuthUserId, { authUserId: identity.subject });
-    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
+    const client = await requireClientForAction(ctx);
 
     const current = (caption ?? "").trim().slice(0, MAX_CAPTION_CHARS);
     const title = (memeTitle ?? "").trim().slice(0, 200);

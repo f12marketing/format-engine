@@ -5,6 +5,7 @@ import { action, internalAction, internalMutation } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { workflow } from "./carousel";
+import { requireClientForAction } from "./clients";
 import { callTool, LLM_MODEL } from "./lib/fal";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
 import { businessContext } from "./lib/businessContext";
@@ -205,10 +206,7 @@ export const personalizeLine = action({
     ctx,
     { saying, delivery, language },
   ): Promise<{ saying: string; business: string } | { needsBusiness: true }> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
-    const client = await ctx.runQuery(internal.clients.getByAuthUserId, { authUserId: identity.subject });
-    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
+    const client = await requireClientForAction(ctx);
 
     const brand = await ctx.runQuery(internal.brands.forClientInternal, { clientId: client._id });
     if (!brand?.description) return { needsBusiness: true };

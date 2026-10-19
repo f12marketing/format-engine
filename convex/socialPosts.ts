@@ -11,7 +11,7 @@ import {
 import type { ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { requireClient } from "./clients";
+import { requireClient, requireClientForAction } from "./clients";
 import * as zernio from "./lib/zernio";
 import { jobShowsAiPerson } from "./lib/disclosure";
 import { renderServiceBase, renderServiceHeaders } from "./lib/renderService";
@@ -280,12 +280,7 @@ export const markFailed = internalMutation({
 export const schedule = action({
   args: { postId: v.id("socialPosts") },
   handler: async (ctx, { postId }): Promise<{ zernioPostId: string }> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
-    const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
-      authUserId: identity.subject,
-    });
-    if (!client) throw new Error("Not authorized. This is an invite-only tool.");
+    const client = await requireClientForAction(ctx);
 
     let loaded = await ctx.runQuery(internal.socialPosts.getForSchedule, { postId });
     if (!loaded || loaded.post.clientId !== client._id) throw new Error("Not found.");
@@ -459,12 +454,7 @@ export const getInternal = internalQuery({
  * decides, never the id the caller passed.
  */
 async function requireOwnPost(ctx: ActionCtx, postId: Id<"socialPosts">) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error("Not authorized. This is an invite-only tool.");
-  const client = await ctx.runQuery(internal.clients.getByAuthUserId, {
-    authUserId: identity.subject,
-  });
-  if (!client) throw new Error("Not authorized. This is an invite-only tool.");
+  const client = await requireClientForAction(ctx);
 
   const post = await ctx.runQuery(internal.socialPosts.getInternal, { postId });
   if (!post || post.clientId !== client._id) throw new Error("Not found.");
